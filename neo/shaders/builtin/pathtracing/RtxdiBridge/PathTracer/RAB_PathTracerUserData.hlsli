@@ -1,7 +1,7 @@
 #ifndef RB_PATH_TRACING_RAB_PATH_TRACER_USER_DATA_HLSLI
 #define RB_PATH_TRACING_RAB_PATH_TRACER_USER_DATA_HLSLI
 
-#include "Rtxdi/PT/ReSTIRPTParameters.h"
+#include "../../cleanroom_common/restir_pt_parameters.hlsli"
 
 static const uint RAB_PTUD_FLAG_RECONNECTION_DENOISER_CALLBACK = 0x00000001u;
 static const uint RAB_PTUD_FLAG_LAST_BOUNCE_DENOISER_CALLBACK = 0x00000002u;
@@ -18,7 +18,7 @@ static const uint RAB_PTUD_FLAG_PATH_TYPE_MASK = 0x000007f8u;
 
 struct RAB_PathTracerUserData
 {
-    RTXDI_PTPathTraceInvocationType pathType;
+    uint pathType;
     uint flags;
     float reconnectionDenoiserHitDistance;
     float lastBounceDenoiserHitDistance;
@@ -29,36 +29,36 @@ RAB_PathTracerUserData RAB_EmptyPathTracerUserData()
     return (RAB_PathTracerUserData)0;
 }
 
-void RAB_PathTracerUserDataSetPathType(inout RAB_PathTracerUserData ptud, RTXDI_PTPathTraceInvocationType type)
+void RAB_PathTracerUserDataSetPathType(inout RAB_PathTracerUserData ptud, uint type)
 {
     ptud.pathType = type;
     ptud.flags &= ~RAB_PTUD_FLAG_PATH_TYPE_MASK;
     ptud.flags |= RAB_PTUD_FLAG_PATH_TYPE_SET;
-    if (type == RTXDI_PTPathTraceInvocationType_Initial)
+    if (type == RtRestirPTPathTraceInvocationType_Initial)
     {
         ptud.flags |= RAB_PTUD_FLAG_PATH_TYPE_INITIAL;
     }
-    else if (type == RTXDI_PTPathTraceInvocationType_Temporal)
+    else if (type == RtRestirPTPathTraceInvocationType_Temporal)
     {
         ptud.flags |= RAB_PTUD_FLAG_PATH_TYPE_TEMPORAL;
     }
-    else if (type == RTXDI_PTPathTraceInvocationType_TemporalInverse)
+    else if (type == RtRestirPTPathTraceInvocationType_TemporalInverse)
     {
         ptud.flags |= RAB_PTUD_FLAG_PATH_TYPE_TEMPORAL_INVERSE;
     }
-    else if (type == RTXDI_PTPathTraceInvocationType_Spatial)
+    else if (type == RtRestirPTPathTraceInvocationType_Spatial)
     {
         ptud.flags |= RAB_PTUD_FLAG_PATH_TYPE_SPATIAL;
     }
-    else if (type == RTXDI_PTPathTraceInvocationType_SpatialInverse)
+    else if (type == RtRestirPTPathTraceInvocationType_SpatialInverse)
     {
         ptud.flags |= RAB_PTUD_FLAG_PATH_TYPE_SPATIAL_INVERSE;
     }
-    else if (type == RTXDI_PTPathTraceInvocationType_DebugTemporalRetrace)
+    else if (type == RtRestirPTPathTraceInvocationType_DebugTemporalRetrace)
     {
         ptud.flags |= RAB_PTUD_FLAG_PATH_TYPE_DEBUG_TEMPORAL_RETRACE;
     }
-    else if (type == RTXDI_PTPathTraceInvocationType_DebugSpatialRetrace)
+    else if (type == RtRestirPTPathTraceInvocationType_DebugSpatialRetrace)
     {
         ptud.flags |= RAB_PTUD_FLAG_PATH_TYPE_DEBUG_SPATIAL_RETRACE;
     }

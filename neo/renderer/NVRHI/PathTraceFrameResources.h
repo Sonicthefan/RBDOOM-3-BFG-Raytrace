@@ -47,7 +47,7 @@ struct RtPathTraceFrameSettings
     int width = 0;
     int height = 0;
     int debugMode = 0;
-    rtxdi::CheckerboardMode checkerboardMode = rtxdi::CheckerboardMode::Off;
+    RtRestirPTCheckerboardMode checkerboardMode = RtRestirPTCheckerboardMode::Off;
     uint32_t frameIndex = 0;
     RtPathTraceFrameCameraState currentCamera;
     RtPathTraceFrameCameraState previousCamera;
@@ -144,9 +144,9 @@ struct RtPathTraceFrameResources
     RtPathTraceFrameSettings settings;
     RtPathTraceFrameResourceDiagnostics diagnostics;
 
-    bool IsValidFor(int requestedWidth, int requestedHeight, rtxdi::CheckerboardMode checkerboardMode) const;
+    bool IsValidFor(int requestedWidth, int requestedHeight, RtRestirPTCheckerboardMode checkerboardMode) const;
     bool HasAnyOutputSizedResource() const;
-    bool ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, rtxdi::CheckerboardMode checkerboardMode);
+    bool ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, RtRestirPTCheckerboardMode checkerboardMode);
     void ResetOutputSizedResources(uint32_t reasonFlags);
     void ResetSceneDependentState();
     void ResetReadbackQueue();

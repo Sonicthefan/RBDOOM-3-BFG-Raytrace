@@ -6,7 +6,9 @@
 #endif
 
 #define RB_PT_ENABLE_RESTIR 1
-#include "Rtxdi/PT/ReSTIRPTParameters.h"
+#include "Rtxdi/DI/Reservoir.hlsli"
+#define RB_RESTIR_PT_USE_RTXDI_RESERVOIR_BUFFER_PARAMETERS 1
+#include "cleanroom_common/restir_pt_parameters.hlsli"
 
 struct PathTraceSmokePayload
 {
@@ -146,16 +148,18 @@ StructuredBuffer<uint> PathTraceRestirLightManagerCurrentToPrevious : register(t
 StructuredBuffer<uint> PathTraceRestirLightManagerPreviousToCurrent : register(t65);
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerCurrentPayload : register(t66);
 StructuredBuffer<PathTraceUnifiedLightRecord> PathTraceRestirLightManagerPreviousPayload : register(t67);
-ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
-RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
+ConstantBuffer<RtRestirPTParameters> RestirPTParamsFlat : register(b28);
+RWStructuredBuffer<RtRestirPTPackedReservoir> RestirPTReservoirs : register(u29);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
-RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTGiReservoirs : register(u55);
-RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTDiReservoirs : register(u56);
+RWStructuredBuffer<RtRestirPTPackedReservoir> RestirPTGiReservoirs : register(u55);
+RWStructuredBuffer<RtRestirPTPackedReservoir> RestirPTDiReservoirs : register(u56);
 RWStructuredBuffer<RTXDI_PackedDIReservoir> RemixRtxdiDiReservoirs : register(u68);
 
 #define RTXDI_PT_RESERVOIR_BUFFER RestirPTReservoirs
+#define RTXDI_PackedPTReservoir RtRestirPTPackedReservoir
 #include "Rtxdi/PT/Reservoir.hlsli"
+#undef RTXDI_PackedPTReservoir
 #define RTXDI_LIGHT_RESERVOIR_BUFFER RemixRtxdiDiReservoirs
 #include "Rtxdi/DI/ReservoirStorage.hlsli"
 

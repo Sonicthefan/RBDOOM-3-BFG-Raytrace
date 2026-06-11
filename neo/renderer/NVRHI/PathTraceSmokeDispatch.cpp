@@ -2221,9 +2221,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         return;
     }
     if (!standaloneDebugRouteRequested && !cleanRtxdiDiRouteRequested && !pdfNeeVerifierRouteRequested && !pdfNeeRluCurrentProducerRequested &&
-        (!m_frameResources.restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
-            !m_frameResources.restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off) ||
-            !m_frameResources.restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), rtxdi::CheckerboardMode::Off)))
+        (!m_frameResources.restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), RtRestirPTCheckerboardMode::Off) ||
+            !m_frameResources.restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), RtRestirPTCheckerboardMode::Off) ||
+            !m_frameResources.restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(m_frameResources.width), static_cast<uint32_t>(m_frameResources.height), RtRestirPTCheckerboardMode::Off)))
     {
         if (r_pathTracingReGIRDump.GetInteger() != 0)
         {
@@ -4597,7 +4597,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
     int debugMode = standaloneDebugRouteRequested ? 0 : idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
     m_frameResources.settings.debugMode = debugMode;
-    m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
+    m_frameResources.settings.checkerboardMode = RtRestirPTCheckerboardMode::Off;
     const bool requestedRestirPTDebugMode = IsPathTraceRestirPTDebugMode(debugMode);
     const bool requestedIntegratorDebugMode = debugMode >= 34 && debugMode <= 37;
     if ((debugMode == 8 || debugMode == 9 || debugMode == 10 || debugMode == 11 || debugMode == 12 || debugMode == 13 || debugMode == 14 || debugMode == 15 || debugMode == 18 || debugMode == 19 || debugMode == 20 || debugMode == 38 || debugMode == 39 || debugMode == 40 || debugMode == 41 || debugMode == 42 || debugMode == 43 || debugMode == 44 || debugMode == 45 || debugMode == 46 || debugMode == 47 || debugMode == 48 || debugMode == 49 || requestedRestirPTDebugMode || requestedIntegratorDebugMode) && r_pathTracingTextureTableLimit.GetInteger() <= 0)
@@ -4815,7 +4815,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     {
         restirPTPassPlan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
         restirPTPassPlan.output = RtPathTraceRestirPassKind::ReservoirShading;
-        restirPTPassPlan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
+        restirPTPassPlan.resamplingMode = RtRestirPTResamplingMode::TemporalAndSpatial;
         restirPTPassPlan.flags =
             RT_RESTIR_PASS_WRITES_INITIAL |
             RT_RESTIR_PASS_WRITES_TEMPORAL |
@@ -4829,7 +4829,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS;
         restirPTPassPlan.label = "mode18RestirDirectLightingHybrid";
     }
-    const bool stagedRestirDirectLightingMode = restirPTPassPlan.resamplingMode == rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
+    const bool stagedRestirDirectLightingMode = restirPTPassPlan.resamplingMode == RtRestirPTResamplingMode::TemporalAndSpatial;
     const float restirPTDirectResolutionScale = stagedRestirDirectLightingMode
         ? idMath::ClampFloat(0.25f, 1.0f, r_pathTracingRestirPTDirectResolutionScale.GetFloat())
         : 1.0f;
@@ -5025,7 +5025,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const uint32_t restirPTFrameIndex = m_frameResources.restirPTFrameIndex++;
     m_frameResources.settings.frameIndex = restirPTFrameIndex;
     if (effectiveRestirPTMode &&
-        !m_frameResources.restirPTContextState.IsValidFor(static_cast<uint32_t>(restirPTDirectWidth), static_cast<uint32_t>(restirPTDirectHeight), rtxdi::CheckerboardMode::Off))
+        !m_frameResources.restirPTContextState.IsValidFor(static_cast<uint32_t>(restirPTDirectWidth), static_cast<uint32_t>(restirPTDirectHeight), RtRestirPTCheckerboardMode::Off))
     {
         m_frameResources.restirPTReservoirNeedsClear = true;
         m_frameResources.restirPTDiReservoirNeedsClear = true;
@@ -5040,7 +5040,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         static_cast<uint32_t>(restirPTDirectWidth),
         static_cast<uint32_t>(restirPTDirectHeight),
         restirPTFrameIndex,
-        rtxdi::CheckerboardMode::Off,
+        RtRestirPTCheckerboardMode::Off,
         idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalDepthThreshold.GetFloat()),
         idMath::ClampFloat(-1.0f, 1.0f, r_pathTracingRestirPTTemporalNormalThreshold.GetFloat()),
         r_pathTracingRestirPTTemporalReservoirReuse.GetInteger() != 0,

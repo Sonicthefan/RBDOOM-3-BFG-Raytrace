@@ -24,53 +24,53 @@ RTXDI_PTReservoir LoadRestirPTSpatialOutputReservoir(uint2 pixel)
 {
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         reservoirPosition,
-        RestirPTParams.bufferIndices.spatialResamplingOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_spatialResamplingOutputBufferIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTTemporalInputReservoir(uint2 pixel)
 {
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         reservoirPosition,
-        RestirPTParams.bufferIndices.temporalResamplingInputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_temporalResamplingInputBufferIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTTemporalOutputReservoir(uint2 pixel)
 {
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         reservoirPosition,
-        RestirPTParams.bufferIndices.temporalResamplingOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_temporalResamplingOutputBufferIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTFinalShadingInputReservoir(uint2 pixel)
 {
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         reservoirPosition,
-        RestirPTParams.bufferIndices.finalShadingInputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_finalShadingInputBufferIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTInitialDirectReservoir(uint2 pixel)
 {
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         pixel,
-        RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_initialPathTracerOutputBufferIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTInitialReservoir(uint2 pixel)
 {
     pixel = PathTraceRestirPTIndirectRepresentativePixel(pixel);
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         pixel,
-        RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_initialPathTracerOutputBufferIndex);
 }
 
 uint RestirPTReferencePageQuadrant(uint2 pixel)

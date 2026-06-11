@@ -32,6 +32,14 @@ Workers may read reference files and summarize contracts.
 
 Workers must not copy source text from RTX Remix or RTXDI SDK into rbdoom.
 
+The current implementation includes proprietary NVIDIA RTXDI runtime headers.
+That is a remediation target, not an acceptable precedent. Replacement work
+for reservoir storage, parameter structs, random/addressing helpers, initial
+sampling, temporal reuse, or spatial reuse must be rbdoom-owned and derived
+from public papers/course notes with the proprietary RTXDI headers closed.
+If a worker needs a new math or feature module to proceed, stop and hand off a
+stand-alone module prompt instead of importing or paraphrasing the SDK header.
+
 Workers must not invent replacement math. The only allowed implementation is a
 rbdoom-owned expression of the documented contract through rbdoom adapters.
 

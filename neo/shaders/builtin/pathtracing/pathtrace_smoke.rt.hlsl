@@ -5,7 +5,9 @@
 #endif
 #endif
 #ifdef RB_PT_ENABLE_RESTIR
-#include "Rtxdi/PT/ReSTIRPTParameters.h"
+#include "Rtxdi/DI/Reservoir.hlsli"
+#define RB_RESTIR_PT_USE_RTXDI_RESERVOIR_BUFFER_PARAMETERS 1
+#include "cleanroom_common/restir_pt_parameters.hlsli"
 #endif
 
 struct PathTraceSmokePayload
@@ -285,8 +287,8 @@ RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirPrevious : register(u1
 RWStructuredBuffer<PathTraceSmokeReservoir> SmokeReservoirSpatialScratch : register(u20);
 StructuredBuffer<PathTraceBoundsOverlayLine> SmokeBoundsOverlayLines : register(t21);
 #ifdef RB_PT_ENABLE_RESTIR
-ConstantBuffer<RTXDI_PTParameters> RestirPTParams : register(b28);
-RWStructuredBuffer<RTXDI_PackedPTReservoir> RestirPTReservoirs : register(u29);
+ConstantBuffer<RtRestirPTParameters> RestirPTParamsFlat : register(b28);
+RWStructuredBuffer<RtRestirPTPackedReservoir> RestirPTReservoirs : register(u29);
 #endif
 #include "RtxdiBridge/RAB_NeeCache.hlsli"
 struct PathTraceNeeCacheProviderResult
@@ -353,7 +355,9 @@ SamplerState SmokeMaterialSampler : register(s0);
 
 #ifdef RB_PT_ENABLE_RESTIR
 #define RTXDI_PT_RESERVOIR_BUFFER RestirPTReservoirs
+#define RTXDI_PackedPTReservoir RtRestirPTPackedReservoir
 #include "Rtxdi/PT/Reservoir.hlsli"
+#undef RTXDI_PackedPTReservoir
 #endif
 
 cbuffer PathTraceSmokeConstants : register(b2)
@@ -1502,6 +1506,7 @@ bool SmokePrimaryFilterDecalCompositeEnabled(uint debugMode)
 
 #ifdef RB_PT_ENABLE_RESTIR
 #include "RtxdiBridge/PathTracer/RAB_PathTracer.hlsli"
+#include "cleanroom_common/restir_pt_algorithm_bridge.hlsli"
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL
 #include "RtxdiBridge/RAB_LightTarget.hlsli"
 #include "RtxdiBridge/RAB_DuplicationMap.hlsli"
@@ -1638,16 +1643,16 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, rtxdiRuntimeParams.frameIndex, 0x51ed270bu);
     RAB_PathTracerUserData ptud = RAB_EmptyPathTracerUserData();
-    RTXDI_PTTemporalResamplingParameters temporalParams = RestirPTParams.temporalResampling;
+    RTXDI_PTTemporalResamplingParameters temporalParams = RtRestirPTBuildRtxdiTemporalResamplingParameters(RestirPTParamsFlat);
     RTXDI_PTReservoir temporalReservoir = RTXDI_PTTemporalResampling(
         temporalParams,
         runtimeParams,
-        RestirPTParams.hybridShift,
-        RestirPTParams.reconnection,
+        RtRestirPTBuildRtxdiHybridShiftParameters(RestirPTParamsFlat),
+        RtRestirPTBuildRtxdiReconnectionParameters(RestirPTParamsFlat),
         rtxdiRuntimeParams,
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         rng,
-        RestirPTParams.bufferIndices,
+        RtRestirPTBuildRtxdiBufferIndices(RestirPTParamsFlat),
         selectedPrevSample,
         ptud);
 
@@ -1689,11 +1694,11 @@ RTXDI_PTReservoir GenerateRestirPTSpatialReservoir(RAB_Surface currentSurface, u
     RAB_PathTracerUserData ptud = RAB_EmptyPathTracerUserData();
     const RTXDI_PTReservoir spatialReservoir = RTXDI_PTSpatialResampling(
         runtimeParams,
-        RestirPTParams.spatialResampling,
-        RestirPTParams.hybridShift,
-        RestirPTParams.reconnection,
-        RestirPTParams.reservoirBuffer,
-        RestirPTParams.bufferIndices,
+        RtRestirPTBuildRtxdiSpatialResamplingParameters(RestirPTParamsFlat),
+        RtRestirPTBuildRtxdiHybridShiftParameters(RestirPTParamsFlat),
+        RtRestirPTBuildRtxdiReconnectionParameters(RestirPTParamsFlat),
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
+        RtRestirPTBuildRtxdiBufferIndices(RestirPTParamsFlat),
         rtxdiRuntimeParams,
         rng,
         spatialResampled,
@@ -1716,7 +1721,7 @@ float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 
     }
 
     const float selectedBoost = selectedPrevSample ? 0.18 : 0.0;
-    const float historyTint = saturate((float)temporalReservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float historyTint = saturate((float)temporalReservoir.M / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     return float4(0.02, saturate(0.36 + selectedBoost + historyTint * 0.28), 0.08 + historyTint * 0.10, 1.0);
 }
 #else
@@ -2208,9 +2213,9 @@ void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
     }
     RTXDI_StorePTReservoir(
         reservoir,
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         pixel,
-        RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_initialPathTracerOutputBufferIndex);
 }
 
 void StoreRestirPTTemporalOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
@@ -2222,9 +2227,9 @@ void StoreRestirPTTemporalOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservo
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
     RTXDI_StorePTReservoir(
         reservoir,
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         reservoirPosition,
-        RestirPTParams.bufferIndices.temporalResamplingOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_temporalResamplingOutputBufferIndex);
 }
 
 void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
@@ -2236,9 +2241,9 @@ void StoreRestirPTSpatialOutputReservoir(uint2 pixel, RTXDI_PTReservoir reservoi
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
     RTXDI_StorePTReservoir(
         reservoir,
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         reservoirPosition,
-        RestirPTParams.bufferIndices.spatialResamplingOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_spatialResamplingOutputBufferIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTInitialReservoir(uint2 pixel)
@@ -2248,27 +2253,27 @@ RTXDI_PTReservoir LoadRestirPTInitialReservoir(uint2 pixel)
         pixel = PathTraceRestirPTIndirectRepresentativePixel(pixel);
     }
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         pixel,
-        RestirPTParams.bufferIndices.initialPathTracerOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_initialPathTracerOutputBufferIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTTemporalOutputReservoir(uint2 pixel)
 {
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         reservoirPosition,
-        RestirPTParams.bufferIndices.temporalResamplingOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_temporalResamplingOutputBufferIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTSpatialOutputReservoir(uint2 pixel)
 {
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
     return RTXDI_LoadPTReservoir(
-        RestirPTParams.reservoirBuffer,
+        RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat),
         reservoirPosition,
-        RestirPTParams.bufferIndices.spatialResamplingOutputBufferIndex);
+        RestirPTParamsFlat.bufferIndices_spatialResamplingOutputBufferIndex);
 }
 
 float3 EvaluateRestirPTLocalLightCandidateDebug(RAB_Surface surface, uint2 pixel)
@@ -2366,9 +2371,9 @@ RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pi
     RAB_PathTracerUserData ptud = RAB_EmptyPathTracerUserData();
 
     return GenerateInitialSamples(
-        RestirPTParams.initialSampling,
+        RtRestirPTBuildRtxdiInitialSamplingParameters(RestirPTParamsFlat),
         runtimeParams,
-        RestirPTParams.reconnection,
+        RtRestirPTBuildRtxdiReconnectionParameters(RestirPTParamsFlat),
         ptRandContext,
         surface,
         ptud);
@@ -2450,7 +2455,7 @@ float4 EvaluateRestirPTInitialReservoirDebug(float3 rayOrigin, float3 rayDirecti
 
     const float3 heatBase = reservoir.TargetFunction + reservoir.Radiance * max(reservoir.WeightSum, 0.0);
     const float3 heat = heatBase / (1.0 + heatBase);
-    const float samplePulse = saturate((float)reservoir.M / max((float)RestirPTParams.initialSampling.numInitialSamples, 1.0));
+    const float samplePulse = saturate((float)reservoir.M / max((float)RestirPTParamsFlat.initialSampling_numInitialSamples, 1.0));
     return float4(saturate(heat + float3(0.02, 0.12, 0.04) * samplePulse), 1.0);
 }
 
@@ -2696,7 +2701,7 @@ float4 EvaluateRestirPTIndirectReservoirDebug(float3 rayOrigin, float3 rayDirect
 
     const float heat = saturate(log2(1.0 + RAB_Luminance(RestirPTReservoirPreviewContribution(reservoir))) * 0.18);
     const float3 sourceTint = RestirPTGiReservoirSourceColor(reservoir).rgb;
-    const float samplePulse = saturate((float)reservoir.M / max((float)RestirPTParams.initialSampling.numInitialSamples, 1.0));
+    const float samplePulse = saturate((float)reservoir.M / max((float)RestirPTParamsFlat.initialSampling_numInitialSamples, 1.0));
     return float4(saturate(surface.material.diffuseAlbedo * 0.015 + sourceTint * (0.12 + heat * 0.78) + float3(0.0, 0.08, 0.03) * samplePulse), 1.0);
 }
 

@@ -1,0 +1,66 @@
+Step 3 PT Host ABI Replacement
+==============================
+
+Status: 2026-06-11, host/shared C++ ABI shim landed.
+
+This slice replaces the CPU-visible surface previously imported through:
+
+    Rtxdi/PT/ReSTIRPT.h
+
+The replacement is rbdoom-owned and lives at:
+
+    neo/renderer/NVRHI/PathTraceRestirPTParameters.h
+
+Scope
+-----
+
+Replaced in this slice:
+
+    RtRestirPTCheckerboardMode
+    RtRestirPTResamplingMode
+    rbdoom::restir_pt::kNumReservoirBuffers
+    rbdoom::restir_pt::CalculateReservoirBufferParameters
+    rbdoom::restir_pt::HashFrameIndex
+    RtRestirPTReservoirBufferParameters
+    RtRestirPTBufferIndices
+    RtRestirPTInitialSamplingParameters
+    RtRestirPTReconnectionParameters
+    RtRestirPTHybridShiftPerFrameParameters
+    RtRestirPTTemporalResamplingParameters
+    RtRestirPTBoilingFilterParameters
+    RtRestirPTSpatialResamplingParameters
+    RtRestirPTParameters
+    RtRestirPTPackedReservoir
+    rbdoom::restir_pt::ReconnectionMode::Footprint
+
+Remaining PT Headers Blocking Full Severance
+--------------------------------------------
+
+These shader-side PT modules are still intentionally out of scope and still
+block full removal of the external PT dependency:
+
+    Rtxdi/PT/ReSTIRPTParameters.h
+    Rtxdi/PT/Reservoir.hlsli
+    Rtxdi/PT/InitialSampling.hlsli
+    Rtxdi/PT/TemporalResampling.hlsli
+    Rtxdi/PT/SpatialResampling.hlsli
+    Rtxdi/PT/PathTracerContext.hlsli
+    Rtxdi/PT/PathTracerRandomContext.hlsli
+
+Notes
+-----
+
+The packed PT reservoir remains an opaque C++ stride placeholder. Shader-side
+reservoir packing, unpacking, address calculation, resampling math, path-tracer
+context, and random-context logic remain separate replacement modules.
+
+The host reservoir pitch helper intentionally mirrors the current shader-side
+tiled addressing formula used by the remaining PT shaders:
+
+    blockCountX = ceil(width / 16)
+    blockCountY = ceil(height / 16)
+    reservoirBlockRowPitch = blockCountX * 16 * 16
+    reservoirArrayPitch = reservoirBlockRowPitch * blockCountY
+
+This is compatibility only. Replacing the shader reservoir/addressing module is
+still required before the PT path is license-clean.

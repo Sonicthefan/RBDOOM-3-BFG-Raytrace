@@ -10,34 +10,34 @@ uint32_t RestirPTReservoirDimension(uint32_t value)
     return value > 0 ? value : 1;
 }
 
-RTXDI_ReservoirBufferParameters RestirPTReservoirParameters(uint32_t width, uint32_t height, rtxdi::CheckerboardMode checkerboardMode)
+RtRestirPTReservoirBufferParameters RestirPTReservoirParameters(uint32_t width, uint32_t height, RtRestirPTCheckerboardMode checkerboardMode)
 {
-    return rtxdi::CalculateReservoirBufferParameters(
+    return rbdoom::restir_pt::CalculateReservoirBufferParameters(
         RestirPTReservoirDimension(width),
         RestirPTReservoirDimension(height),
         checkerboardMode);
 }
 
-uint64_t RestirPTReservoirElementCount64(uint32_t width, uint32_t height, rtxdi::CheckerboardMode checkerboardMode)
+uint64_t RestirPTReservoirElementCount64(uint32_t width, uint32_t height, RtRestirPTCheckerboardMode checkerboardMode)
 {
-    const RTXDI_ReservoirBufferParameters params = RestirPTReservoirParameters(width, height, checkerboardMode);
-    return static_cast<uint64_t>(params.reservoirArrayPitch) * static_cast<uint64_t>(rtxdi::c_NumReSTIRPTReservoirBuffers);
+    const RtRestirPTReservoirBufferParameters params = RestirPTReservoirParameters(width, height, checkerboardMode);
+    return static_cast<uint64_t>(params.reservoirArrayPitch) * static_cast<uint64_t>(rbdoom::restir_pt::kNumReservoirBuffers);
 }
 
-uint64_t RestirPTReservoirByteSize(uint32_t width, uint32_t height, rtxdi::CheckerboardMode checkerboardMode)
+uint64_t RestirPTReservoirByteSize(uint32_t width, uint32_t height, RtRestirPTCheckerboardMode checkerboardMode)
 {
-    return RestirPTReservoirElementCount64(width, height, checkerboardMode) * static_cast<uint64_t>(sizeof(RTXDI_PackedPTReservoir));
+    return RestirPTReservoirElementCount64(width, height, checkerboardMode) * static_cast<uint64_t>(sizeof(RtRestirPTPackedReservoir));
 }
 
-bool RestirPTReservoirBufferHasCapacity(nvrhi::BufferHandle buffer, uint32_t width, uint32_t height, rtxdi::CheckerboardMode checkerboardMode)
+bool RestirPTReservoirBufferHasCapacity(nvrhi::BufferHandle buffer, uint32_t width, uint32_t height, RtRestirPTCheckerboardMode checkerboardMode)
 {
     return
         buffer &&
-        buffer->getDesc().structStride == sizeof(RTXDI_PackedPTReservoir) &&
+        buffer->getDesc().structStride == sizeof(RtRestirPTPackedReservoir) &&
         buffer->getDesc().byteSize >= RestirPTReservoirByteSize(width, height, checkerboardMode);
 }
 
-nvrhi::BufferHandle CreateRestirPTReservoirBuffer(nvrhi::IDevice* device, uint32_t width, uint32_t height, rtxdi::CheckerboardMode checkerboardMode)
+nvrhi::BufferHandle CreateRestirPTReservoirBuffer(nvrhi::IDevice* device, uint32_t width, uint32_t height, RtRestirPTCheckerboardMode checkerboardMode)
 {
     if (!device)
     {
@@ -47,7 +47,7 @@ nvrhi::BufferHandle CreateRestirPTReservoirBuffer(nvrhi::IDevice* device, uint32
     nvrhi::BufferDesc desc;
     desc.debugName = "PathTraceRestirPTReservoirs";
     desc.byteSize = RestirPTReservoirByteSize(width, height, checkerboardMode);
-    desc.structStride = sizeof(RTXDI_PackedPTReservoir);
+    desc.structStride = sizeof(RtRestirPTPackedReservoir);
     desc.canHaveUAVs = true;
     desc.canHaveTypedViews = false;
     desc.initialState = nvrhi::ResourceStates::UnorderedAccess;
@@ -55,7 +55,7 @@ nvrhi::BufferHandle CreateRestirPTReservoirBuffer(nvrhi::IDevice* device, uint32
     return device->createBuffer(desc);
 }
 
-nvrhi::BufferHandle ReuseOrCreateRestirPTReservoirBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, uint32_t width, uint32_t height, rtxdi::CheckerboardMode checkerboardMode)
+nvrhi::BufferHandle ReuseOrCreateRestirPTReservoirBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, uint32_t width, uint32_t height, RtRestirPTCheckerboardMode checkerboardMode)
 {
     if (RestirPTReservoirBufferHasCapacity(existingBuffer, width, height, checkerboardMode))
     {
@@ -113,11 +113,11 @@ nvrhi::BufferHandle ReuseOrCreateRestirPTPrimarySurfaceHistoryBuffer(nvrhi::IDev
 
 }
 
-bool RtRestirPTReservoirBufferHandles::IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight, rtxdi::CheckerboardMode checkerboardMode) const
+bool RtRestirPTReservoirBufferHandles::IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight, RtRestirPTCheckerboardMode checkerboardMode) const
 {
     const uint32_t requiredWidth = RestirPTReservoirDimension(requestedWidth);
     const uint32_t requiredHeight = RestirPTReservoirDimension(requestedHeight);
-    const RTXDI_ReservoirBufferParameters requiredParams = RestirPTReservoirParameters(requestedWidth, requestedHeight, checkerboardMode);
+    const RtRestirPTReservoirBufferParameters requiredParams = RestirPTReservoirParameters(requestedWidth, requestedHeight, checkerboardMode);
     const uint64_t requiredElementCount = RestirPTReservoirElementCount64(requestedWidth, requestedHeight, checkerboardMode);
     const uint64_t requiredBytes = RestirPTReservoirByteSize(requestedWidth, requestedHeight, checkerboardMode);
 
@@ -129,7 +129,7 @@ bool RtRestirPTReservoirBufferHandles::IsValidFor(uint32_t requestedWidth, uint3
         reservoirParams.reservoirArrayPitch == requiredParams.reservoirArrayPitch &&
         reservoirElementCount >= requiredElementCount &&
         reservoirBytes >= requiredBytes &&
-        reservoirs->getDesc().structStride == sizeof(RTXDI_PackedPTReservoir) &&
+        reservoirs->getDesc().structStride == sizeof(RtRestirPTPackedReservoir) &&
         reservoirs->getDesc().byteSize >= requiredBytes;
 }
 

@@ -8,9 +8,18 @@ validation_matrix.txt. Worker protocol is inherited from
 Clean-room implementation rule:
     Reference files listed in remix_gi_contract.txt are read-only behavioral
     references. Do not copy external files or paste/rename reference code into
-    rbdoom. Use rbdoom-local helpers and public RTXDI include APIs. If a task
-    cannot be completed without importing reference implementation text, stop
+    rbdoom. Use rbdoom-local helpers and rbdoom-owned replacement code. The
+    previous permission to call "public RTXDI include APIs" was wrong: the
+    current RTXDI SDK headers are proprietary and are tracked by
+    ../rtxdi_license_remediation. If a task cannot be completed without
+    importing reference implementation text or writing new ReSTIR math, stop
     and record the missing contract/deferred feature in this folder.
+
+License remediation status:
+    These tasks describe the pre-remediation GI implementation path. RGI-03,
+    RGI-04, and RGI-06 currently depend on NVIDIA RTXDI reservoir/resampling
+    APIs and must be rewritten against rbdoom-owned replacement modules before
+    they can be considered GPL-distributable.
 
 
 RGI-00: GI Contract Audit
@@ -36,9 +45,8 @@ rbdoom files to inspect:
 
 Required output:
     io_whitelist.txt for the GI lane (allowed inputs/outputs per pass)
-    confirmation that upstream Rtxdi/GI headers compile-include cleanly from
-        RTXDI_RUNTIME_DIR (CMake include registration may be missing; list
-        the exact CMakeLists edits needed)
+    inventory of remaining Rtxdi/GI includes and the rbdoom-owned replacement
+        headers/types needed to remove RTXDI_RUNTIME_DIR
     list of DI-lane symbols the GI lane will link against (surface supplier,
         visibility, light sampling at secondary vertex, NEE cache query)
     any contract corrections to remix_gi_contract.txt
@@ -132,8 +140,8 @@ Type:
     implementation
 
 Goal:
-    Wire RTXDI_GITemporalResampling with motion-vector reprojection, the
-    DI-owned previous-frame surface, jacobian validation
+    Wire rbdoom-owned GI temporal resampling with motion-vector reprojection,
+    the DI-owned previous-frame surface, jacobian validation
     (RAB_ValidateGISampleWithJacobian), BASIC bias correction, history and
     age caps. Page rotation across frames.
 
@@ -168,7 +176,7 @@ Type:
     implementation
 
 Goal:
-    GI spatial pass with RTXDI_GISpatialResampling: similarity gates,
+    GI spatial pass with rbdoom-owned spatial resampling: similarity gates,
     per-neighbor jacobian, target pdf at receiving surface, Remix
     sample-count policy (more neighbors while history-starved).
 

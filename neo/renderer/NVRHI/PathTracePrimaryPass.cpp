@@ -355,7 +355,7 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     ApplyRestirPTPreviewResolutionCap(debugMode, outputWidth, outputHeight);
     m_frameResources.ClearResetReasons();
     m_frameResources.settings.debugMode = debugMode;
-    m_frameResources.settings.checkerboardMode = rtxdi::CheckerboardMode::Off;
+    m_frameResources.settings.checkerboardMode = RtRestirPTCheckerboardMode::Off;
     m_frameResources.settings.frameIndex = m_frameResources.restirPTFrameIndex;
     if (!ResizeRayTracingSmokeOutput(outputWidth, outputHeight))
     {

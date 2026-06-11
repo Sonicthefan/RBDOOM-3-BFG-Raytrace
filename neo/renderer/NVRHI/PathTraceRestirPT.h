@@ -5,15 +5,15 @@
 // This owns no shader pass. It keeps buffer-index selection and PT parameter
 // packing separate from the existing smoke reservoir and dispatch constants.
 
-#include <Rtxdi/PT/ReSTIRPT.h>
+#include "PathTraceRestirPTParameters.h"
 
 struct RtRestirPTContextUpdateDesc
 {
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameIndex = 0;
-    rtxdi::CheckerboardMode checkerboardMode = rtxdi::CheckerboardMode::Off;
-    rtxdi::ReSTIRPT_ResamplingMode resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
+    RtRestirPTCheckerboardMode checkerboardMode = RtRestirPTCheckerboardMode::Off;
+    RtRestirPTResamplingMode resamplingMode = RtRestirPTResamplingMode::None;
     float temporalDepthThreshold = 0.1f;
     float temporalNormalThreshold = 0.35f;
     bool temporalReservoirReuse = true;
@@ -24,14 +24,14 @@ struct RtRestirPTContextUpdateDesc
 
 struct RtRestirPTContextState
 {
-    RTXDI_PTParameters parameters = {};
+    RtRestirPTParameters parameters = {};
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t frameIndex = 0;
-    rtxdi::CheckerboardMode checkerboardMode = rtxdi::CheckerboardMode::Off;
-    rtxdi::ReSTIRPT_ResamplingMode resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
+    RtRestirPTCheckerboardMode checkerboardMode = RtRestirPTCheckerboardMode::Off;
+    RtRestirPTResamplingMode resamplingMode = RtRestirPTResamplingMode::None;
 
-    bool IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight, rtxdi::CheckerboardMode requestedCheckerboardMode) const;
+    bool IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight, RtRestirPTCheckerboardMode requestedCheckerboardMode) const;
     void Reset();
 };
 

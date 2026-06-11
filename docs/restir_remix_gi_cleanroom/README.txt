@@ -20,10 +20,25 @@ Clean-room rule:
     The Remix and RTXDI files named by this folder are behavioral/API
     references only. Do not copy files, comments, shader bodies, helper
     functions, struct layouts, or renamed blocks from E:/prog/references into
-    rbdoom. Use existing rbdoom helpers and the public RTXDI headers through
-    normal includes/calls. If matching Remix requires code that is not already
-    expressible through rbdoom data and upstream RTXDI APIs, mark that feature
-    deferred instead of transliterating reference source.
+    rbdoom. Use existing rbdoom helpers and rbdoom-owned replacement code.
+    If matching Remix requires code that is not already expressible through
+    rbdoom data, mark that feature deferred instead of transliterating
+    reference source.
+
+License status, 2026-06-11:
+
+    This folder previously described the upstream RTXDI SDK headers as
+    "public RTXDI headers." That was incorrect. The current GI implementation
+    includes proprietary NVIDIA RTXDI runtime headers from:
+
+        E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include
+
+    The reservoir storage, temporal reuse, spatial reuse, parameter structs,
+    and helper math reached through those includes are NVIDIA implementation
+    code, not rbdoom-owned clean-room math. Until the remediation plan in
+    ../rtxdi_license_remediation is complete, builds containing this GI lane
+    and regenerated renderprogs2 blobs must not be distributed as GPL-clean
+    rbdoom artifacts.
 
 Scope of this lane:
 
@@ -95,25 +110,27 @@ only and are not proof of any of the five steps.
 Math Source Decision
 --------------------
 
-Use the upstream RTXDI SDK GI headers as the resampling math source, exactly
-like the DI lane used the upstream DI headers:
+Historical note: this section used to authorize direct use of the upstream
+RTXDI SDK GI headers as the resampling math source, exactly like the DI lane
+used the upstream DI headers:
 
     E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/Reservoir.hlsli
     E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/TemporalResampling.hlsli
     E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/SpatialResampling.hlsli
     E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include/Rtxdi/GI/BoilingFilter.hlsli
 
-Remix itself uses a modified rtxdi-sdk submodule (ReSTIRGI_* names,
-avgWeight field, search-radius / backup-pixel temporal parameters). Those
-Remix-only extensions are deferred features. The upstream GI headers are
-already include-path reachable (RTXDI_RUNTIME_DIR) and match the frozen rbdoom
-stub contract, which compiles against RTXDI_GIReservoir and
-RTXDI_GITemporalResampling. No ReSTIR math may be changed or re-derived; if
-the upstream signature cannot express a Remix behavior, record it as deferred
-instead of approximating it.
+That decision is revoked for GPL-distributable builds. Remix itself uses a
+modified rtxdi-sdk submodule (ReSTIRGI_* names, avgWeight field,
+search-radius / backup-pixel temporal parameters), and the upstream headers
+are under the NVIDIA RTX SDKs License. Replacement work must be rbdoom-owned
+and derived from public ReSTIR papers/course notes with the proprietary
+headers closed. If a needed behavior is not expressible through the current
+rbdoom data contracts, record it as a deferred feature or stop for a
+stand-alone replacement-module task.
 
-Calling upstream RTXDI APIs from the configured include path is allowed.
-Copying or retyping upstream header implementation into rbdoom files is not.
+Current compiled behavior remains dependent on RTXDI_GIReservoir and
+RTXDI_GITemporalResampling until the remediation plan replaces the GI
+reservoir, parameter, temporal, spatial, and utility surfaces.
 
 
 File Map

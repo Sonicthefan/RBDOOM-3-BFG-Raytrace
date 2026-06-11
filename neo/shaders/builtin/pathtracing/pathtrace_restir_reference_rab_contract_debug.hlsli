@@ -387,7 +387,7 @@ float4 RestirPTReferenceRandomSamplerBridgeColor(uint2 pixel)
     return float4(0.05, 0.75, 0.12, 1.0);
 }
 
-bool RestirPTReferenceCheckPathTracerUserDataPathType(RTXDI_PTPathTraceInvocationType pathType, uint expectedFlag)
+bool RestirPTReferenceCheckPathTracerUserDataPathType(uint pathType, uint expectedFlag)
 {
     RAB_PathTracerUserData ptud = RAB_EmptyPathTracerUserData();
     ptud.flags = RAB_PTUD_FLAG_ENVIRONMENT_MAP_MISS_UNBRIDGED;
@@ -410,13 +410,13 @@ float4 RestirPTReferencePathTracerUserDataBridgeColor()
         return float4(0.85, 0.02, 0.02, 1.0);
     }
 
-    if (!RestirPTReferenceCheckPathTracerUserDataPathType(RTXDI_PTPathTraceInvocationType_Initial, RAB_PTUD_FLAG_PATH_TYPE_INITIAL) ||
-        !RestirPTReferenceCheckPathTracerUserDataPathType(RTXDI_PTPathTraceInvocationType_Temporal, RAB_PTUD_FLAG_PATH_TYPE_TEMPORAL) ||
-        !RestirPTReferenceCheckPathTracerUserDataPathType(RTXDI_PTPathTraceInvocationType_TemporalInverse, RAB_PTUD_FLAG_PATH_TYPE_TEMPORAL_INVERSE) ||
-        !RestirPTReferenceCheckPathTracerUserDataPathType(RTXDI_PTPathTraceInvocationType_Spatial, RAB_PTUD_FLAG_PATH_TYPE_SPATIAL) ||
-        !RestirPTReferenceCheckPathTracerUserDataPathType(RTXDI_PTPathTraceInvocationType_SpatialInverse, RAB_PTUD_FLAG_PATH_TYPE_SPATIAL_INVERSE) ||
-        !RestirPTReferenceCheckPathTracerUserDataPathType(RTXDI_PTPathTraceInvocationType_DebugTemporalRetrace, RAB_PTUD_FLAG_PATH_TYPE_DEBUG_TEMPORAL_RETRACE) ||
-        !RestirPTReferenceCheckPathTracerUserDataPathType(RTXDI_PTPathTraceInvocationType_DebugSpatialRetrace, RAB_PTUD_FLAG_PATH_TYPE_DEBUG_SPATIAL_RETRACE))
+    if (!RestirPTReferenceCheckPathTracerUserDataPathType(RtRestirPTPathTraceInvocationType_Initial, RAB_PTUD_FLAG_PATH_TYPE_INITIAL) ||
+        !RestirPTReferenceCheckPathTracerUserDataPathType(RtRestirPTPathTraceInvocationType_Temporal, RAB_PTUD_FLAG_PATH_TYPE_TEMPORAL) ||
+        !RestirPTReferenceCheckPathTracerUserDataPathType(RtRestirPTPathTraceInvocationType_TemporalInverse, RAB_PTUD_FLAG_PATH_TYPE_TEMPORAL_INVERSE) ||
+        !RestirPTReferenceCheckPathTracerUserDataPathType(RtRestirPTPathTraceInvocationType_Spatial, RAB_PTUD_FLAG_PATH_TYPE_SPATIAL) ||
+        !RestirPTReferenceCheckPathTracerUserDataPathType(RtRestirPTPathTraceInvocationType_SpatialInverse, RAB_PTUD_FLAG_PATH_TYPE_SPATIAL_INVERSE) ||
+        !RestirPTReferenceCheckPathTracerUserDataPathType(RtRestirPTPathTraceInvocationType_DebugTemporalRetrace, RAB_PTUD_FLAG_PATH_TYPE_DEBUG_TEMPORAL_RETRACE) ||
+        !RestirPTReferenceCheckPathTracerUserDataPathType(RtRestirPTPathTraceInvocationType_DebugSpatialRetrace, RAB_PTUD_FLAG_PATH_TYPE_DEBUG_SPATIAL_RETRACE))
     {
         return float4(1.0, 0.0, 0.75, 1.0);
     }

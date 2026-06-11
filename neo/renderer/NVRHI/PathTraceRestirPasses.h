@@ -48,7 +48,7 @@ struct RtPathTraceRestirPassPlan
     bool restirDebugMode = false;
     RtPathTraceRestirPassKind producer = RtPathTraceRestirPassKind::Disabled;
     RtPathTraceRestirPassKind output = RtPathTraceRestirPassKind::Disabled;
-    rtxdi::ReSTIRPT_ResamplingMode resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
+    RtRestirPTResamplingMode resamplingMode = RtRestirPTResamplingMode::None;
     uint32_t flags = RT_RESTIR_PASS_NONE;
     const char* label = "disabled";
 };
@@ -129,14 +129,14 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
     case 31:
         plan.producer = RtPathTraceRestirPassKind::TemporalReservoir;
         plan.output = RtPathTraceRestirPassKind::DebugVisualize;
-        plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::Temporal;
+        plan.resamplingMode = RtRestirPTResamplingMode::Temporal;
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE;
         plan.label = "mode31TemporalReservoirDebug";
         break;
     case 32:
         plan.producer = RtPathTraceRestirPassKind::TemporalReservoir;
         plan.output = RtPathTraceRestirPassKind::ReservoirShading;
-        plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::Temporal;
+        plan.resamplingMode = RtRestirPTResamplingMode::Temporal;
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP;
         if (temporalPreviewVisibility)
         {
@@ -147,14 +147,14 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
     case 33:
         plan.producer = RtPathTraceRestirPassKind::TemporalReservoir;
         plan.output = RtPathTraceRestirPassKind::DebugVisualize;
-        plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::Temporal;
+        plan.resamplingMode = RtRestirPTResamplingMode::Temporal;
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP;
         plan.label = "mode33TemporalSourceAttribution";
         break;
     case 50:
         plan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
         plan.output = RtPathTraceRestirPassKind::ReservoirShading;
-        plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
+        plan.resamplingMode = RtRestirPTResamplingMode::TemporalAndSpatial;
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP | RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS | RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS;
         if (temporalPreviewVisibility)
         {
@@ -165,7 +165,7 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
     case 51:
         plan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
         plan.output = RtPathTraceRestirPassKind::DebugVisualize;
-        plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
+        plan.resamplingMode = RtRestirPTResamplingMode::TemporalAndSpatial;
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SOURCE_ATTRIBUTION | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP | RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS | RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS;
         plan.label = "mode51SpatialSourceAttribution";
         break;
@@ -190,7 +190,7 @@ inline RtPathTraceRestirPassPlan BuildPathTraceRestirPassPlan(int debugMode, boo
     case 56:
         plan.producer = RtPathTraceRestirPassKind::SpatialReservoir;
         plan.output = RtPathTraceRestirPassKind::ReservoirShading;
-        plan.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial;
+        plan.resamplingMode = RtRestirPTResamplingMode::TemporalAndSpatial;
         plan.flags = RT_RESTIR_PASS_WRITES_INITIAL | RT_RESTIR_PASS_WRITES_TEMPORAL | RT_RESTIR_PASS_WRITES_SPATIAL | RT_RESTIR_PASS_CONSUMES_CURRENT_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_SURFACE | RT_RESTIR_PASS_CONSUMES_PREVIOUS_RESERVOIR | RT_RESTIR_PASS_SHADES_RESERVOIR | RT_RESTIR_PASS_TRACES_VISIBILITY | RT_RESTIR_PASS_DEBUG_VISUALIZE | RT_RESTIR_PASS_PREVIEW_SAFETY_CAP | RT_RESTIR_PASS_REQUIRES_TEMPORAL_PREPASS | RT_RESTIR_PASS_REQUIRES_SPATIAL_PREPASS | RT_RESTIR_PASS_REQUIRES_INITIAL_PREPASS;
         plan.label = "mode56CombinedDirectGiPreview";
         break;
@@ -221,7 +221,7 @@ inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(
     uint32_t width,
     uint32_t height,
     uint32_t frameIndex,
-    rtxdi::CheckerboardMode checkerboardMode,
+    RtRestirPTCheckerboardMode checkerboardMode,
     float temporalDepthThreshold,
     float temporalNormalThreshold,
     bool temporalReservoirReuse,
@@ -246,7 +246,7 @@ inline RtRestirPTContextUpdateDesc BuildRestirPTContextUpdateDesc(
 
 inline RtPathTraceRestirPassBufferSelection ResolveRestirPTPassBufferSelection(
     const RtPathTraceRestirPassPlan& plan,
-    const RTXDI_PTParameters& parameters)
+    const RtRestirPTParameters& parameters)
 {
     RtPathTraceRestirPassBufferSelection selection;
     selection.initialOutput = parameters.bufferIndices.initialPathTracerOutputBufferIndex;

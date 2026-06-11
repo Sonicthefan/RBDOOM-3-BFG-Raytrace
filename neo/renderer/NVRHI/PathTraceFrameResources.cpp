@@ -100,7 +100,7 @@ void RtPathTraceFrameResourceDiagnostics::ResetResizeStats()
     rrGuideBytes = 0;
 }
 
-bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeight, rtxdi::CheckerboardMode checkerboardMode) const
+bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeight, RtRestirPTCheckerboardMode checkerboardMode) const
 {
     return
         outputTexture &&
@@ -157,7 +157,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         primarySurfaceHistoryBuffers.previous;
 }
 
-bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, rtxdi::CheckerboardMode checkerboardMode)
+bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, RtRestirPTCheckerboardMode checkerboardMode)
 {
     if (!device)
     {
@@ -511,7 +511,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     restirPTContextDesc.height = static_cast<uint32_t>(requestedHeight);
     restirPTContextDesc.frameIndex = restirPTFrameIndex;
     restirPTContextDesc.checkerboardMode = checkerboardMode;
-    restirPTContextDesc.resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
+    restirPTContextDesc.resamplingMode = RtRestirPTResamplingMode::None;
     if (!UpdateRestirPTContextState(restirPTContextState, restirPTContextDesc))
     {
         common->Printf("PathTraceFrameResources: failed to initialize RT ReSTIR PT context (%dx%d)\n", requestedWidth, requestedHeight);
@@ -525,8 +525,8 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(restirPTReservoirBuffers.reservoirBytes),
         restirPTReservoirBuffers.reservoirParams.reservoirArrayPitch,
         restirPTReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
-        rtxdi::c_NumReSTIRPTReservoirBuffers,
-        static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
+        rbdoom::restir_pt::kNumReservoirBuffers,
+        static_cast<uint32_t>(sizeof(RtRestirPTPackedReservoir)));
     common->Printf("PathTraceFrameResources: RT ReSTIR PT DI temporal reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u uav=u56\n",
         requestedWidth,
         requestedHeight,
@@ -534,8 +534,8 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(restirPTDiReservoirBuffers.reservoirBytes),
         restirPTDiReservoirBuffers.reservoirParams.reservoirArrayPitch,
         restirPTDiReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
-        rtxdi::c_NumReSTIRPTReservoirBuffers,
-        static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
+        rbdoom::restir_pt::kNumReservoirBuffers,
+        static_cast<uint32_t>(sizeof(RtRestirPTPackedReservoir)));
     common->Printf("PathTraceFrameResources: RT ReSTIR PT GI temporal reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u uav=u55\n",
         requestedWidth,
         requestedHeight,
@@ -543,8 +543,8 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         static_cast<unsigned long long>(restirPTGiReservoirBuffers.reservoirBytes),
         restirPTGiReservoirBuffers.reservoirParams.reservoirArrayPitch,
         restirPTGiReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
-        rtxdi::c_NumReSTIRPTReservoirBuffers,
-        static_cast<uint32_t>(sizeof(RTXDI_PackedPTReservoir)));
+        rbdoom::restir_pt::kNumReservoirBuffers,
+        static_cast<uint32_t>(sizeof(RtRestirPTPackedReservoir)));
 
     common->Printf("PathTraceFrameResources: RT ReSTIR PT primary-surface history output=%dx%d records=%u bytes=%llu stride=%u\n",
         requestedWidth,

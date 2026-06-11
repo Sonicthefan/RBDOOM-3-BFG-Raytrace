@@ -16,7 +16,7 @@ float4 RestirPTReferenceFinalShadingStateColor(RTXDI_PTReservoir reservoir)
     const bool valid = RTXDI_IsValidPTReservoir(reservoir);
     const float targetHeat = saturate(RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0))));
     const float weightHeat = saturate(max(reservoir.WeightSum, 0.0) / (1.0 + max(reservoir.WeightSum, 0.0)));
-    const float mNorm = saturate((float)reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float mNorm = saturate((float)reservoir.M / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     return valid ? float4(targetHeat, weightHeat, mNorm, 1.0) : float4(0.35, 0.0, 0.0, 1.0);
 }
 

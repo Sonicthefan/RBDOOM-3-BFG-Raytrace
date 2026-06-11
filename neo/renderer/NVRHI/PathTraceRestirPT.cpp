@@ -3,7 +3,7 @@
 
 #include "PathTraceRestirPT.h"
 
-static_assert((sizeof(RTXDI_PTParameters) % 16) == 0, "RTXDI_PTParameters must stay constant-buffer aligned");
+static_assert((sizeof(RtRestirPTParameters) % 16) == 0, "ReSTIR PT parameters must stay constant-buffer aligned");
 
 namespace {
 
@@ -20,29 +20,29 @@ uint32_t RestirPTContextDimension(uint32_t value)
     return value > 0 ? value : 1;
 }
 
-RTXDI_PTBufferIndices GetLocalRestirPTBufferIndices(rtxdi::ReSTIRPT_ResamplingMode resamplingMode, uint32_t frameIndex)
+RtRestirPTBufferIndices GetLocalRestirPTBufferIndices(RtRestirPTResamplingMode resamplingMode, uint32_t frameIndex)
 {
-    RTXDI_PTBufferIndices bufferIndices = {};
+    RtRestirPTBufferIndices bufferIndices = {};
 
     switch (resamplingMode)
     {
-    case rtxdi::ReSTIRPT_ResamplingMode::None:
+    case RtRestirPTResamplingMode::None:
         bufferIndices.initialPathTracerOutputBufferIndex = 0;
         bufferIndices.finalShadingInputBufferIndex = 0;
         break;
-    case rtxdi::ReSTIRPT_ResamplingMode::Temporal:
+    case RtRestirPTResamplingMode::Temporal:
         bufferIndices.initialPathTracerOutputBufferIndex = frameIndex & 1u;
         bufferIndices.temporalResamplingInputBufferIndex = 1u - bufferIndices.initialPathTracerOutputBufferIndex;
         bufferIndices.temporalResamplingOutputBufferIndex = bufferIndices.initialPathTracerOutputBufferIndex;
         bufferIndices.finalShadingInputBufferIndex = bufferIndices.temporalResamplingOutputBufferIndex;
         break;
-    case rtxdi::ReSTIRPT_ResamplingMode::Spatial:
+    case RtRestirPTResamplingMode::Spatial:
         bufferIndices.initialPathTracerOutputBufferIndex = 0;
         bufferIndices.spatialResamplingInputBufferIndex = 0;
         bufferIndices.spatialResamplingOutputBufferIndex = 1;
         bufferIndices.finalShadingInputBufferIndex = 1;
         break;
-    case rtxdi::ReSTIRPT_ResamplingMode::TemporalAndSpatial:
+    case RtRestirPTResamplingMode::TemporalAndSpatial:
         bufferIndices.initialPathTracerOutputBufferIndex = 0;
         bufferIndices.temporalResamplingInputBufferIndex = 1;
         bufferIndices.temporalResamplingOutputBufferIndex = 0;
@@ -55,62 +55,62 @@ RTXDI_PTBufferIndices GetLocalRestirPTBufferIndices(rtxdi::ReSTIRPT_ResamplingMo
     return bufferIndices;
 }
 
-RTXDI_PTInitialSamplingParameters GetLocalRestirPTInitialSamplingParameters()
+RtRestirPTInitialSamplingParameters GetLocalRestirPTInitialSamplingParameters()
 {
-    RTXDI_PTInitialSamplingParameters params = {};
+    RtRestirPTInitialSamplingParameters params = {};
     params.numInitialSamples = kRestirPTDefaultInitialSamples;
     params.maxBounceDepth = kRestirPTDefaultMaxBounceDepth;
     params.maxRcVertexLength = kRestirPTDefaultMaxRcVertexLength;
     return params;
 }
 
-RTXDI_PTReconnectionParameters GetLocalRestirPTReconnectionParameters()
+RtRestirPTReconnectionParameters GetLocalRestirPTReconnectionParameters()
 {
-    RTXDI_PTReconnectionParameters params = {};
+    RtRestirPTReconnectionParameters params = {};
     params.minConnectionFootprint = 0.02f;
     params.minConnectionFootprintSigma = 0.2f;
     params.minPdfRoughness = 0.1f;
     params.minPdfRoughnessSigma = 0.01f;
     params.roughnessThreshold = 0.1f;
     params.distanceThreshold = 0.0f;
-    params.reconnectionMode = RTXDI_PTReconnectionMode::Footprint;
+    params.reconnectionMode = rbdoom::restir_pt::ReconnectionMode::Footprint;
     return params;
 }
 
-RTXDI_PTHybridShiftPerFrameParameters GetLocalRestirPTHybridShiftParameters()
+RtRestirPTHybridShiftPerFrameParameters GetLocalRestirPTHybridShiftParameters()
 {
-    RTXDI_PTHybridShiftPerFrameParameters params = {};
+    RtRestirPTHybridShiftPerFrameParameters params = {};
     params.maxBounceDepth = kRestirPTDefaultMaxBounceDepth;
     params.maxRcVertexLength = kRestirPTDefaultMaxRcVertexLength;
     return params;
 }
 
-RTXDI_PTTemporalResamplingParameters GetLocalRestirPTTemporalResamplingParameters(const RtRestirPTContextUpdateDesc& desc)
+RtRestirPTTemporalResamplingParameters GetLocalRestirPTTemporalResamplingParameters(const RtRestirPTContextUpdateDesc& desc)
 {
-    RTXDI_PTTemporalResamplingParameters params = {};
+    RtRestirPTTemporalResamplingParameters params = {};
     params.depthThreshold = desc.temporalDepthThreshold;
     params.normalThreshold = desc.temporalNormalThreshold;
     params.enablePermutationSampling = false;
     params.maxHistoryLength = kRestirPTDefaultMaxHistoryLength;
     params.maxReservoirAge = desc.temporalReservoirReuse ? kRestirPTDefaultMaxReservoirAge : 0;
     params.enableFallbackSampling = desc.temporalFallbackSampling;
-    params.uniformRandomNumber = rtxdi::JenkinsHash(desc.frameIndex);
+    params.uniformRandomNumber = rbdoom::restir_pt::HashFrameIndex(desc.frameIndex);
     params.duplicationBasedHistoryReduction = false;
     params.historyReductionStrength = kRestirPTDefaultHistoryReductionStrength;
     return params;
 }
 
-RTXDI_BoilingFilterParameters GetLocalRestirPTBoilingFilterParameters()
+RtRestirPTBoilingFilterParameters GetLocalRestirPTBoilingFilterParameters()
 {
-    RTXDI_BoilingFilterParameters params = {};
+    RtRestirPTBoilingFilterParameters params = {};
     params.boilingFilterStrength = kRestirPTDefaultBoilingFilterStrength;
     params.enableBoilingFilter = true;
     return params;
 }
 
-RTXDI_PTSpatialResamplingParameters GetLocalRestirPTSpatialResamplingParameters(const RtRestirPTContextUpdateDesc& desc)
+RtRestirPTSpatialResamplingParameters GetLocalRestirPTSpatialResamplingParameters(const RtRestirPTContextUpdateDesc& desc)
 {
-    RTXDI_PTSpatialResamplingParameters params = {};
+    RtRestirPTSpatialResamplingParameters params = {};
     params.numSpatialSamples = desc.spatialSamples;
     params.numDisocclusionBoostSamples = desc.spatialSamples;
     params.maxTemporalHistory = kRestirPTDefaultMaxHistoryLength;
@@ -121,10 +121,10 @@ RTXDI_PTSpatialResamplingParameters GetLocalRestirPTSpatialResamplingParameters(
     return params;
 }
 
-void FillRestirPTParameters(RTXDI_PTParameters& parameters, const RtRestirPTContextUpdateDesc& desc, uint32_t width, uint32_t height)
+void FillRestirPTParameters(RtRestirPTParameters& parameters, const RtRestirPTContextUpdateDesc& desc, uint32_t width, uint32_t height)
 {
     parameters = {};
-    parameters.reservoirBuffer = rtxdi::CalculateReservoirBufferParameters(width, height, desc.checkerboardMode);
+    parameters.reservoirBuffer = rbdoom::restir_pt::CalculateReservoirBufferParameters(width, height, desc.checkerboardMode);
     parameters.bufferIndices = GetLocalRestirPTBufferIndices(desc.resamplingMode, desc.frameIndex);
     parameters.initialSampling = GetLocalRestirPTInitialSamplingParameters();
     parameters.reconnection = GetLocalRestirPTReconnectionParameters();
@@ -136,7 +136,7 @@ void FillRestirPTParameters(RTXDI_PTParameters& parameters, const RtRestirPTCont
 
 }
 
-bool RtRestirPTContextState::IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight, rtxdi::CheckerboardMode requestedCheckerboardMode) const
+bool RtRestirPTContextState::IsValidFor(uint32_t requestedWidth, uint32_t requestedHeight, RtRestirPTCheckerboardMode requestedCheckerboardMode) const
 {
     return
         width == RestirPTContextDimension(requestedWidth) &&
@@ -150,13 +150,13 @@ void RtRestirPTContextState::Reset()
     width = 0;
     height = 0;
     frameIndex = 0;
-    checkerboardMode = rtxdi::CheckerboardMode::Off;
-    resamplingMode = rtxdi::ReSTIRPT_ResamplingMode::None;
+    checkerboardMode = RtRestirPTCheckerboardMode::Off;
+    resamplingMode = RtRestirPTResamplingMode::None;
 }
 
 size_t GetRestirPTParametersSize()
 {
-    return sizeof(RTXDI_PTParameters);
+    return sizeof(RtRestirPTParameters);
 }
 
 bool UpdateRestirPTContextState(RtRestirPTContextState& state, const RtRestirPTContextUpdateDesc& desc)

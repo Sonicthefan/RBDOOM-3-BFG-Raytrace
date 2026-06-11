@@ -37,7 +37,10 @@ Clean-Room Rule
 ---------------
 
 Workers may inspect RTX Remix and RTXDI SDK sources to understand contracts,
-resource flow, pass order, feature toggles, and expected behavior.
+resource flow, pass order, feature toggles, and expected behavior. For license
+remediation work that replaces reservoir or resampling math, the proprietary
+RTXDI implementation headers must remain closed; derive replacement math from
+the public ReSTIR papers/course notes and rbdoom's own contracts instead.
 
 Workers must not copy NVIDIA source code text into rbdoom.
 
@@ -47,6 +50,20 @@ rbdoom's own surface/light/material/visibility APIs.
 No ReSTIR math may be changed. If a worker cannot express the required math
 without copying source text, it must stop and report the missing adapter or
 contract instead of inventing a formula.
+
+License status, 2026-06-11:
+
+    The current implemented clean-room DI lane violates the intended ownership
+    boundary by including proprietary NVIDIA RTXDI runtime headers from:
+
+        E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include
+
+    That dependency supplies the DI reservoir layout/storage, initial sampling,
+    temporal reuse, spatial reuse, parameter structs, and utility math. Those
+    pieces are NVIDIA implementation code, not rbdoom-owned clean-room math.
+    Until docs/rtxdi_license_remediation is complete, builds containing this
+    lane and regenerated renderprogs2 blobs must not be distributed as
+    GPL-clean rbdoom artifacts.
 
 
 Primary Ground Truth

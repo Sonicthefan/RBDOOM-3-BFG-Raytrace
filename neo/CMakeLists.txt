@@ -12,6 +12,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 include(CTest)
+
+option(RTXDI_LICENSE_CONTAINMENT_CHECK
+		"Fail configure if the RTXDI proprietary dependency surface expands during remediation" ON)
+if(RTXDI_LICENSE_CONTAINMENT_CHECK)
+	include(CheckRtxdiLicenseContainment)
+endif()
+
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.6")
 	# set MSVC startup project
 	set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${APP_NAME})

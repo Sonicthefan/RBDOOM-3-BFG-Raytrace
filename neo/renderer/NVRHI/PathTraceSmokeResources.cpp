@@ -672,7 +672,7 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
     RtSmokeBindingBuildResult result;
     result.textureDescriptorTable = desc.existingTextureDescriptorTable;
 
-    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.restirPTReflectionTexture || !desc.rrInputColorTexture || !desc.motionVectorTexture || !desc.rrMotionVectorTexture || !desc.motionVectorMaskTexture || !desc.rrGuideAlbedoTexture || !desc.rrGuideSpecularAlbedoTexture || !desc.rrGuideNormalRoughnessTexture || !desc.rrGuideDepthTexture || !desc.rrGuideHitDistanceTexture || !desc.rrGuideResetMaskTexture || !desc.rrGuidePositionTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, rtxdi::CheckerboardMode::Off) || !desc.restirPTDiReservoirBuffers.IsValidFor(desc.restirPTDiReservoirBuffers.width, desc.restirPTDiReservoirBuffers.height, rtxdi::CheckerboardMode::Off) || !desc.restirPTGiReservoirBuffers.IsValidFor(desc.restirPTGiReservoirBuffers.width, desc.restirPTGiReservoirBuffers.height, rtxdi::CheckerboardMode::Off) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
+    if (!desc.device || !desc.bindingLayout || !desc.tlas || !desc.outputTexture || !desc.accumulationTexture || !desc.restirPTReflectionTexture || !desc.rrInputColorTexture || !desc.motionVectorTexture || !desc.rrMotionVectorTexture || !desc.motionVectorMaskTexture || !desc.rrGuideAlbedoTexture || !desc.rrGuideSpecularAlbedoTexture || !desc.rrGuideNormalRoughnessTexture || !desc.rrGuideDepthTexture || !desc.rrGuideHitDistanceTexture || !desc.rrGuideResetMaskTexture || !desc.rrGuidePositionTexture || !desc.fallbackTexture || !desc.constantsBuffer || !desc.restirPTConstantsBuffer || !desc.boundsOverlayLineBuffer || !desc.sampler || !desc.buffers.IsValid() || !desc.reservoirBuffers.IsValidFor(desc.reservoirBuffers.width, desc.reservoirBuffers.height) || !desc.restirPTReservoirBuffers.IsValidFor(desc.restirPTReservoirBuffers.width, desc.restirPTReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.restirPTDiReservoirBuffers.IsValidFor(desc.restirPTDiReservoirBuffers.width, desc.restirPTDiReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.restirPTGiReservoirBuffers.IsValidFor(desc.restirPTGiReservoirBuffers.width, desc.restirPTGiReservoirBuffers.height, RtRestirPTCheckerboardMode::Off) || !desc.primarySurfaceHistoryBuffers.IsValidFor(desc.primarySurfaceHistoryBuffers.width, desc.primarySurfaceHistoryBuffers.height))
     {
         result.errorMessage = "failed to create RT smoke binding set";
         return result;
@@ -1787,14 +1787,14 @@ bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
         return false;
     }
 
-    const bool alreadyValid = m_frameResources.IsValidFor(width, height, rtxdi::CheckerboardMode::Off);
+    const bool alreadyValid = m_frameResources.IsValidFor(width, height, RtRestirPTCheckerboardMode::Off);
     if (alreadyValid)
     {
         return true;
     }
 
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
-    if (!m_frameResources.ResizeOutputSizedResources(device, width, height, rtxdi::CheckerboardMode::Off))
+    if (!m_frameResources.ResizeOutputSizedResources(device, width, height, RtRestirPTCheckerboardMode::Off))
     {
         return false;
     }

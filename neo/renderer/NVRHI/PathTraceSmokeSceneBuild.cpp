@@ -3678,7 +3678,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         remixRtxdiResourceDesc.device = device;
         remixRtxdiResourceDesc.framePackage = m_remixFramePrepare.GetObservationPackage();
         remixRtxdiResourceDesc.lightManagerStats = m_remixLightManager.GetStats();
-        remixRtxdiResourceDesc.checkerboardMode = m_frameResources.settings.checkerboardMode;
+        remixRtxdiResourceDesc.checkerboardMode = rtxdi::CheckerboardMode::Off;
         remixRtxdiResourcesReady = m_remixRtxdiResources.PrepareOutputSizedResources(remixRtxdiResourceDesc);
     }
     else

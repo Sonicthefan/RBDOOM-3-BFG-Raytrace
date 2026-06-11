@@ -159,7 +159,7 @@ float4 RestirPTRrxHashColor(uint value)
 uint RestirPTGiReservoirPointer(uint2 pixel, uint reservoirArrayIndex)
 {
     const uint2 reservoirPosition = RTXDI_PixelPosToReservoirPos(pixel, 0u);
-    return RTXDI_ReservoirPositionToPointer(RestirPTParams.reservoirBuffer, reservoirPosition, reservoirArrayIndex);
+    return RTXDI_ReservoirPositionToPointer(RtRestirPTGetReservoirBufferParameters(RestirPTParamsFlat), reservoirPosition, reservoirArrayIndex);
 }
 
 RTXDI_PTReservoir LoadRestirPTGiTemporalReservoir(uint2 pixel, uint reservoirArrayIndex)
@@ -310,7 +310,7 @@ RTXDI_PTReservoir GenerateRestirPTGiTemporalReservoir(RAB_Surface surface, uint2
             if (RestirPTReservoirHasUsefulSample(previousReservoir))
             {
                 acceptedPrevious = true;
-                const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
+                const uint cappedPreviousM = min(previousReservoir.M, RestirPTParamsFlat.temporalResampling_maxHistoryLength);
                 RTXDI_PTReservoir previousCandidate = previousReservoir;
                 previousCandidate.M = max(cappedPreviousM, 1u);
                 if (CombineReservoirs(temporalReservoir, previousCandidate, RestirPTGiHash01(pixel, 0x271828u), previousCandidate.TargetFunction))
@@ -327,7 +327,7 @@ RTXDI_PTReservoir GenerateRestirPTGiTemporalReservoir(RAB_Surface surface, uint2
         if (RestirPTReservoirHasUsefulSample(previousReservoir))
         {
             acceptedPrevious = true;
-            const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
+            const uint cappedPreviousM = min(previousReservoir.M, RestirPTParamsFlat.temporalResampling_maxHistoryLength);
             RTXDI_PTReservoir previousCandidate = previousReservoir;
             previousCandidate.M = max(cappedPreviousM, 1u);
             if (CombineReservoirs(temporalReservoir, previousCandidate, RestirPTGiHash01(pixel, 0x618033u), previousCandidate.TargetFunction))
@@ -340,7 +340,7 @@ RTXDI_PTReservoir GenerateRestirPTGiTemporalReservoir(RAB_Surface surface, uint2
 
     const float pi = RTXDI_Luminance(selectedTargetFunction);
     RTXDI_FinalizeResampling(temporalReservoir, pi, piSum * max(pi, 1.0e-6));
-    temporalReservoir.M = min(max(temporalReservoir.M, currentReservoir.M), RestirPTParams.temporalResampling.maxHistoryLength);
+    temporalReservoir.M = min(max(temporalReservoir.M, currentReservoir.M), RestirPTParamsFlat.temporalResampling_maxHistoryLength);
     StoreRestirPTGiTemporalReservoir(pixel, currentIndex, temporalReservoir);
     status = acceptedPrevious ? 3u : 2u;
     return temporalReservoir;
@@ -378,7 +378,7 @@ float4 EvaluateRestirPTGiDebugView(RAB_Surface surface, uint2 pixel, uint view)
 
     if (view == 4u)
     {
-        const float mNorm = saturate((float)reservoir.M / max((float)RestirPTParams.initialSampling.numInitialSamples, 1.0));
+        const float mNorm = saturate((float)reservoir.M / max((float)RestirPTParamsFlat.initialSampling_numInitialSamples, 1.0));
         const float weightHeat = saturate(max(reservoir.WeightSum, 0.0) / (1.0 + max(reservoir.WeightSum, 0.0)));
         const float targetHeat = saturate(RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0))));
         return valid ? float4(targetHeat, mNorm, weightHeat, 1.0) : float4(0.35, mNorm * 0.25, weightHeat * 0.25, 1.0);
@@ -440,7 +440,7 @@ RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2
             {
                 acceptedPrevious = true;
                 acceptedPreviousStatus = 3u;
-                const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
+                const uint cappedPreviousM = min(previousReservoir.M, RestirPTParamsFlat.temporalResampling_maxHistoryLength);
                 RTXDI_PTReservoir previousCandidate = previousReservoir;
                 previousCandidate.M = max(cappedPreviousM, 1u);
                 if (CombineReservoirs(temporalReservoir, previousCandidate, RestirPTGiHash01(pixel, 0x554411u), previousCandidate.TargetFunction))
@@ -458,7 +458,7 @@ RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2
         {
             acceptedPrevious = true;
             acceptedPreviousStatus = 4u;
-            const uint cappedPreviousM = min(previousReservoir.M, RestirPTParams.temporalResampling.maxHistoryLength);
+            const uint cappedPreviousM = min(previousReservoir.M, RestirPTParamsFlat.temporalResampling_maxHistoryLength);
             RTXDI_PTReservoir previousCandidate = previousReservoir;
             previousCandidate.M = max(cappedPreviousM, 1u);
             if (CombineReservoirs(temporalReservoir, previousCandidate, RestirPTGiHash01(pixel, 0x884221u), previousCandidate.TargetFunction))
@@ -479,7 +479,7 @@ RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2
     }
 
     const float currentM = currentValid ? currentReservoir.M : 0.0;
-    temporalReservoir.M = min(max(temporalReservoir.M, currentM), RestirPTParams.temporalResampling.maxHistoryLength);
+    temporalReservoir.M = min(max(temporalReservoir.M, currentM), RestirPTParamsFlat.temporalResampling_maxHistoryLength);
     StoreRestirPTDiTemporalReservoir(pixel, currentIndex, temporalReservoir);
     status = acceptedPrevious ? acceptedPreviousStatus : 2u;
     return temporalReservoir;
@@ -487,7 +487,7 @@ RTXDI_PTReservoir GenerateRestirPTDiTemporalReservoir(RAB_Surface surface, uint2
 
 float4 RestirPTDiTemporalStatusColor(RTXDI_PTReservoir reservoir, uint status)
 {
-    const float history = saturate((float)reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float history = saturate((float)reservoir.M / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     if (status == 1u)
     {
         return float4(0.45, 0.02, 0.02, 1.0);
@@ -505,7 +505,7 @@ float4 RestirPTDiTemporalStatusColor(RTXDI_PTReservoir reservoir, uint status)
 
 float4 RestirPTDiSpatialStatusColor(RTXDI_PTReservoir reservoir, uint status)
 {
-    const float history = saturate((float)reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float history = saturate((float)reservoir.M / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     if (status == 1u)
     {
         return float4(0.45, 0.02, 0.02, 1.0);
@@ -750,7 +750,7 @@ float4 EvaluateRestirPTLightManagerReservoirProbeView(uint2 pixel)
     }
 
     const uint previousM = RTXDI_IsValidPTReservoir(previousReservoir) ? (uint)previousReservoir.M : 0u;
-    const uint maxHistory = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    const uint maxHistory = max(RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1u);
     const uint nextM = acceptedPrevious ? min(previousM + 1u, maxHistory) : 1u;
     StoreRestirPTDiTemporalReservoir(pixel, currentPage, RestirPTBuildLightManagerReservoirProbe(currentLightIndex, nextM));
 
@@ -1480,14 +1480,14 @@ RemixRtxdiTemporalReuseDesc RestirPTRrxDiTemporalDesc(uint2 pixel, float3 motion
     desc.temporalInputPage = RestirPTRemixDiReservoirPageInfo.y;
     desc.temporalOutputPage = RestirPTRemixDiReservoirPageInfo.x;
     desc.activeCheckerboardField = 0u;
-    desc.maxHistoryLength = max(RestirPTParams.temporalResampling.maxHistoryLength, 8u);
+    desc.maxHistoryLength = max(RestirPTParamsFlat.temporalResampling_maxHistoryLength, 8u);
     desc.biasCorrectionMode = RTXDI_BIAS_CORRECTION_BASIC;
     desc.depthThreshold = RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_BYPASS_DEPTH)
         ? 1.0e6
-        : RestirPTParams.temporalResampling.depthThreshold;
+        : RestirPTParamsFlat.temporalResampling_depthThreshold;
     desc.normalThreshold = RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_BYPASS_NORMAL)
         ? -1.0
-        : RestirPTParams.temporalResampling.normalThreshold;
+        : RestirPTParamsFlat.temporalResampling_normalThreshold;
     desc.enablePermutationSampling = RestirPTRrxTemporalPermutationEnabled() ? 1u : 0u;
     desc.uniformRandomNumber = RestirPTRrxHashUint(desc.frameIndex ^ 0x8f3c5d21u);
     desc.reprojectionConfidenceHistoryLength = desc.maxHistoryLength;
@@ -1503,19 +1503,19 @@ RemixRtxdiSpatialReuseDesc RestirPTRrxDiSpatialDesc(uint2 pixel)
     desc.spatialOutputPage = RestirPTRemixDiReservoirPageInfo.z;
     desc.activeCheckerboardField = 0u;
     desc.neighborOffsetMask = 31u;
-    desc.numSamples = clamp(RestirPTParams.spatialResampling.numSpatialSamples, 1u, 32u);
+    desc.numSamples = clamp(RestirPTParamsFlat.spatialResampling_numSpatialSamples, 1u, 32u);
     desc.numDisocclusionBoostSamples = desc.numSamples;
     desc.disocclusionBoostFrameThreshold = 0u;
-    desc.reprojectionConfidenceHistoryLength = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
-    desc.samplingRadius = max(RestirPTParams.spatialResampling.samplingRadius, 1.0);
+    desc.reprojectionConfidenceHistoryLength = max(RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1u);
+    desc.samplingRadius = max(RestirPTParamsFlat.spatialResampling_samplingRadius, 1.0);
     desc.biasCorrectionMode = RTXDI_BIAS_CORRECTION_BASIC;
     desc.depthThreshold = RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_BYPASS_DEPTH)
         ? 1.0e6
-        : RestirPTParams.temporalResampling.depthThreshold;
+        : RestirPTParamsFlat.temporalResampling_depthThreshold;
     desc.normalThreshold = RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_BYPASS_NORMAL)
         ? -1.0
-        : RestirPTParams.temporalResampling.normalThreshold;
-    desc.targetHistoryLength = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+        : RestirPTParamsFlat.temporalResampling_normalThreshold;
+    desc.targetHistoryLength = max(RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1u);
     desc.enableMaterialSimilarityTest = RestirPTRrxDebugBypassEnabled(RESTIR_PT_RRX_DEBUG_BYPASS_SURFACE_SIMILARITY) ? 0u : 1u;
     desc.discountNaiveSamples = 0u;
     return desc;
@@ -1624,7 +1624,7 @@ RestirPTRrxDiTemporalDebugInfo RestirPTRrxDiEmptyTemporalDebugInfo()
 
 float4 RestirPTRrxDiTemporalStatusColor(uint status, RTXDI_DIReservoir reservoir)
 {
-    const float history = saturate(reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float history = saturate(reservoir.M / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     if (status == RESTIR_PT_RRX_DI_TEMPORAL_STATUS_PREVIOUS_TRANSLATION_VALID)
     {
         return float4(0.02, 0.25 + 0.75 * history, 0.08, 1.0);
@@ -1659,7 +1659,7 @@ float4 RestirPTRrxDiTemporalStatusColor(uint status, RTXDI_DIReservoir reservoir
 float4 RestirPTRrxDiTemporalOutputColor(uint2 pixel, RTXDI_DIReservoir reservoir)
 {
     const bool valid = RTXDI_IsValidDIReservoir(reservoir);
-    const float history = saturate(reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float history = saturate(reservoir.M / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     if (!valid)
     {
         return float4(0.0, 0.0, 0.0, 1.0);
@@ -3522,7 +3522,7 @@ float4 RestirPTRrxTemporalInputDepthPassColor(bool pass, bool applicable, float 
     {
         return float4(0.04, 0.08, 0.18, 1.0);
     }
-    const float threshold = max(RestirPTParams.temporalResampling.depthThreshold, 1.0e-6);
+    const float threshold = max(RestirPTParamsFlat.temporalResampling_depthThreshold, 1.0e-6);
     const float relativeDelta = abs(expectedDepth - previousDepth) / max(max(expectedDepth, previousDepth) * threshold, 1.0e-6);
     const float heat = saturate(relativeDelta);
     return pass
@@ -3744,15 +3744,15 @@ float4 EvaluateRestirPTRrxDiTemporalInputEvidenceView(RAB_Surface surface, uint2
     const float activeExpectedDepth = RAB_GetSurfaceLinearDepth(surface) + motion.z;
     const float previousDepth = RAB_GetSurfaceLinearDepth(previousSurface);
     const bool legacyZeroZDepthPass = previousSurfaceValid &&
-        RTXDI_CompareRelativeDifference(legacyZeroZExpectedDepth, previousDepth, RestirPTParams.temporalResampling.depthThreshold);
+        RTXDI_CompareRelativeDifference(legacyZeroZExpectedDepth, previousDepth, RestirPTParamsFlat.temporalResampling_depthThreshold);
     const bool activeDepthPass = previousSurfaceValid &&
-        RTXDI_CompareRelativeDifference(activeExpectedDepth, previousDepth, RestirPTParams.temporalResampling.depthThreshold);
+        RTXDI_CompareRelativeDifference(activeExpectedDepth, previousDepth, RestirPTParamsFlat.temporalResampling_depthThreshold);
     const float3 currentNormal = RAB_SafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float3 previousNormal = previousSurfaceValid
         ? RAB_SafeNormalize(RAB_GetSurfaceNormal(previousSurface), RAB_GetSurfaceGeoNormal(previousSurface))
         : float3(0.0, 0.0, 1.0);
     const float normalDot = previousSurfaceValid ? dot(currentNormal, previousNormal) : 0.0;
-    const bool normalPass = previousSurfaceValid && normalDot >= RestirPTParams.temporalResampling.normalThreshold;
+    const bool normalPass = previousSurfaceValid && normalDot >= RestirPTParamsFlat.temporalResampling_normalThreshold;
 
     RTXDI_DIReservoir temporalReservoir;
     uint status;
@@ -3838,7 +3838,7 @@ float4 EvaluateRestirPTRrxDiRawReservoirHeartbeatView(uint2 pixel)
         RestirPTRrxDiReservoirHasProbeMagic(previousReservoir);
 
     const uint previousM = previousProbeValid ? (uint)previousReservoir.M : 0u;
-    const uint maxHistory = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    const uint maxHistory = max(RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1u);
     const uint nextM = previousProbeValid ? min(previousM + 1u, maxHistory) : 1u;
     StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RestirPTBuildRrxDiReservoirProbe(0u, nextM));
 
@@ -3908,7 +3908,7 @@ float4 RestirPTRrxDiRawFieldQuadrantColor(uint2 pixel, RTXDI_PackedDIReservoir p
         return packedReservoir.uvData != 0u ? float4(0.95, 0.50, 0.04, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
     }
 
-    const float m = saturate(reservoir.M / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float m = saturate(reservoir.M / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     return float4(reservoir.weightSum > 0.0 ? 1.0 : 0.0, m, reservoir.targetPdf > 0.0 ? 1.0 : 0.0, 1.0);
 }
 
@@ -3937,7 +3937,7 @@ float4 EvaluateRestirPTRrxDiPreviousPageRawFieldsView(uint2 pixel)
     const RTXDI_PackedDIReservoir packedReservoir = LoadRestirPTRrxPackedDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.y);
     const RTXDI_DIReservoir reservoir = RTXDI_UnpackDIReservoir(packedReservoir);
     const uint nextM = RTXDI_IsValidDIReservoir(reservoir) && RestirPTRrxDiReservoirHasProbeMagic(reservoir)
-        ? min((uint)reservoir.M + 1u, max(RestirPTParams.temporalResampling.maxHistoryLength, 1u))
+        ? min((uint)reservoir.M + 1u, max(RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1u))
         : 1u;
     StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RestirPTBuildRrxDiReservoirProbe(0u, nextM));
     return RestirPTRrxDiRawFieldQuadrantColor(pixel, packedReservoir, reservoir);
@@ -4217,7 +4217,7 @@ float4 EvaluateRestirPTRrxDiSingleLightHeartbeatView(uint2 pixel)
     }
 
     const uint previousM = previousValid ? (uint)previousReservoir.M : 0u;
-    const uint maxHistory = max(RestirPTParams.temporalResampling.maxHistoryLength, 1u);
+    const uint maxHistory = max(RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1u);
     const uint nextM = acceptedPrevious ? min(previousM + 1u, maxHistory) : 1u;
     StoreRestirPTRrxDiReservoir(pixel, RestirPTRemixDiReservoirPageInfo.x, RestirPTBuildRrxDiReservoirProbe(currentLightIndex, nextM));
 
@@ -4258,8 +4258,8 @@ RTXDI_PTReservoir GenerateRestirPTDiSpatialReservoir(RAB_Surface surface, uint2 
     float piSum = RTXDI_Luminance(currentTargetFunction) * max((float)temporalReservoir.M, 1.0);
     uint acceptedNeighbors = 0u;
     const uint2 dimensions = PathTraceFullOutputSize();
-    const uint sampleCount = clamp(RestirPTParams.spatialResampling.numSpatialSamples, 1u, 8u);
-    const float sampleRadius = max(RestirPTParams.spatialResampling.samplingRadius, 1.0);
+    const uint sampleCount = clamp(RestirPTParamsFlat.spatialResampling_numSpatialSamples, 1u, 8u);
+    const float sampleRadius = max(RestirPTParamsFlat.spatialResampling_samplingRadius, 1.0);
 
     [loop]
     for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
@@ -4302,7 +4302,7 @@ RTXDI_PTReservoir GenerateRestirPTDiSpatialReservoir(RAB_Surface surface, uint2 
 
     const float pi = RTXDI_Luminance(selectedTargetFunction);
     RTXDI_FinalizeResampling(spatialReservoir, pi, piSum * max(pi, 1.0e-6));
-    spatialReservoir.M = min(max(spatialReservoir.M, temporalReservoir.M), RestirPTParams.temporalResampling.maxHistoryLength);
+    spatialReservoir.M = min(max(spatialReservoir.M, temporalReservoir.M), RestirPTParamsFlat.temporalResampling_maxHistoryLength);
     status = acceptedNeighbors > 0u ? 3u : 2u;
     return spatialReservoir;
 }
@@ -4715,7 +4715,7 @@ float4 EvaluateRestirPTDiDebugView(RAB_Surface surface, uint2 pixel, uint view)
 
     if (view == 4u)
     {
-        const float mNorm = saturate((float)reservoir.M / max((float)RestirPTParams.initialSampling.numInitialSamples, 1.0));
+        const float mNorm = saturate((float)reservoir.M / max((float)RestirPTParamsFlat.initialSampling_numInitialSamples, 1.0));
         const float weightHeat = saturate(max(reservoir.WeightSum, 0.0) / (1.0 + max(reservoir.WeightSum, 0.0)));
         const float targetHeat = saturate(RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0))));
         return valid ? float4(targetHeat, mNorm, weightHeat, 1.0) : float4(0.35, mNorm * 0.25, weightHeat * 0.25, 1.0);

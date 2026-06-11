@@ -86,7 +86,7 @@ float4 EvaluateRestirPTReferenceTemporalReadinessView(RAB_Surface surface, uint2
 
     const float initialM = RTXDI_IsValidPTReservoir(initialReservoir) ? (float)initialReservoir.M : 0.0;
     const float temporalM = (float)temporalReservoir.M;
-    const float history = saturate(temporalM / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float history = saturate(temporalM / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     if (temporalM <= initialM + 0.5)
     {
         return float4(0.05, 0.26 + 0.35 * history, 0.34 + 0.35 * history, 1.0);
@@ -121,7 +121,7 @@ float4 EvaluateRestirPTReferenceTemporalPageFlowView(uint2 pixel)
     const float inputM = (float)temporalInputReservoir.M;
     const float initialM = (float)initialReservoir.M;
     const float outputM = (float)temporalOutputReservoir.M;
-    const float history = saturate(outputM / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float history = saturate(outputM / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     if (outputM <= initialM + 0.5)
     {
         return float4(0.05, 0.65, 0.65, 1.0);
@@ -207,8 +207,8 @@ bool RestirPTReferenceReservoirConnectsToNeeLight(RTXDI_PTReservoir reservoir)
 
 bool RestirPTReferenceDuplicationMapRequested()
 {
-    return RestirPTParams.temporalResampling.duplicationBasedHistoryReduction != 0u &&
-        RestirPTParams.temporalResampling.historyReductionStrength > 0.0;
+    return RestirPTParamsFlat.temporalResampling_duplicationBasedHistoryReduction != 0u &&
+        RestirPTParamsFlat.temporalResampling_historyReductionStrength > 0.0;
 }
 
 bool RestirPTReferenceSmokeEmissiveIdentityNonZero(PathTraceSmokeEmissiveTriangle emissiveTriangle)
@@ -412,8 +412,8 @@ uint RestirPTReferenceClassifyTemporalCandidate(
     if (!isFallbackSample && !RTXDI_IsValidNeighbor(
         RAB_GetSurfaceNormal(surface), RAB_GetSurfaceNormal(temporalSurface),
         expectedPrevLinearDepth, RAB_GetSurfaceLinearDepth(temporalSurface),
-        RestirPTParams.temporalResampling.normalThreshold,
-        RestirPTParams.temporalResampling.depthThreshold))
+        RestirPTParamsFlat.temporalResampling_normalThreshold,
+        RestirPTParamsFlat.temporalResampling_depthThreshold))
     {
         return 3u;
     }
@@ -431,7 +431,7 @@ uint RestirPTReferenceClassifyTemporalCandidate(
     }
 
     const uint nextAge = previousReservoir.Age + 1u;
-    if (nextAge > min(RTXDI_PTRESERVOIR_AGE_MAX, RestirPTParams.temporalResampling.maxReservoirAge))
+    if (nextAge > min(RTXDI_PTRESERVOIR_AGE_MAX, RestirPTParamsFlat.temporalResampling_maxReservoirAge))
     {
         return 6u;
     }
@@ -676,7 +676,7 @@ float4 EvaluateRestirPTReferenceTemporalNeighborView(RAB_Surface surface, uint2 
     uint bestFailure = 2u;
     RTXDI_PTReservoir acceptedReservoir = RTXDI_EmptyPTReservoir();
     const int temporalSampleCount = 5;
-    const int sampleCount = temporalSampleCount + (RestirPTParams.temporalResampling.enableFallbackSampling != 0u ? 1 : 0);
+    const int sampleCount = temporalSampleCount + (RestirPTParamsFlat.temporalResampling_enableFallbackSampling != 0u ? 1 : 0);
     const int radius = 1;
     RTXDI_RuntimeParameters rtxdiRuntimeParams = (RTXDI_RuntimeParameters)0;
     rtxdiRuntimeParams.frameIndex = (uint)max(RestirPTInfo.x, 0.0);
@@ -704,7 +704,7 @@ float4 EvaluateRestirPTReferenceTemporalNeighborView(RAB_Surface surface, uint2 
 
     const float initialM = (float)initialReservoir.M;
     const float outputM = (float)temporalOutputReservoir.M;
-    const float history = saturate(outputM / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float history = saturate(outputM / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     if (!RTXDI_IsValidPTReservoir(acceptedReservoir))
     {
         const uint temporalNeighborDebugMode = RestirPTReferenceTemporalNeighborDebugMode();
@@ -813,7 +813,7 @@ float4 EvaluateRestirPTReferenceTemporalAcceptanceView(RAB_Surface surface, uint
 
     RTXDI_PTReservoir acceptedReservoir = RTXDI_EmptyPTReservoir();
     const int temporalSampleCount = 5;
-    const int sampleCount = temporalSampleCount + (RestirPTParams.temporalResampling.enableFallbackSampling != 0u ? 1 : 0);
+    const int sampleCount = temporalSampleCount + (RestirPTParamsFlat.temporalResampling_enableFallbackSampling != 0u ? 1 : 0);
     const int radius = 1;
     RTXDI_RuntimeParameters rtxdiRuntimeParams = (RTXDI_RuntimeParameters)0;
     rtxdiRuntimeParams.frameIndex = (uint)max(RestirPTInfo.x, 0.0);
@@ -908,7 +908,7 @@ float4 RestirPTReferenceInitialTemporalHistoryColor(
     const float initialM = (float)initialReservoir.M;
     if (!showTemporal)
     {
-        const float initialHeat = saturate(initialM / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+        const float initialHeat = saturate(initialM / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
         return float4(0.04, 0.24 + initialHeat * 0.35, 0.58 + initialHeat * 0.30, 1.0);
     }
 
@@ -918,7 +918,7 @@ float4 RestirPTReferenceInitialTemporalHistoryColor(
     }
 
     const float temporalM = (float)temporalReservoir.M;
-    const float history = saturate(temporalM / max((float)RestirPTParams.temporalResampling.maxHistoryLength, 1.0));
+    const float history = saturate(temporalM / max((float)RestirPTParamsFlat.temporalResampling_maxHistoryLength, 1.0));
     if (temporalM > initialM + 0.5)
     {
         return float4(0.04, 0.42 + history * 0.50, 0.12 + history * 0.55, 1.0);
