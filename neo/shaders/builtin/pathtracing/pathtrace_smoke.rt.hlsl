@@ -1645,6 +1645,7 @@ RTXDI_PTReservoir GenerateRestirPTTemporalReservoir(RAB_Surface currentSurface, 
     RTXDI_PTTemporalResamplingRuntimeParameters runtimeParams = RTXDI_EmptyPTTemporalResamplingRuntimeParameters();
     runtimeParams.pixelPosition = pixel;
     runtimeParams.reservoirPosition = reservoirPosition;
+    runtimeParams.reservoirDimensions = PathTraceRestirDirectDispatchActive() ? PathTraceRestirDirectSize() : PathTraceFullOutputSize();
     runtimeParams.motionVector = float3(motionPixels, expectedPrevDepth - currentSurface.linearDepth);
     runtimeParams.cameraPos = CameraOriginAndTMax.xyz;
     runtimeParams.prevCameraPos = PrevCameraOriginAndValid.xyz;
