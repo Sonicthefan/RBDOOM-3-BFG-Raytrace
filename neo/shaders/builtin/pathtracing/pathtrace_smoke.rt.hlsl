@@ -4,6 +4,19 @@
 #define uint16_t uint
 #endif
 #endif
+
+#if defined(RB_PT_RESTIR_DIRECT_TEMPORAL_PRODUCER_ONLY) || \
+    defined(RB_PT_RESTIR_DIRECT_SPATIAL_RESERVOIR_PRODUCER_ONLY) || \
+    defined(RB_PT_RESTIR_INDIRECT_INITIAL_PRODUCER_ONLY) || \
+    defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY) || \
+    defined(RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY)
+#define RB_PT_RESTIR_PRODUCER_ONLY 1
+#endif
+
+#if !defined(RB_PT_RESTIR_PRODUCER_ONLY) || defined(RB_PT_ENABLE_LEGACY_RESTIR_DEBUG_VIEWS)
+#define RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE 1
+#endif
+
 #ifdef RB_PT_ENABLE_RESTIR
 #include "Rtxdi/DI/Reservoir.hlsli"
 #define RB_RESTIR_PT_USE_RTXDI_RESERVOIR_BUFFER_PARAMETERS 1
@@ -1709,6 +1722,7 @@ RTXDI_PTReservoir GenerateRestirPTSpatialReservoir(RAB_Surface currentSurface, u
 }
 #endif
 
+#ifdef RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE
 #ifdef RB_PT_ENABLE_RESTIR_TEMPORAL_DEBUG
 float4 EvaluateRestirPTTemporalReservoirDebug(RAB_Surface currentSurface, uint2 pixel)
 {
@@ -2204,6 +2218,7 @@ float4 EvaluateRestirPTSpatialLightSourceAttribution(RAB_Surface currentSurface,
     return float4(0.16, 0.04, 0.20, 1.0);
 }
 #endif
+#endif
 
 void StoreRestirPTInitialReservoir(uint2 pixel, RTXDI_PTReservoir reservoir)
 {
@@ -2276,6 +2291,7 @@ RTXDI_PTReservoir LoadRestirPTSpatialOutputReservoir(uint2 pixel)
         RestirPTParamsFlat.bufferIndices_spatialResamplingOutputBufferIndex);
 }
 
+#ifdef RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE
 float3 EvaluateRestirPTLocalLightCandidateDebug(RAB_Surface surface, uint2 pixel)
 {
     const uint emissiveTriangleCount = PathTraceSafetyDisabled(RT_PT_SAFETY_DISABLE_EMISSIVE_TRIANGLE_SAMPLING) ? 0u : (uint)max(EmissiveInfo.x, 0.0);
@@ -2354,6 +2370,7 @@ float3 EvaluateRestirPTLocalLightCandidateDebug(RAB_Surface surface, uint2 pixel
 
     return float3(0.42, 0.02, 0.02);
 }
+#endif
 
 RTXDI_PTReservoir GenerateRestirPTInitialReservoir(RAB_Surface surface, uint2 pixel)
 {
@@ -2408,6 +2425,7 @@ void ProduceRestirPTIndirectInitialReservoir(float3 rayOrigin, float3 rayDirecti
         pixel);
 }
 
+#ifdef RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE
 bool RestirPTReservoirHasUsefulSample(RTXDI_PTReservoir reservoir)
 {
     const float targetLuminance = RTXDI_Luminance(max(reservoir.TargetFunction, float3(0.0, 0.0, 0.0)));
@@ -2843,6 +2861,7 @@ float4 EvaluateRestirPTCombinedDirectGiPreview(float3 rayOrigin, float3 rayDirec
 {
     return float4(0.16, 0.04, 0.20, 1.0);
 }
+#endif
 #endif
 #else
 float4 EvaluateRestirPTInitialReservoirDebug(float3 rayOrigin, float3 rayDirection, PathTraceSmokePayload payload, uint2 pixel)
@@ -3309,6 +3328,42 @@ float3 SmokeSampleSphereSolidAngle(float3 axis, float cosThetaMax, uint seed)
     return SafeNormalize(axis * cosTheta + tangent * (cos(phi) * sinTheta) + bitangent * (sin(phi) * sinTheta), axis);
 }
 
+#if defined(RB_PT_RESTIR_PRODUCER_ONLY) && !defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE) && !defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY)
+bool SmokePayloadIsGuiScreen(PathTraceSmokePayload payload)
+{
+    return payload.value != 0u &&
+        payload.surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT &&
+        payload.translucentSubtype == RT_SMOKE_TRANSLUCENT_SUBTYPE_GUI_SCREEN;
+}
+#endif
+
+#if defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY) && !defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE)
+float3 RestirPTGiSanitizeContribution(float3 contribution)
+{
+    if (!all(contribution == contribution) || any(abs(contribution) > 65504.0))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return max(contribution, float3(0.0, 0.0, 0.0));
+}
+
+float3 RestirPTGiToneMapPreview(float3 contribution)
+{
+    contribution = RestirPTGiSanitizeContribution(contribution * max(RestirPTInfo.w, 0.0));
+    return contribution / (float3(1.0, 1.0, 1.0) + contribution);
+}
+
+float3 RestirPTGiFallback(RAB_Surface surface)
+{
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    return RestirPTGiToneMapPreview(surface.material.emissiveRadiance);
+}
+#endif
+
+#if defined(RB_PT_KEEP_LEGACY_RESTIR_DEBUG_CODE) || defined(RB_PT_RESTIR_REFLECTION_PRODUCER_ONLY)
 #include "pathtrace_nee.hlsli"
 
 #ifdef RB_PT_ENABLE_RESTIR
@@ -3628,6 +3683,7 @@ float4 CompositeSmokeGuiLayers(float3 rayOrigin, float3 rayDirection, PathTraceS
     color += float3(0.015, 0.012, 0.008) * transmittance;
     return float4(saturate(color), 1.0);
 }
+#endif
 
 #ifdef RB_PT_RESTIR_PDF_NEE_RLU_CURRENT_PRODUCER_ONLY
 static const uint RT_PDF_NEE_RLU_STATUS_VALID = 0u;
@@ -4369,6 +4425,72 @@ RTXDI_DIReservoir PathTraceRestirPdfNeeRluBuildCurrentReservoir(
 }
 #endif
 
+#ifdef RB_PT_RESTIR_DIRECT_TEMPORAL_PRODUCER_ONLY
+[shader("raygeneration")]
+void RayGen()
+{
+    uint2 pixel = DispatchRaysIndex().xy + PathTraceDispatchTileOffset();
+    const bool sparseProducerDispatch = PathTraceRestirDirectSparseProducerDispatch();
+    const uint2 dimensions = sparseProducerDispatch
+        ? PathTraceRestirSparseDispatchSize()
+        : PathTraceRestirDirectSize();
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+    if (sparseProducerDispatch)
+    {
+        pixel = PathTraceRestirSparseProducerPixelToDirectPixel(pixel);
+        if (pixel.x >= PathTraceRestirDirectSize().x || pixel.y >= PathTraceRestirDirectSize().y)
+        {
+            return;
+        }
+    }
+    else if (!PathTraceRestirSparseActivePixel(pixel, false))
+    {
+        return;
+    }
+
+    RAB_Surface primaryHistorySurface = RAB_GetGBufferSurface(int2(pixel), false);
+    float4 temporalRejectionColor;
+    bool temporalSelectedPrevSample;
+    GenerateRestirPTTemporalReservoir(primaryHistorySurface, pixel, temporalRejectionColor, temporalSelectedPrevSample);
+}
+
+[shader("miss")]
+void Miss(inout PathTraceSmokePayload payload)
+{
+    payload.value = 0u;
+}
+
+[shader("miss")]
+void ShadowMiss(inout PathTraceSmokeShadowPayload payload)
+{
+    payload.hit = 0u;
+}
+
+[shader("anyhit")]
+void AnyHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+}
+
+[shader("anyhit")]
+void ShadowAnyHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+    payload.hit = 1u;
+}
+
+[shader("closesthit")]
+void ShadowClosestHit(inout PathTraceSmokeShadowPayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+    payload.hit = 1u;
+}
+
+[shader("closesthit")]
+void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersectionAttributes attributes)
+{
+}
+#else
 [shader("raygeneration")]
 void RayGen()
 {
@@ -4607,6 +4729,11 @@ void RayGen()
     return;
 #endif
 
+#if defined(RB_PT_RESTIR_PRODUCER_ONLY) && !defined(RB_PT_ENABLE_LEGACY_RESTIR_DEBUG_VIEWS)
+    // Producer-only wrappers stop here; the legacy ReSTIR debug/integrator cascade
+    // remains recoverable by defining RB_PT_ENABLE_LEGACY_RESTIR_DEBUG_VIEWS.
+    return;
+#else
     if (payload.value == 0)
     {
         if (debugMode == 14)
@@ -5218,6 +5345,7 @@ void RayGen()
     }
 
     SmokeOutput[pixel] = ApplySmokeBoundsOverlay(SmokeOutput[pixel], pixel, dimensions);
+#endif
 }
 
 [shader("miss")]
@@ -5464,3 +5592,4 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.materialId = LoadSmokeTriangleMaterialId(instanceId, primitiveIndex);
     payload.materialIndex = instanceId == 0 ? SmokeStaticTriangleMaterialIndexes[primitiveIndex] : SmokeDynamicTriangleMaterialIndexes[primitiveIndex];
 }
+#endif
