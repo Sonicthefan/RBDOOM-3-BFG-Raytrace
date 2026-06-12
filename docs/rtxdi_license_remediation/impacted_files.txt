@@ -79,8 +79,12 @@ remix_restir_gi/pathtrace_clean_restir_gi.rt.hlsl               REWRITE
     Utils/Math.hlsli
 remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl                REWRITE
     GI/TemporalResampling.hlsli, Utils/RandomSamplerState.hlsli
-remix_bridge/RAB_GIReservoirBridge.hlsli                        REWRITE
-    GI/Reservoir.hlsli, Utils/ReservoirAddressing.hlsli
+remix_bridge/RAB_GIReservoirBridge.hlsli                        DONE
+    Task 7 landed 2026-06-13: GI/Reservoir.hlsli + ReSTIRGIParameters.h now
+    resolve to in-repo shims over cleanroom_common/restir_gi_reservoir(+_storage)
+    and restir_gi_parameters (32-byte packed ABI, rngSeed M-cap field).
+    External GI Reservoir/ReSTIRGIParameters CMake entries removed; only
+    GI Temporal/SpatialResampling remain external (tasks 8-9).
 remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.hlsl
     no direct Rtxdi includes; rebuild blob only after the lane rewires.
 
