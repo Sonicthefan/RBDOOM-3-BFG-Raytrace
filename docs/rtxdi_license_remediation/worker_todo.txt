@@ -1,0 +1,318 @@
+DI/GI Header Replacement - Step-by-Step Worker To-Do
+=====================================================
+
+Written 2026-06-12. This is the execution checklist for finishing the
+shader-side remediation (plan Steps 6+7 in README.txt). Work the tasks in
+order; each task says MECHANICAL (do it) or MATH (stop and hand back for
+the math-capable agent / reviewer). Do not reorder: later tasks compile
+against the types created by earlier ones.
+
+State of play (do not re-audit this)
+------------------------------------
+
+DONE: Rtxdi/PT/*, Rtxdi/Utils/*, Rtxdi/RtxdiParameters.h. The pattern used:
+rbdoom-owned math lives in
+    neo/shaders/builtin/pathtracing/cleanroom_common/
+and a thin shim file at the matching path under
+    neo/shaders/builtin/pathtracing/Rtxdi/
+forwards to it, e.g. Rtxdi/PT/TemporalResampling.hlsli is just:
+
+    #ifndef RB_PATH_TRACING_RTXDI_PT_TEMPORAL_RESAMPLING_SHADOW_HLSLI
+    #define RB_PATH_TRACING_RTXDI_PT_TEMPORAL_RESAMPLING_SHADOW_HLSLI
+    #include "Reservoir.hlsli"
+    #include "PathTracerContext.hlsli"
+    #include "Rtxdi/Utils/RandomSamplerState.hlsli"
+    #include "../../cleanroom_common/restir_pt_temporal_resampling.hlsli"
+    #endif
+
+Why shims work without editing call sites: neo/shaders/CMakeLists.txt
+line ~141 adds -I builtin/pathtracing BEFORE -I ${RTXDI_RUNTIME_DIR}/Include
+(line ~143), so an in-repo Rtxdi/DI/Foo.hlsli shadows NVIDIA's copy as soon
+as the file exists. Creating the shim file IS the cutover.
+
+REMAINING proprietary surfaces (nothing else):
+    Rtxdi/DI/Reservoir.hlsli            (tasks 1-2)
+    Rtxdi/DI/ReservoirStorage.hlsli     (task 2)
+    Rtxdi/DI/ReSTIRDIParameters.h       (task 1)
+    Rtxdi/DI/InitialSampling.hlsli      (task 4)
+    Rtxdi/DI/TemporalResampling.hlsli   (task 5)
+    Rtxdi/DI/SpatialResampling.hlsli    (task 6)
+    Rtxdi/Utils/Checkerboard.hlsli      (task 3 - verify-unused, likely drop)
+    Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli (task 3 - same)
+    Rtxdi/GI/Reservoir.hlsli            (task 7)
+    Rtxdi/GI/ReSTIRGIParameters.h       (task 7)
+    Rtxdi/GI/TemporalResampling.hlsli   (task 8)
+    Rtxdi/GI/SpatialResampling.hlsli    (task 9 - staged file exists, WIRE ONLY)
+    Rtxdi/GI/BoilingFilter.hlsli        (task 3 - verify-unused, likely drop)
+plus C++ (tasks 11-12) and CMake severance (task 13).
+
+Ground rules (apply to every task)
+----------------------------------
+
+R1. NEVER open, read, grep, or copy anything under E:/prog/references or
+    any other NVIDIA RTXDI/dxvk-remix source. Not even "just to check a
+    struct layout". The required API surface is defined ONLY by what the
+    repo's own shaders call (find call sites with grep inside neo/shaders).
+    If a needed signature cannot be inferred from repo call sites, STOP and
+    report; do not look it up in the NVIDIA tree.
+
+R2. Acceptance gate for every task:
+        cmake --build --preset win64-pt-dev-release
+    run from E:/prog/rbdoom-3-bfg-rt/neo must pass INCLUDING the SPIR-V
+    shader custom-build steps. DXIL-only success does not count.
+
+R3. New math files go in cleanroom_common/ with snake_case names
+    (restir_di_*.hlsli, restir_gi_*.hlsli); shims go at the exact
+    Rtxdi/DI/... or Rtxdi/GI/... path. Keep the RTXDI_* public names used
+    by call sites so no call-site edits are needed.
+
+R4. Register every new cleanroom file in the dependency lists in
+    neo/shaders/CMakeLists.txt (mirror how the restir_pt_* files are
+    listed), and remove the corresponding ${RTXDI_RUNTIME_DIR} entries
+    from the DI list (~lines 108-117) / GI list (~lines 128-135) once the
+    in-repo shim exists.
+
+R5. Tasks tagged MATH: do not attempt the derivation. Create the file
+    skeleton if instructed, then stop and report which task is blocked.
+
+R6. After each completed task, append a one-line entry to the Progress
+    Log at the bottom of this file (task number, date, pass/fail of R2).
+
+----------------------------------------------------------------------
+TASK 1 - DI parameter structs                                MECHANICAL
+----------------------------------------------------------------------
+
+Create cleanroom_common/restir_di_parameters.hlsli and shim
+Rtxdi/DI/ReSTIRDIParameters.h (shim also #includes
+"Rtxdi/RtxdiParameters.h" first, mirroring the PT pattern).
+
+Contents = plain structs/constants only, inferred from call sites. Known
+consumers to grep:
+    cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.hlsl
+    cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl
+    pathtrace_smoke.rt.hlsl
+    remix_rtxdi/*.rt.hlsl
+Known required symbols (verify by grep, list may be incomplete):
+    RTXDI_LightBufferRegion { uint firstLightIndex; uint numLights; }
+    RTXDI_BIAS_CORRECTION_OFF / _BASIC / _PAIRWISE / _RAY_TRACED
+        (uint constants 0,1,2,3 - order inferred from increasing-quality
+        usage in RTXDI_ALLOWED_BIAS_CORRECTION clamps)
+    any RTXDI_*DI*Parameters structs the call sites construct with
+    (Struct)0 and then fill field-by-field: replicate exactly the fields
+    the repo code touches, nothing more.
+Note: RTXDI_ReservoirBufferParameters, RTXDI_RESERVOIR_BLOCK_SIZE,
+RTXDI_ReservoirPositionToPointer, RTXDI_PixelPosToReservoirPos and
+RTXDI_RuntimeParameters already exist in
+cleanroom_common/restir_shared_reservoir_addressing.hlsli and
+restir_shared_parameters.hlsli - include those, do not redefine.
+
+Gate: R2 build. (Nothing includes the new file yet; build proves no
+regression and that the shim shadows cleanly.)
+
+----------------------------------------------------------------------
+TASK 2 - DI reservoir struct + pack/unpack + storage              MATH
+----------------------------------------------------------------------
+
+Files: cleanroom_common/restir_di_reservoir.hlsli (+ storage section or a
+second file restir_di_reservoir_storage.hlsli), shims Rtxdi/DI/Reservoir.hlsli
+and Rtxdi/DI/ReservoirStorage.hlsli.
+
+Required public surface (from repo call sites; re-grep to confirm):
+    struct RTXDI_DIReservoir, struct RTXDI_PackedDIReservoir
+    RTXDI_EmptyDIReservoir(), RTXDI_IsValidDIReservoir(r)
+    RTXDI_LoadDIReservoir(reservoirParams, pixelPos, bufferIndex)
+    RTXDI_StoreDIReservoir(r, reservoirParams, pixelPos, bufferIndex)
+        - storage reads/writes the buffer named by the macro
+          RTXDI_LIGHT_RESERVOIR_BUFFER which call sites #define before
+          including ReservoirStorage.hlsli (see di_sentinel line ~232)
+    RTXDI_GetDIReservoirLightIndex(r), RTXDI_GetDIReservoirSampleUV(r),
+    RTXDI_GetDIReservoirInvPdf(r),
+    RTXDI_StreamSample(...), RTXDI_CombineDIReservoirs(...),
+    RTXDI_FinalizeResampling(...) etc. - grep the exact set; only
+    implement what repo code calls.
+The weighted-reservoir math (streaming RIS update, W = wSum/(M*targetPdf))
+comes from Bitterli et al. 2020; this is why the task is MATH-tagged.
+MECHANICAL sub-parts a basic agent may pre-stage: the shim files, the
+packed-struct buffer declarations at call sites, CMake registration.
+
+Gate: R2 build with the DI lists (CMakeLists ~108-117) pruned of
+Reservoir/ReservoirStorage/ReSTIRDIParameters entries.
+
+----------------------------------------------------------------------
+TASK 3 - confirm the suspected-unused headers                MECHANICAL
+----------------------------------------------------------------------
+
+grep neo/shaders for actual #include of:
+    Rtxdi/Utils/Checkerboard.hlsli
+    Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli
+    Rtxdi/GI/BoilingFilter.hlsli
+Expected: zero shader includes (they appear only in CMake dependency
+lists). If zero: delete them from the CMake lists and record the finding
+in impacted_files.txt. If a real include exists: report it, do not
+replace anything.
+
+Gate: R2 build.
+
+----------------------------------------------------------------------
+TASK 4 - DI initial sampling (RIS candidate loop)                 MATH
+----------------------------------------------------------------------
+
+cleanroom_common/restir_di_initial_sampling.hlsli + shim
+Rtxdi/DI/InitialSampling.hlsli. Model on
+cleanroom_common/restir_pt_initial_sampling.hlsli. Surface from call
+sites in di_sentinel, pathtrace_restir_di_initial_debug.hlsli,
+RtxdiBridge/RAB_PathTracerNee.hlsli, remix_rtxdi/rtxdi_initial_sampling.
+Uses RAB_* callbacks (RAB_GetLightInfo, RAB_SamplePolymorphicLight,
+RAB_GetLightSampleTargetPdfForSurface...) already defined by the lanes.
+
+Gate: R2 build.
+
+----------------------------------------------------------------------
+TASK 5 - DI temporal resampling                                   MATH
+----------------------------------------------------------------------
+
+cleanroom_common/restir_di_temporal_resampling.hlsli + shim
+Rtxdi/DI/TemporalResampling.hlsli. Adapt the skeleton of
+cleanroom_common/restir_pt_temporal_resampling.hlsli (load current ->
+back-project via motion vector -> permutation sampling option -> age/M
+caps -> normal+depth compatibility gates -> combine -> finalize) around
+the DI reservoir from Task 2. DI-specific: the previous reservoir's light
+index must survive light-list reordering - the clean DI lane already has
+remap buffers (DoomAnalyticRemap, RluCurrentToPrevious/PreviousToCurrent)
+and RAB hooks for this; keep that contract (grep di_sentinel "temporal"
+section for what it passes in).
+
+Gate: R2 build; DI list in CMake fully pruned except SpatialResampling.
+
+----------------------------------------------------------------------
+TASK 6 - DI spatial resampling                                    MATH
+----------------------------------------------------------------------
+
+cleanroom_common/restir_di_spatial_resampling.hlsli + shim
+Rtxdi/DI/SpatialResampling.hlsli. Adapt
+cleanroom_common/restir_pt_spatial_resampling.hlsli (neighbor disc
+sampling via RTXDI_NEIGHBOR_OFFSETS_BUFFER when defined, normal/depth
+gates, combine loop, finalize) around the DI reservoir. Honor
+RTXDI_ALLOWED_BIAS_CORRECTION: implement 1/M and BASIC (1/Z); RAY_TRACED
+bias correction may clamp to BASIC initially - record that in the file
+header if so. Consumers: pathtrace_clean_rtxdi_di_spatial.rt.hlsl
+(via include chain), remix_rtxdi/rtxdi_spatial_reuse.rt.hlsl,
+pathtrace_smoke.
+
+Gate: R2 build; DI CMake block (~108-117) deleted entirely.
+
+----------------------------------------------------------------------
+TASK 7 - GI reservoir + parameters                                MATH
+----------------------------------------------------------------------
+
+cleanroom_common/restir_gi_reservoir.hlsli +
+cleanroom_common/restir_gi_parameters.hlsli, shims Rtxdi/GI/Reservoir.hlsli
+and Rtxdi/GI/ReSTIRGIParameters.h. Surface from call sites:
+    remix_bridge/RAB_GIReservoirBridge.hlsli   (pack/unpack + storage)
+    remix_restir_gi/pathtrace_clean_restir_gi.rt.hlsl
+    remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl
+GI reservoir payload: secondary sample position, sample normal, radiance,
+M, weightSum/W, age (grep RAB_GIReservoirBridge for the exact packed
+layout the lane already round-trips). IMPORTANT (from
+replacements/README.txt, GIAdaptiveMCap note): add storage for the
+initial candidate's RNG seed, propagated unchanged through reuse - it is
+the prerequisite for the staged adaptive M-cap and is cheap to include
+now while the struct is being defined.
+
+Gate: R2 build.
+
+----------------------------------------------------------------------
+TASK 8 - GI temporal resampling                                   MATH
+----------------------------------------------------------------------
+
+cleanroom_common/restir_gi_temporal_resampling.hlsli + shim
+Rtxdi/GI/TemporalResampling.hlsli. Skeleton from
+restir_pt_temporal_resampling.hlsli, payload from Task 7, plus the two
+GI-specific pieces (Ouyang et al. 2021): jacobian of the reconnection
+shift when reusing the previous sample point at the current surface
+(reject sample if jacobian outside cutoff), and BASIC (1/Z) bias
+correction - that is the lane's current default per plan Step 7.
+Consumer: remix_restir_gi/restir_gi_temporal_reuse.rt.hlsl. History cap:
+respect the caller's maxHistoryLength (deployed Remix default is 4 - see
+memory note - do not hardcode 30).
+
+Gate: R2 build.
+
+----------------------------------------------------------------------
+TASK 9 - GI spatial resampling - WIRE THE STAGED FILE        MECHANICAL
+----------------------------------------------------------------------
+
+DO NOT WRITE OR RE-DERIVE ANY MATH FOR THIS TASK. The finished file is
+docs/rtxdi_license_remediation/replacements/GISpatialResampling.hlsli
+("math is final"). Follow the "GI spatial integration checklist" in
+replacements/README.txt steps a and b exactly:
+
+  9.1 Move the file to cleanroom_common/restir_gi_spatial_resampling.hlsli
+      (rename only; content unchanged).
+  9.2 Create shim Rtxdi/GI/SpatialResampling.hlsli forwarding to it.
+  9.3 At the call site pathtrace_clean_restir_gi.rt.hlsl: provide
+      RBPT_GI_CAMERA_ORIGIN (current camera world position) or override
+      RBPT_GI_SURFACE_LINEAR_DEPTH with a lane accessor, leave
+      sparams.jacobianCutoff = 0 (default 10.0), keep biasCorrectionMode
+      = BASIC.
+  9.4 CMake: register the cleanroom file; remove the GI runtime-dir block
+      (~lines 128-135) entirely (Tasks 7/8 removed the others).
+  9.5 Defer pairwise mode + reciprocal textures + GIAdaptiveMCap
+      (checklist items b-optional/c and the M-cap section) to follow-up;
+      do not wire them now.
+
+Gate: R2 build.
+
+----------------------------------------------------------------------
+TASK 10 - severance proof, shader side                       MECHANICAL
+----------------------------------------------------------------------
+
+  10.1 grep neo/shaders for any remaining ${RTXDI_RUNTIME_DIR} reference;
+       delete the -I "${RTXDI_RUNTIME_DIR}/Include" block
+       (CMakeLists ~142-144) and the PT existence check.
+  10.2 R2 build must still pass.
+  10.3 Report (do not perform) readiness for the full Step 9 proof - the
+       rename of E:/prog/references happens only after the C++ side
+       (tasks 11-12) is done too.
+
+----------------------------------------------------------------------
+TASK 11 - C++ parameter/context types                             MATH
+----------------------------------------------------------------------
+
+Replace <Rtxdi/RtxdiUtils.h> + RtxdiUtils.cpp, <Rtxdi/DI/ReSTIRDI.h>,
+<Rtxdi/GI/ReSTIRGI.h> with rbdoom-owned types shared with the Task 1/7
+HLSL structs. Consumers: neo/renderer/NVRHI/PathTraceCleanRestirGi.cpp,
+PathTraceRemixRtxdiResources.h/.cpp (+ ResourceGate),
+PathTraceRestirPT*.h (if kept). Remove
+${RTXDI_RUNTIME_DIR}/Source/RtxdiUtils.cpp and the include_directories
+from neo/CMakeLists.txt (~line 458).
+
+Gate: R2 build (full exe link, not just shaders).
+
+----------------------------------------------------------------------
+TASK 12 - full severance proof (plan Step 9)                 MECHANICAL
+----------------------------------------------------------------------
+
+Delete the RTXDI_RUNTIME_DIR cache variable and every remaining
+${RTXDI_RUNTIME_DIR} reference in both CMakeLists. Then, WITH USER
+COORDINATION (it affects other checkouts), rename E:/prog/references
+away, run a clean configure + R2 build, rename back. Both must pass.
+Record the result here and in impacted_files.txt.
+
+----------------------------------------------------------------------
+TASK 13 - rebuild + redeploy (plan Step 10)                  MECHANICAL
+----------------------------------------------------------------------
+
+Only after 1-12: regenerate all SPIR-V blobs, delete stale
+base/renderprogs2 + build-*/ blobs and the prebuilt deployment copies,
+redeploy exe + renderprogs2 to E:/prog/rbdoom-3-BFG-prebuilt. Behavior
+validation (A/B against the old build as private oracle; converged-image
+brightness match; spatial on/off shifts variance not energy) per the
+Validation section of replacements/README.txt - run with the user.
+
+Progress Log
+------------
+(append entries here: TASK n - date - result)
+TASK 1 - 2026-06-12 - FAIL - local shim exists, but active DI preprocess still reaches external ReSTIRDIParameters.h through external Reservoir.hlsli; blocked on Task 2 reservoir/storage replacement
+TASK 1 - 2026-06-12 - PASS - resolved by Task 2: in-repo DI/Reservoir.hlsli shim now shadows the external one, so ReSTIRDIParameters.h resolves in-repo everywhere; R2 build green
+TASK 2 - 2026-06-12 - PASS - restir_di_reservoir.hlsli math implemented (streaming RIS, combine, finalize, visibility store/reuse, pack/unpack); R2 build green. Notes for Task 5 reviewer: (a) external Rtxdi/DI/TemporalResampling.hlsli + PairwiseStreaming.hlsli still compile from E:/prog/references but now against OUR reservoir types - two symbols were added for them, RTXDI_PackedDIReservoir_MaxM and RTXDI_InternalSimpleResample (names surfaced via compiler diagnostics only, math from Bitterli 2020; the signature-compatibility judgment is recorded in the file and the dependency disappears when Task 5 lands); (b) packed ABI is rbdoom-defined: M 16b + visibility 3x5b in mVisibility, distance 2x8b + age 16b in distanceAge, canonicalWeight not persisted (unpacks to 1.0); (c) RTXDI_EmptyDIReservoir uses lightData=0, not InvalidLightIndex, so packed empty reservoirs read as absent in debug views.

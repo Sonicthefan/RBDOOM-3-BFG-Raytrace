@@ -120,16 +120,6 @@ struct RTXDI_LightBufferParameters
     RTXDI_EnvironmentLightBufferParameters environmentLightParams;
 };
 
-struct RTXDI_PackedDIReservoir
-{
-    uint lightData;
-    uint uvData;
-    uint mVisibility;
-    uint distanceAge;
-    float targetPdf;
-    float weight;
-};
-
 struct RTXDI_BoilingFilterParameters
 {
     uint enableBoilingFilter;
