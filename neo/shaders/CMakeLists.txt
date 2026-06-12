@@ -132,10 +132,11 @@ set(PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/GI/ReSTIRGIParameters.h
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_gi_reservoir.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_gi_reservoir_storage.hlsli
-    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_gi_parameters.hlsli)
-if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/TemporalResampling.hlsli")
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_gi_parameters.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/GI/TemporalResampling.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_gi_temporal_resampling.hlsli)
+if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/SpatialResampling.hlsli")
     list(APPEND PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/TemporalResampling.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/SpatialResampling.hlsli)
 endif()
 option(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS "Build legacy monolithic ReSTIR PT diagnostic RT shader libraries that are not used by the mode 56 primary-prepass path." OFF)
