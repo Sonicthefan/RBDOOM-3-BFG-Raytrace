@@ -106,6 +106,12 @@ cleanroom_common/restir_di_initial_sampling.hlsli               DONE
     Task 4 landed 2026-06-12: rbdoom-owned uniform local-light RIS, wired
     via the in-repo Rtxdi/DI/InitialSampling.hlsli shim; the external
     ${RTXDI_RUNTIME_DIR} InitialSampling dependency is removed from CMake.
+cleanroom_common/restir_di_temporal_resampling.hlsli            DONE
+    Task 5 landed 2026-06-12: rbdoom-owned DI temporal merge (remap, gates,
+    M clamp, 1/M + 1/Z + ray-traced bias correction), wired via the in-repo
+    Rtxdi/DI/TemporalResampling.hlsli shim; external TemporalResampling and
+    its PairwiseStreaming include are out of the compile graph. Remaining
+    external DI shader surface: Rtxdi/DI/SpatialResampling.hlsli only.
 
 
 Legacy PT / smoke lanes  -  neo/shaders/builtin/pathtracing/
