@@ -127,6 +127,7 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
     {
         return currentReservoir;
     }
+    const float previousTargetAtPrevious = previousReservoir.targetPdf;
 
     // The stored light index lives in the previous frame's light list; remap
     // it into the current list before replaying. An unmappable light
@@ -175,10 +176,12 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
     if (params.biasCorrectionMode >= RTXDI_BIAS_CORRECTION_BASIC)
     {
         const float selectedTargetAtCurrent = selectedPrevious ? previousTargetAtCurrent : currentReservoir.targetPdf;
-        const float selectedTargetAtPrevious = RBPT_DITemporalTargetAtPreviousSurface(
-            previousSurface,
-            RTXDI_GetDIReservoirLightIndex(temporalReservoir),
-            RTXDI_GetDIReservoirSampleUV(temporalReservoir));
+        const float selectedTargetAtPrevious = selectedPrevious
+            ? previousTargetAtPrevious
+            : RBPT_DITemporalTargetAtPreviousSurface(
+                previousSurface,
+                RTXDI_GetDIReservoirLightIndex(temporalReservoir),
+                RTXDI_GetDIReservoirSampleUV(temporalReservoir));
         float normalizationZ = 0.0;
         if (selectedTargetAtCurrent > 0.0)
         {
