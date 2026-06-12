@@ -102,6 +102,10 @@ remix_bridge/RAB_ReservoirBridge.hlsli                          REWRITE
     DI/ReservoirStorage.hlsli, Utils/ReservoirAddressing.hlsli
 cleanroom_common/restir_di_reservoir.hlsli                      REWRITE
     Utils/RandomSamplerState.hlsli via local wrapper
+cleanroom_common/restir_di_initial_sampling.hlsli               DONE
+    Task 4 landed 2026-06-12: rbdoom-owned uniform local-light RIS, wired
+    via the in-repo Rtxdi/DI/InitialSampling.hlsli shim; the external
+    ${RTXDI_RUNTIME_DIR} InitialSampling dependency is removed from CMake.
 
 
 Legacy PT / smoke lanes  -  neo/shaders/builtin/pathtracing/

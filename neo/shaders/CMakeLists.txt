@@ -91,6 +91,7 @@ set(PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/Reservoir.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/ReservoirStorage.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/ReSTIRDIParameters.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/InitialSampling.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/Color.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/SampledLightData.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/BrdfRaySample.hlsli
@@ -103,6 +104,7 @@ set(PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_di_parameters.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_di_reservoir.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_di_reservoir_storage.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_di_initial_sampling.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_reservoir_addressing.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_math.hlsli)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
@@ -111,9 +113,8 @@ set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
     ${PATH_TRACING_RANDOM_SAMPLER_INCLUDES}
     ${PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES}
     ${PATH_TRACING_CLEAN_RTXDI_DI_INCLUDES})
-if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/InitialSampling.hlsli")
+if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/TemporalResampling.hlsli")
     list(APPEND PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/InitialSampling.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/TemporalResampling.hlsli)
 endif()
 file(GLOB_RECURSE PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES
