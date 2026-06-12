@@ -144,7 +144,9 @@ bool RBPT_GITemporalFindHistory(
             RTXDI_PixelPosToReservoirPos(uint2(candidatePixel), runtimeParams.activeCheckerboardField),
             temporalInputPage);
         if (!RTXDI_IsValidGIReservoir(candidate) ||
-            candidate.weightSum <= 0.0 ||
+            !(candidate.weightSum > 0.0 && candidate.weightSum < 1.0e20) ||
+            !all(candidate.radiance == candidate.radiance) ||
+            !all(candidate.position == candidate.position) ||
             (tparams.maxReservoirAge > 0u && candidate.age >= tparams.maxReservoirAge))
         {
             continue;
@@ -202,7 +204,13 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     const bool canonicalValid =
         RTXDI_IsValidGIReservoir(inputReservoir) && inputReservoir.weightSum > 0.0;
 
-    // Shift the history sample into the current receiver's domain.
+    // Jacobian VALIDATION only (plan Step 7). The history receiver is the
+    // same reprojected world point, so the true shift jacobian is ~1; values
+    // away from 1 mean the reprojection landed on different geometry and the
+    // sample must be rejected. Using the computed J as a weight multiplier
+    // here would compound through the stored W frame over frame (temporal
+    // output is its own next input) - that feedback was the cause of the
+    // moving black-disc artifact (W -> inf -> NaN) seen under camera motion.
     const float jHistoryToCurrent = RBPT_GITemporalReconnectionJacobian(
         historySurfacePos, receiverPos, historyReservoir);
     const float historyTargetAtCurrent = jHistoryToCurrent > 0.0
@@ -232,7 +240,7 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     }
 
     const float historyWeight =
-        historyM * historyTargetAtCurrent * jHistoryToCurrent * historyReservoir.weightSum;
+        historyM * historyTargetAtCurrent * historyReservoir.weightSum;
     if (historyWeight > 0.0)
     {
         wSum += historyWeight;
@@ -271,6 +279,10 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
 
     RTXDI_GIReservoir result = selected;
     result.weightSum = wSum / (normalization * selectedTarget);
+    if (!(result.weightSum > 0.0 && result.weightSum < 1.0e20))
+    {
+        return inputReservoir;
+    }
     result.M = (uint)min(mergedM, 255.0); // packed-ABI confidence cap
     result.age = selectedHistory ? min(historyReservoir.age + 1u, 0xffu) : inputReservoir.age;
     return result;
