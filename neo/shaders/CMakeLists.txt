@@ -114,9 +114,7 @@ set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
 if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/InitialSampling.hlsli")
     list(APPEND PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/InitialSampling.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/TemporalResampling.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/Checkerboard.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli)
+        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/DI/TemporalResampling.hlsli)
 endif()
 file(GLOB_RECURSE PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/remix_restir_gi/*.hlsli"
@@ -133,7 +131,6 @@ if(DEFINED RTXDI_RUNTIME_DIR AND EXISTS "${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/R
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/Reservoir.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/TemporalResampling.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/SpatialResampling.hlsli
-        ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/BoilingFilter.hlsli
         ${RTXDI_RUNTIME_DIR}/Include/Rtxdi/GI/ReSTIRGIParameters.h)
 endif()
 option(PATH_TRACING_BUILD_RESTIR_LEGACY_DIAGNOSTICS "Build legacy monolithic ReSTIR PT diagnostic RT shader libraries that are not used by the mode 56 primary-prepass path." OFF)

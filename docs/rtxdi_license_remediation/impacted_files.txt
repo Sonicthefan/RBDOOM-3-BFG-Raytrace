@@ -62,9 +62,12 @@ From E:/prog/references/RTXDI-main/Libraries/Rtxdi/Include:
     Rtxdi/Utils/RandomSamplerState.hlsli
     Rtxdi/Utils/ReservoirAddressing.hlsli
     Rtxdi/Utils/BrdfRaySample.hlsli
-    Rtxdi/Utils/Checkerboard.hlsli
-    Rtxdi/GI/BoilingFilter.hlsli  (registered in CMake deps; verify no
-                                   shader includes it before dropping)
+    Rtxdi/Utils/Checkerboard.hlsli              (Task 3: no shader includes;
+                                                 dropped from CMake deps)
+    Rtxdi/Utils/RandomSamplerPerPassSeeds.hlsli (Task 3: no shader includes;
+                                                 dropped from CMake deps)
+    Rtxdi/GI/BoilingFilter.hlsli                (Task 3: no shader includes;
+                                                 dropped from CMake deps)
 
 
 Clean GI lane (active)  -  neo/shaders/builtin/pathtracing/
@@ -97,6 +100,8 @@ cleanroom_rtxdi/pathtrace_clean_rtxdi_di_spatial.rt.hlsl        REWRITE
     DI/SpatialResampling.hlsli through the include chain)
 remix_bridge/RAB_ReservoirBridge.hlsli                          REWRITE
     DI/ReservoirStorage.hlsli, Utils/ReservoirAddressing.hlsli
+cleanroom_common/restir_di_reservoir.hlsli                      REWRITE
+    Utils/RandomSamplerState.hlsli via local wrapper
 
 
 Legacy PT / smoke lanes  -  neo/shaders/builtin/pathtracing/
