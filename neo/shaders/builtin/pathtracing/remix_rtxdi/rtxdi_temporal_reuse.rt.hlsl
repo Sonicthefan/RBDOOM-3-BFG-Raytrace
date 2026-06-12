@@ -122,7 +122,7 @@ RemixRtxdiTemporalReuseResult RemixRtxdiRunTemporalReuse(
     RemixRtxdiTemporalReuseDesc desc)
 {
     RemixRtxdiTemporalReuseResult result = (RemixRtxdiTemporalReuseResult)0;
-    result.reservoir = RAB_LoadReservoir(int2(desc.pixel), int(desc.temporalOutputPage));
+    result.reservoir = RAB_LoadReservoir(int2(desc.pixel), int(RemixRAB_GetDIInitialOutputReservoirIndex()));
     result.selectedLightSample = RAB_EmptyLightSample();
     result.temporalSamplePixel = int2(-1, -1);
     result.temporalOutput = RemixRAB_BuildTemporalOutput(

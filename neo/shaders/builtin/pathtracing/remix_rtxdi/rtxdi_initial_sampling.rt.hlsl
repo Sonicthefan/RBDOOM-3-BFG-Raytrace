@@ -403,7 +403,7 @@ RTXDI_DIReservoir RemixRtxdiRunInitialSampling(
     RAB_StoreReservoir(
         result.reservoir,
         int2(pixel),
-        int(RemixRAB_GetDITemporalOutputReservoirIndex()));
+        int(RemixRAB_GetDIInitialOutputReservoirIndex()));
 
     return result.reservoir;
 }

@@ -71,12 +71,22 @@ RTXDI_DIReservoir RTXDI_EmptyDIReservoir()
     return reservoir;
 }
 
+bool RBPT_DIFiniteFloat(float value)
+{
+    return value == value && value > -RTXDI_MAX_FLOAT32 && value < RTXDI_MAX_FLOAT32;
+}
+
+bool RBPT_DIFinitePositive(float value)
+{
+    return value > 0.0 && RBPT_DIFiniteFloat(value);
+}
+
 bool RTXDI_IsValidDIReservoir(RTXDI_DIReservoir reservoir)
 {
     return (reservoir.lightData & RTXDI_DIReservoir_LightValidBit) != 0u &&
-        reservoir.M > 0.0 &&
-        reservoir.targetPdf > 0.0 &&
-        reservoir.weightSum > 0.0;
+        RBPT_DIFinitePositive(reservoir.M) &&
+        RBPT_DIFinitePositive(reservoir.targetPdf) &&
+        RBPT_DIFinitePositive(reservoir.weightSum);
 }
 
 uint RTXDI_GetDIReservoirLightIndex(RTXDI_DIReservoir reservoir)
@@ -195,17 +205,18 @@ void RTXDI_FinalizeResampling(
     float normalizationNumerator,
     float normalizationDenominator)
 {
-    if (reservoir.targetPdf <= 0.0 ||
-        normalizationNumerator <= 0.0 ||
-        normalizationDenominator <= 0.0 ||
-        reservoir.weightSum <= 0.0)
+    if (!RBPT_DIFinitePositive(reservoir.targetPdf) ||
+        !RBPT_DIFinitePositive(normalizationNumerator) ||
+        !RBPT_DIFinitePositive(normalizationDenominator) ||
+        !RBPT_DIFinitePositive(reservoir.weightSum))
     {
         reservoir.weightSum = 0.0;
         return;
     }
 
-    reservoir.weightSum = (reservoir.weightSum * normalizationNumerator) /
+    const float finalizedWeight = (reservoir.weightSum * normalizationNumerator) /
         (reservoir.targetPdf * normalizationDenominator);
+    reservoir.weightSum = RBPT_DIFinitePositive(finalizedWeight) ? finalizedWeight : 0.0;
 }
 
 uint RBPT_DIPackVisibility(float3 visibility)
@@ -289,6 +300,11 @@ uint RBPT_DIUnpackVisibility15To24(uint packedVisibility15)
 RTXDI_PackedDIReservoir RTXDI_PackDIReservoir(RTXDI_DIReservoir reservoir)
 {
     RTXDI_PackedDIReservoir packedReservoir = (RTXDI_PackedDIReservoir)0;
+    if (!RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return packedReservoir;
+    }
+
     packedReservoir.lightData = reservoir.lightData;
     packedReservoir.uvData = reservoir.uvData;
     packedReservoir.mVisibility =
@@ -318,6 +334,11 @@ RTXDI_DIReservoir RTXDI_UnpackDIReservoir(RTXDI_PackedDIReservoir packedReservoi
     reservoir.targetPdf = packedReservoir.targetPdf;
     reservoir.weightSum = packedReservoir.weight;
     reservoir.canonicalWeight = 1.0;
+    if (!RTXDI_IsValidDIReservoir(reservoir))
+    {
+        return RTXDI_EmptyDIReservoir();
+    }
+
     return reservoir;
 }
 
