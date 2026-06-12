@@ -110,8 +110,17 @@ cleanroom_common/restir_di_temporal_resampling.hlsli            DONE
     Task 5 landed 2026-06-12: rbdoom-owned DI temporal merge (remap, gates,
     M clamp, 1/M + 1/Z + ray-traced bias correction), wired via the in-repo
     Rtxdi/DI/TemporalResampling.hlsli shim; external TemporalResampling and
-    its PairwiseStreaming include are out of the compile graph. Remaining
-    external DI shader surface: Rtxdi/DI/SpatialResampling.hlsli only.
+    its PairwiseStreaming include are out of the compile graph. Before Task 6,
+    the remaining external DI shader surface was Rtxdi/DI/SpatialResampling.hlsli.
+cleanroom_common/restir_di_spatial_resampling.hlsli             DONE
+    Task 6 landed 2026-06-13: rbdoom-owned DI spatial neighbor RIS (gates,
+    disocclusion boost, 1/M + 1/Z, reciprocal-neighbor hooks default-off)
+    behind the in-repo Rtxdi/DI/SpatialResampling.hlsli shim. With this the
+    whole Rtxdi/DI/* shader surface is severed from RTXDI_RUNTIME_DIR.
+cleanroom_common/restir_shared_spatial_neighbors.hlsli          DONE
+    Type-neutral spatial neighbor helper: disc offsets plus the ReSTIR PT
+    Enhanced reciprocal reuse-texture hooks (enabled per-lane via
+    RBPT_SPATIAL_RECIPROCAL + RBPT_SPATIAL_REUSE_* macros).
 
 
 Legacy PT / smoke lanes  -  neo/shaders/builtin/pathtracing/

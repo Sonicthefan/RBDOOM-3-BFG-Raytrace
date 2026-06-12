@@ -176,12 +176,22 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
     if (params.biasCorrectionMode >= RTXDI_BIAS_CORRECTION_BASIC)
     {
         const float selectedTargetAtCurrent = selectedPrevious ? previousTargetAtCurrent : currentReservoir.targetPdf;
-        const float selectedTargetAtPrevious = selectedPrevious
+        float selectedTargetAtPrevious = selectedPrevious
             ? previousTargetAtPrevious
             : RBPT_DITemporalTargetAtPreviousSurface(
                 previousSurface,
                 RTXDI_GetDIReservoirLightIndex(temporalReservoir),
                 RTXDI_GetDIReservoirSampleUV(temporalReservoir));
+        if (!selectedPrevious && selectedTargetAtPrevious <= 0.0 &&
+            RTXDI_GetDIReservoirLightIndex(temporalReservoir) == (uint)mappedLightIndex)
+        {
+            // The history reservoir holds this same light, which proves the
+            // previous domain produces it even when the current->previous
+            // re-evaluation fails (e.g. no reverse remap). Without this the
+            // history weight enters wSum while its M is excluded from Z, and
+            // a persistently selected bright light compounds W every frame.
+            selectedTargetAtPrevious = previousTargetAtPrevious;
+        }
         float normalizationZ = 0.0;
         if (selectedTargetAtCurrent > 0.0)
         {

@@ -93,6 +93,7 @@ set(PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/ReSTIRDIParameters.h
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/InitialSampling.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/TemporalResampling.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/DI/SpatialResampling.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/Color.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/SampledLightData.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/Utils/BrdfRaySample.hlsli
@@ -107,6 +108,8 @@ set(PATH_TRACING_SHARED_RTXDI_UTILITY_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_di_reservoir_storage.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_di_initial_sampling.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_di_temporal_resampling.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_di_spatial_resampling.hlsli
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_spatial_neighbors.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_reservoir_addressing.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_shared_math.hlsli)
 set(PATH_TRACING_CLEAN_RTXDI_DI_SENTINEL_INCLUDES
