@@ -269,8 +269,6 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiResolveEnabled;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
-    float CleanRestirGiTemporalScreenValidation;
-    float3 CleanRestirGiPadding0;
 };
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
@@ -459,63 +457,9 @@ bool RemixRAB_GetTemporalConservativeVisibility(
         samplePosition) > 0.0;
 }
 
-bool CleanGiProjectCurrentPixel(float3 worldPosition, out uint2 pixel, out float sampleDepth)
-{
-    pixel = uint2(0u, 0u);
-    sampleDepth = 0.0;
-    const float3 delta = worldPosition - CleanRtxdiDiCameraOriginAndValid.xyz;
-    const float forwardDistance = dot(delta, CleanRtxdiDiCameraForwardAndTanX.xyz);
-    if (forwardDistance <= 0.05)
-    {
-        return false;
-    }
-
-    const float ndcX = -dot(delta, CleanRtxdiDiCameraLeftAndTanY.xyz) / max(forwardDistance * CleanRtxdiDiCameraForwardAndTanX.w, 1.0e-5);
-    const float ndcY = -dot(delta, CleanRtxdiDiCameraUpAndTanY.xyz) / max(forwardDistance * CleanRtxdiDiCameraLeftAndTanY.w, 1.0e-5);
-    if (abs(ndcX) > 1.0 || abs(ndcY) > 1.0)
-    {
-        return false;
-    }
-
-    const float2 pixelFloat = (float2(ndcX, ndcY) * 0.5 + 0.5) * float2(CleanRtxdiDiWidth, CleanRtxdiDiHeight);
-    if (!all(pixelFloat == pixelFloat) ||
-        pixelFloat.x < 0.0 || pixelFloat.y < 0.0 ||
-        pixelFloat.x >= (float)CleanRtxdiDiWidth || pixelFloat.y >= (float)CleanRtxdiDiHeight)
-    {
-        return false;
-    }
-
-    pixel = uint2(pixelFloat);
-    sampleDepth = length(delta);
-    return sampleDepth == sampleDepth;
-}
-
-bool CleanGiCurrentScreenOccludesSample(float3 samplePosition)
-{
-    uint2 samplePixel;
-    float sampleDepth;
-    if (!CleanGiProjectCurrentPixel(samplePosition, samplePixel, sampleDepth))
-    {
-        return false;
-    }
-
-    const uint index = samplePixel.y * CleanRtxdiDiWidth + samplePixel.x;
-    const PathTracePrimarySurfaceRecord record = PrimarySurfaceHistoryCurrent[index];
-    if (record.header.x != RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION ||
-        (record.header.y & RT_PRIMARY_SURFACE_VALID) == 0u)
-    {
-        return false;
-    }
-
-    const float visibleDepth = record.worldPositionAndViewDepth.w;
-    const float tolerance = max(0.75, sampleDepth * 0.05);
-    return visibleDepth + tolerance < sampleDepth;
-}
-
-// Screen-space stale-sample validation, shaped after Remix's gradient-depth
-// validation. If a reused GI sample projects behind current-frame primary
-// geometry, fall back to this frame's initial reservoir. This avoids a
-// portal-invalid world visibility ray and only targets occluded reused samples.
+// No local stale-sample validation. Screen-space or ray visibility substitutes
+// are portal-sensitive in rbdoom; exact validation belongs to a future
+// portal-aware gradient pipeline.
 RemixRestirGITemporalValidationResult RemixRAB_ValidateGITemporalReservoir(
     RAB_Surface currentSurface,
     RTXDI_GIReservoir inputReservoir,
@@ -524,16 +468,6 @@ RemixRestirGITemporalValidationResult RemixRAB_ValidateGITemporalReservoir(
 {
     RemixRestirGITemporalValidationResult result = (RemixRestirGITemporalValidationResult)0;
     result.reservoir = resultReservoir;
-    if (desc.enableScreenSpaceValidation != 0u &&
-        dot(desc.screenSpaceMotion, desc.screenSpaceMotion) > 0.25 &&
-        RTXDI_IsValidGIReservoir(inputReservoir) &&
-        RTXDI_IsValidGIReservoir(resultReservoir) &&
-        resultReservoir.M > inputReservoir.M &&
-        CleanGiCurrentScreenOccludesSample(resultReservoir.position))
-    {
-        result.reservoir = inputReservoir;
-        result.staleSampleRejected = 1u;
-    }
     return result;
 }
 
@@ -2288,8 +2222,6 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     desc.enablePermutationSampling = 0u;
     desc.uniformRandomNumber = 0u;
     desc.fireflyFilteringLuminanceThreshold = CleanRestirGiFireflyThreshold;
-    desc.enableLightingValidation = CleanRestirGiTemporalScreenValidation != 0.0 ? 1u : 0u;
-
     return RemixRestirGIRunTemporalReuseContract(surface, desc);
 }
 

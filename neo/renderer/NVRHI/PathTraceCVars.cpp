@@ -1689,12 +1689,6 @@ idCVar r_pathTracingCleanRestirGiFireflyThreshold(
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room ReSTIR GI firefly filtering luminance threshold applied to initial-sample radiance only (never to reused reservoirs); 0 disables" );
 
-idCVar r_pathTracingCleanRestirGiTemporalScreenValidation(
-    "r_pathTracingCleanRestirGiTemporalScreenValidation",
-    "1",
-    CVAR_RENDERER | CVAR_FLOAT,
-    "Clean-room ReSTIR GI temporal screen-space sample-depth validation: rejects reused moving temporal samples hidden behind current-frame primary geometry. 0 disables" );
-
 idCVar r_pathTracingCleanRestirGiNeeCacheSeed(
     "r_pathTracingCleanRestirGiNeeCacheSeed",
     "0",
