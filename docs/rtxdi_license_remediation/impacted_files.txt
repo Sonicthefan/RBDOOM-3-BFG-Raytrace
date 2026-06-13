@@ -29,6 +29,17 @@ neo/shaders/CMakeLists.txt                                      DONE
     PATH_TRACING_RTXDI_INCLUDE_ARGS no longer adds
     ${RTXDI_RUNTIME_DIR}/Include to DXC invocations.
 
+Task 12 proof (2026-06-14):
+    rg over neo/CMakeLists.txt, neo/shaders/CMakeLists.txt, and the fresh
+    build cache found no RTXDI_RUNTIME_DIR / RTXDI_RUNTIME_SOURCES /
+    RtxdiUtils.cpp / external RTXDI Include hits. Direct rename attempts for
+    E:/prog/references, E:/prog/references/RTXDI-main, and
+    E:/prog/references/RTXDI-main/Libraries/Rtxdi were denied by Windows, so
+    the fallback proof used a fresh configure with
+    -DRTXDI_RUNTIME_DIR=E:/prog/references/__missing_rtxdi_runtime__; CMake
+    reported the variable unused and the full win64-pt-dev-release build
+    passed. A normal fresh configure/build was run afterward and also passed.
+
 
 Proprietary headers currently consumed (the replacement surface)
 -----------------------------------------------------------------
