@@ -16,19 +16,18 @@ compiled NVIDIA code. Audit date 2026-06-11.
 Build System
 ------------
 
-neo/CMakeLists.txt                                              EDIT
-    RTXDI_RUNTIME_DIR cache var pointing at
-    E:/prog/references/RTXDI-main/Libraries/Rtxdi (~line 458),
-    include_directories of its Include dir, and compilation of
-    ${RTXDI_RUNTIME_DIR}/Source/RtxdiUtils.cpp into the executable.
-    Also PATH_TRACING_STREAMLINE_SDK_ROOT (~line 80) points outside the
-    repo (DLSS SDK; same external-dependency pattern, separate license).
+neo/CMakeLists.txt                                              DONE
+    RTXDI_RUNTIME_DIR, the RTXDI Include directory, and
+    ${RTXDI_RUNTIME_DIR}/Source/RtxdiUtils.cpp have been removed from the
+    executable build. PATH_TRACING_STREAMLINE_SDK_ROOT (~line 80) still
+    points outside the repo (DLSS SDK; same external-dependency pattern,
+    separate license).
 
-neo/shaders/CMakeLists.txt                                      EDIT
-    PATH_TRACING_RTXDI_INCLUDE_ARGS adds -I ${RTXDI_RUNTIME_DIR}/Include
-    to every DXC invocation; DI header dependency list (~lines 90-103);
-    GI header dependency list (~lines 112-123); PT existence check
-    (~line 129).
+neo/shaders/CMakeLists.txt                                      DONE
+    Shader-side RTXDI include/dependency wiring is severed. The DI/GI/PT
+    dependency lists now name in-repo wrappers/cleanroom_common files, and
+    PATH_TRACING_RTXDI_INCLUDE_ARGS no longer adds
+    ${RTXDI_RUNTIME_DIR}/Include to DXC invocations.
 
 
 Proprietary headers currently consumed (the replacement surface)
@@ -187,11 +186,13 @@ keeps any legacy lane alive, its files move from DELETE? to REWRITE.
 C++ renderer  -  neo/renderer/NVRHI/
 ------------------------------------
 
-PathTraceCleanRestirGi.cpp                                      REWRITE
-    <Rtxdi/RtxdiUtils.h>, <Rtxdi/GI/ReSTIRGIParameters.h>
-PathTraceRemixRtxdiResources.h                                  REWRITE
-    <Rtxdi/DI/ReSTIRDI.h>, <Rtxdi/GI/ReSTIRGI.h>
-    (PathTraceRemixRtxdiResources.cpp + ResourceGate follow it)
+PathTraceCleanRestirGi.cpp                                      DONE
+    <Rtxdi/RtxdiUtils.h>, <Rtxdi/GI/ReSTIRGIParameters.h> now resolve to
+    rbdoom-owned headers under neo/Rtxdi.
+PathTraceRemixRtxdiResources.h                                  DONE
+    <Rtxdi/DI/ReSTIRDI.h>, <Rtxdi/GI/ReSTIRGI.h> now resolve to
+    rbdoom-owned headers under neo/Rtxdi. PathTraceRemixRtxdiResources.cpp
+    and ResourceGate follow those local types.
 PathTraceRestirPT.h                                             DELETE?
     <Rtxdi/PT/ReSTIRPT.h>
 PathTraceRestirPTReservoirs.h                                   DELETE?
@@ -203,8 +204,9 @@ PathTraceRestirPTReservoirs.h                                   DELETE?
 
 External C++ compiled into the exe:
     E:/prog/references/RTXDI-main/Libraries/Rtxdi/Source/RtxdiUtils.cpp
-                                                                REWRITE
-    (replace with rbdoom-owned utility; remove from neo/CMakeLists.txt)
+                                                                DONE
+    Replaced by rbdoom-owned header-only reservoir addressing utilities;
+    removed from neo/CMakeLists.txt.
 
 
 Vendored external trees (pre-existing, separate from RTXDI runtime)
