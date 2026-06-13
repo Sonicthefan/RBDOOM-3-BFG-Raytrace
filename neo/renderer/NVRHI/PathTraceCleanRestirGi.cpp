@@ -662,7 +662,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.spatialEnabled = r_pathTracingCleanRestirGiSpatial.GetInteger() != 0 ? 1u : 0u;
     tail.biasCorrection = static_cast<uint32_t>(idMath::ClampInt(0, 1, r_pathTracingCleanRestirGiTemporalBiasCorrection.GetInteger()));
     tail.jacobianEnabled = r_pathTracingCleanRestirGiJacobian.GetInteger() != 0 ? 1u : 0u;
-    tail.maxHistoryLength = static_cast<uint32_t>(idMath::ClampInt(1, 255, r_pathTracingCleanRestirGiMaxHistoryLength.GetInteger()));
+    tail.maxHistoryLength = static_cast<uint32_t>(idMath::ClampInt(0, 255, r_pathTracingCleanRestirGiMaxHistoryLength.GetInteger()));
     tail.maxReservoirAge = static_cast<uint32_t>(idMath::ClampInt(1, 255, r_pathTracingCleanRestirGiMaxReservoirAge.GetInteger()));
     tail.fireflyThreshold = Max(0.0f, r_pathTracingCleanRestirGiFireflyThreshold.GetFloat());
     tail.neeCacheSeedEnabled = r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0 ? 1u : 0u;

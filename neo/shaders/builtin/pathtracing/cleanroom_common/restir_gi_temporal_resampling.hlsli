@@ -30,9 +30,9 @@
 //   - enableFallbackSampling: when the back-projected pixel fails its gates,
 //     one extra candidate pixel is tried from a small jitter disc around it
 //     (recovers history across small reprojection misses at thin geometry).
-//   - The jacobian cutoff uses the same default (10.0) as the GI spatial
-//     replacement; the temporal parameter struct has no cutoff field at the
-//     repo call sites.
+//   - Jacobian validity is delegated to RAB_ValidateGISampleWithJacobian when
+//     the bridge callback is present. The local cutoff is only the standalone
+//     fallback for direct includes.
 
 #ifndef RBPT_GI_TEMPORAL_JACOBIAN_CUTOFF
 #define RBPT_GI_TEMPORAL_JACOBIAN_CUTOFF 10.0
@@ -67,13 +67,23 @@ float RBPT_GITemporalReconnectionJacobian(
         return 0.0;
     }
 
-    const float jacobian = (cosTo / cosFrom) * (dFrom2 / dTo2);
+    return (cosTo / cosFrom) * (dFrom2 / dTo2);
+}
+
+bool RBPT_GITemporalValidateJacobian(float jacobian)
+{
+#ifdef RBPT_HAS_GI_TEMPORAL_JACOBIAN_VALIDATION_CALLBACK
+    return RAB_ValidateGISampleWithJacobian(jacobian);
+#else
     if (jacobian < 1.0 / RBPT_GI_TEMPORAL_JACOBIAN_CUTOFF ||
-        jacobian > RBPT_GI_TEMPORAL_JACOBIAN_CUTOFF)
+        jacobian > RBPT_GI_TEMPORAL_JACOBIAN_CUTOFF ||
+        !(jacobian > 0.0) ||
+        !(jacobian == jacobian))
     {
-        return 0.0;
+        return false;
     }
-    return jacobian;
+    return true;
+#endif
 }
 
 bool RBPT_GITemporalSurfacesSimilar(
@@ -213,7 +223,8 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     // moving black-disc artifact (W -> inf -> NaN) seen under camera motion.
     const float jHistoryToCurrent = RBPT_GITemporalReconnectionJacobian(
         historySurfacePos, receiverPos, historyReservoir);
-    const float historyTargetAtCurrent = jHistoryToCurrent > 0.0
+    const bool historyJacobianValid = RBPT_GITemporalValidateJacobian(jHistoryToCurrent);
+    const float historyTargetAtCurrent = historyJacobianValid
         ? RAB_GetGISampleTargetPdfForSurface(historyReservoir.position, historyReservoir.radiance, surface)
         : 0.0;
     if (!(historyTargetAtCurrent > 0.0))
@@ -265,8 +276,9 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         // selected sample is valid. The domain the winner came from is
         // always counted - its existence proves that domain produces it.
         float normalizationZ = canonicalValid ? canonicalM : 0.0;
-        if (selectedHistory ||
-            RBPT_GITemporalReconnectionJacobian(receiverPos, historySurfacePos, selected) > 0.0)
+        const float jCurrentToHistory = RBPT_GITemporalReconnectionJacobian(
+            receiverPos, historySurfacePos, selected);
+        if (selectedHistory || RBPT_GITemporalValidateJacobian(jCurrentToHistory))
         {
             normalizationZ += historyM;
         }

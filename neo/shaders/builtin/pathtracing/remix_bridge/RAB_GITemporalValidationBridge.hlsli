@@ -85,6 +85,7 @@ bool RAB_ValidateGISampleWithJacobian(float jacobian)
 {
     return RemixRAB_ValidateGISampleWithJacobian(jacobian);
 }
+#define RBPT_HAS_GI_TEMPORAL_JACOBIAN_VALIDATION_CALLBACK 1
 
 bool RAB_GetTemporalConservativeVisibility(
     RAB_Surface currentSurface,

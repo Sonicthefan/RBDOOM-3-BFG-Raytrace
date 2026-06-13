@@ -2255,10 +2255,10 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     desc.activeCheckerboardField = 0u;
     desc.enableTemporalReuse = CleanRestirGiTemporalEnabled;
     // Remix-shaped reprojection thresholds: depth scales with view angle,
-    // normal relaxes with roughness. When the pixel is actually moving Remix
-    // activates its temporal search radius and relaxes the gates to
-    // depth 0.28 / normal 0.8 (restir_gi_temporal_reuse.comp.slang); without
-    // that relaxation panning rejects history back to single-sample noise.
+    // normal relaxes with roughness. When the receiver is actually moving,
+    // including forward/back motion near the screen-space expansion center,
+    // relax the gates to depth 0.28 / normal 0.8; without that depth-only
+    // activation, view 7 shows a circular low-M hole during dolly movement.
     const float viewDotNormal = surfaceValid
         ? abs(dot(CleanGiSafeNormalize(record.viewDirectionAndReserved.xyz, float3(0.0, 0.0, 1.0)),
             CleanGiSafeNormalize(record.geometricNormalAndRoughness.xyz, float3(0.0, 0.0, 1.0))))
@@ -2267,7 +2267,10 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     float normalThreshold = surfaceValid
         ? lerp(0.995, 0.5, saturate(record.geometricNormalAndRoughness.w))
         : 0.995;
-    if (dot(desc.screenSpaceMotion.xy, desc.screenSpaceMotion.xy) > 0.25)
+    const bool temporalMotionActive =
+        dot(desc.screenSpaceMotion.xy, desc.screenSpaceMotion.xy) > 0.25 ||
+        abs(desc.screenSpaceMotion.z) > 0.25;
+    if (temporalMotionActive)
     {
         depthThreshold = max(depthThreshold, 0.28);
         normalThreshold = min(normalThreshold, 0.8);
