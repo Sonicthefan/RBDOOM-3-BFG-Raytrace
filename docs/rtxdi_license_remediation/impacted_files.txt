@@ -83,12 +83,18 @@ cleanroom_common/restir_gi_temporal_resampling.hlsli            DONE
     Task 8 landed 2026-06-13: rbdoom-owned GI temporal merge (motion
     reprojection, gates, jacobian validation, 1/M + BASIC target-pdf
     normalization) behind the in-repo Rtxdi/GI/TemporalResampling.hlsli shim.
+cleanroom_common/restir_gi_spatial_resampling.hlsli             DONE
+    Task 9 landed 2026-06-13: prepared rbdoom-owned GI spatial resampling
+    wired behind the in-repo Rtxdi/GI/SpatialResampling.hlsli shim; duplicate
+    RTXDI_GISpatialResamplingParameters definition removed in favor of the
+    Task 7 shared parameter owner. External GI SpatialResampling CMake entry
+    removed.
 remix_bridge/RAB_GIReservoirBridge.hlsli                        DONE
     Task 7 landed 2026-06-13: GI/Reservoir.hlsli + ReSTIRGIParameters.h now
     resolve to in-repo shims over cleanroom_common/restir_gi_reservoir(+_storage)
     and restir_gi_parameters (32-byte packed ABI, rngSeed M-cap field).
-    External GI Reservoir/ReSTIRGIParameters CMake entries removed; only
-    GI Temporal/SpatialResampling remain external (tasks 8-9).
+    External GI Reservoir/ReSTIRGIParameters/Temporal/Spatial CMake entries
+    removed; active GI Rtxdi/GI shader includes now resolve to in-repo shims.
 remix_restir_gi/pathtrace_clean_restir_gi_boiling_filter.cs.hlsl
     no direct Rtxdi includes; rebuild blob only after the lane rewires.
 

@@ -707,6 +707,7 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 }
 
 #define RTXDI_NEIGHBOR_OFFSETS_BUFFER CleanGiNeighborOffsets
+#define RBPT_GI_SURFACE_LINEAR_DEPTH(surface) RAB_GetSurfaceLinearDepth(surface)
 #include "Rtxdi/GI/SpatialResampling.hlsli"
 
 // Spatial reuse over the TEMPORAL_OUTPUT page per the Remix policy:
@@ -737,6 +738,7 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
     sparams.depthThreshold = 0.28;
     sparams.normalThreshold = 0.8;
     sparams.biasCorrectionMode = min(CleanRestirGiBiasCorrection, uint(RTXDI_BIAS_CORRECTION_BASIC));
+    sparams.jacobianCutoff = 0.0;
 
     return RTXDI_GISpatialResampling(
         pixel,
