@@ -20,7 +20,6 @@
 //
 // Call-site compatibility (pathtrace_clean_restir_gi.rt.hlsl):
 //   - #define RTXDI_NEIGHBOR_OFFSETS_BUFFER <float2 array> before include
-//   - int2 RAB_ClampSamplePositionIntoView(int2, bool) defined before include
 //   - RTXDI_GISpatialResampling(pixel, surface, sourceReservoirIndex,
 //         inputReservoir, rng, runtimeParams, reservoirParams, sparams)
 //   - sparams fields: samplingRadius, numSamples, depthThreshold,
@@ -81,11 +80,16 @@
     dot(radiance, float3(0.2126, 0.7152, 0.0722))
 #endif
 
+#ifndef RBPT_GI_TARGET_PDF
+#define RBPT_GI_TARGET_PDF(surface, reservoir) \
+    RBPT_GI_TARGET_LUMINANCE((reservoir).radiance)
+#endif
+
 // p-hat of a reservoir sample as seen from `surface`. With the default
 // luminance target the surface argument is unused.
 float RBPT_GITargetPdf(RAB_Surface surface, RTXDI_GIReservoir r)
 {
-    return RBPT_GI_TARGET_LUMINANCE(r.radiance);
+    return RBPT_GI_TARGET_PDF(surface, r);
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +175,7 @@ struct RBPT_GIStream
     float wSum;
     float M;
     float selectedTargetAtReceiver; // p-hat_q of the (shifted) selected sample
+    int selectedSourceSlot;         // -1 = canonical/current, >=0 = neighbor
 };
 
 RBPT_GIStream RBPT_GIStreamInit()
@@ -180,6 +185,7 @@ RBPT_GIStream RBPT_GIStreamInit()
     s.wSum = 0.0;
     s.M = 0.0;
     s.selectedTargetAtReceiver = 0.0;
+    s.selectedSourceSlot = -2;
     return s;
 }
 
@@ -193,6 +199,7 @@ void RBPT_GIStreamUpdate(
     float w,
     float targetAtReceiver,
     float confidence,
+    int sourceSlot,
     inout RTXDI_RandomSamplerState rng)
 {
     s.M += confidence;
@@ -205,6 +212,7 @@ void RBPT_GIStreamUpdate(
     {
         s.selected = candidate;
         s.selectedTargetAtReceiver = targetAtReceiver;
+        s.selectedSourceSlot = sourceSlot;
     }
 }
 
@@ -330,6 +338,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
     #define RBPT_GI_MAX_SPATIAL_SAMPLES 8
     float  neighborM[RBPT_GI_MAX_SPATIAL_SAMPLES];
     float3 neighborPos[RBPT_GI_MAX_SPATIAL_SAMPLES];
+    int2   neighborPixels[RBPT_GI_MAX_SPATIAL_SAMPLES];
     uint   acceptedCount = 0;
     uint   pairsSeen = 0; // pairwise: neighbor techniques that exist at all
 
@@ -342,8 +351,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         const int2 delta = RBPT_GIDiscNeighborDelta(
             rng, sparams.samplingRadius, runtimeParams.neighborOffsetMask);
 #endif
-        const int2 neighborPixel =
-            RAB_ClampSamplePositionIntoView(int2(pixel) + delta, false);
+        const int2 neighborPixel = int2(pixel) + delta;
         if (all(neighborPixel == int2(pixel)))
         {
             continue;
@@ -437,10 +445,12 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         const float w =
             mis * targetAtReceiver * jNeighborToCan * neighbor.weightSum;
 
-        RBPT_GIStreamUpdate(stream, neighbor, w, targetAtReceiver, Mi, rng);
+        RBPT_GIStreamUpdate(stream, neighbor, w, targetAtReceiver, Mi,
+                            int(acceptedCount), rng);
 
         neighborM[acceptedCount] = Mi;
         neighborPos[acceptedCount] = neighborSurfacePos;
+        neighborPixels[acceptedCount] = neighborPixel;
         acceptedCount++;
     }
 
@@ -464,7 +474,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         }
         const float w = mis * canonicalTarget * inputReservoir.weightSum;
         RBPT_GIStreamUpdate(stream, inputReservoir, w, canonicalTarget,
-                            Mc, rng);
+                            Mc, -1, rng);
     }
 
     if (!(stream.wSum > 0.0) || stream.selectedTargetAtReceiver <= 0.0 ||
@@ -484,15 +494,26 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
     else if (sparams.biasCorrectionMode >= RTXDI_BIAS_CORRECTION_BASIC)
     {
         // 1/Z (Ouyang et al. 2021): count the confidence of every
-        // participant whose domain could have produced the selected
-        // sample, i.e. whose shift of the selected sample is valid.
+        // participant whose domain could have produced the selected sample.
+        // The winning source domain is always counted; that domain already
+        // proved it can produce the sample, so a failed re-evaluation must not
+        // inflate W by dropping it from Z.
         float Z = canonicalValid ? Mc : 0.0;
         for (uint n = 0; n < acceptedCount; ++n)
         {
+            if (stream.selectedSourceSlot == int(n))
+            {
+                Z += neighborM[n];
+                continue;
+            }
+
             const float jSelToNeighbor = RBPT_GIReconnectionJacobian(
                 receiverPos, neighborPos[n], stream.selected,
                 sparams.jacobianCutoff);
-            if (jSelToNeighbor > 0.0)
+            const RAB_Surface neighborSurface = RBPT_GI_GET_SURFACE(
+                neighborPixels[n]);
+            if (jSelToNeighbor > 0.0 &&
+                RBPT_GITargetPdf(neighborSurface, stream.selected) > 0.0)
             {
                 Z += neighborM[n];
             }

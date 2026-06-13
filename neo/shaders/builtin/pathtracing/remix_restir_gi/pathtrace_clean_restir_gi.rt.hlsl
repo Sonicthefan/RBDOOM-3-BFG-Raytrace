@@ -708,6 +708,8 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 
 #define RTXDI_NEIGHBOR_OFFSETS_BUFFER CleanGiNeighborOffsets
 #define RBPT_GI_SURFACE_LINEAR_DEPTH(surface) RAB_GetSurfaceLinearDepth(surface)
+#define RBPT_GI_TARGET_PDF(surface, reservoir) \
+    RemixRAB_GetGISampleTargetPdfForSurface((reservoir).position, (reservoir).radiance, (surface))
 #include "Rtxdi/GI/SpatialResampling.hlsli"
 
 // Spatial reuse over the TEMPORAL_OUTPUT page per the Remix policy:
