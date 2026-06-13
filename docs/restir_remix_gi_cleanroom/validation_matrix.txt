@@ -51,7 +51,7 @@ RGI-06 spatial
     thin-wall scene: no indirect light leaking across occluders
 
 RGI-07 final shading + resolve
-    view 6: indirect diffuse only; black where no bounce light possible
+    view 6: indirect GI with diffuse + specular; black where no bounce light possible
     resolve on: colored wall bleeds onto neutral floor; removing the wall
         (or its light) removes the bleed
     resolve off: combined output identical to pre-GI baseline

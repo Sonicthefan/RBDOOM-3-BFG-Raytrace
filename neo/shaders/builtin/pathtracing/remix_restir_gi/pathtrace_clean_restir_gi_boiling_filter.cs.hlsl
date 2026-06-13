@@ -1,13 +1,12 @@
 // Clean-room ReSTIR GI boiling filter + resolve consumer (RGI-08).
 //
-// Remix final-shading-shaped boiling filter for the diffuse GI output:
+// Remix final-shading-shaped boiling filter for the shaded GI output:
 // compute the threadgroup's average nonzero shaded luminance and clamp
-// outliers down to that average (Remix applyBoilingFilter diffuse path;
-// the reservoir-kill branch is specular-only and we are diffuse-only).
+// outliers down to that average.
 // This pass also owns the resolve add so the combined outputs receive the
-// FILTERED contribution: SmokeOutput/RRInputColor += albedo * indirect.
+// FILTERED contribution: SmokeOutput/RRInputColor += indirect.
 //
-// io_whitelist: reads GI-O-05 (indirect diffuse) + GI-I-01 (albedo only);
+// io_whitelist: reads GI-O-05 (shaded indirect GI) + GI-I-01 (validity only);
 // writes GI-O-05 (filtered in place) and the combined beauty outputs under
 // r_pathTracingCleanRestirGiResolve.
 
@@ -19,7 +18,7 @@ cbuffer PathTraceCleanRestirGiBoilingFilterConstants : register(b0)
     uint CleanGiBfWidth;
     uint CleanGiBfHeight;
     float CleanGiBfThreshold;     // 0 disables clamping
-    uint CleanGiBfResolveEnabled; // adds albedo * indirect into the outputs
+    uint CleanGiBfResolveEnabled; // adds shaded indirect GI into the outputs
 };
 
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanGiBfIndirectDiffuse : register(u1);
@@ -94,10 +93,8 @@ void main(uint2 pixel : SV_DispatchThreadID, uint2 localIndex : SV_GroupThreadID
         if (record.header.x == RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION &&
             (record.header.y & RT_PRIMARY_SURFACE_VALID) != 0u)
         {
-            const float3 albedo = saturate(record.albedoAndAlphaCutoff.xyz);
-            const float3 modulated = albedo * indirect;
-            CleanGiBfSmokeOutput[pixel] += float4(modulated, 0.0);
-            CleanGiBfRRInputColor[pixel] += float4(modulated, 0.0);
+            CleanGiBfSmokeOutput[pixel] += float4(indirect, 0.0);
+            CleanGiBfRRInputColor[pixel] += float4(indirect, 0.0);
         }
     }
 }

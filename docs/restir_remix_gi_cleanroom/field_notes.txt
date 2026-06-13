@@ -109,9 +109,9 @@ default 4, not the SDK-comparable 30.
 
 Boiling filter: ported as a GI compute pass
 (pathtrace_clean_restir_gi_boiling_filter.cs.hlsl) that clamps shaded
-indirect-diffuse outliers to the 8x8-group average luminance, matching the
-Remix final-shading diffuse boiling behavior (the reservoir-kill branch is
-specular-only upstream and the lane is diffuse-only). Threshold cvar
+indirect-GI outliers to the 8x8-group average luminance. The rbdoom lane now
+feeds diffuse + specular into the shared GI output, while the separate
+NRD-shaped split outputs remain deferred. Threshold cvar
 r_pathTracingCleanRestirGiBoilingFilter, default 15 (HL2 RTX value);
 0 disables. The same pass owns the resolve add, so the combined outputs
 receive the filtered contribution.

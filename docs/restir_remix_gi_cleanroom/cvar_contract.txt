@@ -41,7 +41,7 @@ r_pathTracingCleanRestirGiView
         3  initial reservoir radiance * W
         4  temporal output radiance * W
         5  spatial output radiance * W
-        6  final shaded indirect diffuse (isolated, no DI, no albedo modulate)
+        6  final shaded indirect GI (diffuse + specular, isolated, no DI)
         7  reservoir M / age diagnostics
     Views must read only GI-lane resources.
 

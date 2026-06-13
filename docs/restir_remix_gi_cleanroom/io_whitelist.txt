@@ -131,16 +131,15 @@ GI-O-03: TEMPORAL_OUTPUT Reservoir Page
 GI-O-04: SPATIAL_OUTPUT Reservoir Page
     Written by GI spatial pass; pass-through when spatial cvar = 0.
 
-GI-O-05: GI Indirect Diffuse Output
-    Written by GI final shading only (diffuse lobe, primary BSDF toward
-    reservoir.position * radiance * W). Consumed by combined resolve only
-    under r_pathTracingCleanRestirGiResolve.
+GI-O-05: GI Indirect Output
+    Written by GI final shading only (diffuse + specular lobes, primary BSDF
+    toward reservoir.position * radiance * W). Consumed by combined resolve
+    only under r_pathTracingCleanRestirGiResolve.
 
 GI-O-06: GI Debug Output
     Views 1-7 per cvar_contract.txt. Reads only GI lane resources +
     GI-I-01 for status. Every pixel explicitly written; invalid states are
-    explicit colors; no fallback shading, no albedo modulate (view 6
-    isolated).
+    explicit colors; no fallback shading (view 6 isolated).
 
 GI-O-07: One-Shot CPU Dump
     Same rules as DI O-05.

@@ -97,8 +97,9 @@ Remix Pass Order
            multiply by reservoir.radiance * reservoir weight
          - split into diffuse and specular lobes; write
            indirect radiance + hit distance outputs (NRD-shaped in Remix)
-         - rbdoom baseline: diffuse lobe only, into a dedicated GI output
-           consumed by the combined resolve; specular lobe deferred
+         - rbdoom current baseline: diffuse + specular lobes share the
+           existing dedicated GI output consumed by the combined resolve;
+           separate diffuse/specular NRD outputs remain deferred
 
 
 Reservoir Payload (upstream RTXDI GI)

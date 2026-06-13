@@ -1645,7 +1645,7 @@ idCVar r_pathTracingCleanRestirGiView(
     "r_pathTracingCleanRestirGiView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect diffuse (isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags. Reads GI lane resources only" );
+    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect GI (diffuse+specular isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags. Reads GI lane resources only" );
 
 idCVar r_pathTracingCleanRestirGiTemporal(
     "r_pathTracingCleanRestirGiTemporal",
