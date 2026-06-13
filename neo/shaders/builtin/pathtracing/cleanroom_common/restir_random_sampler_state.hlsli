@@ -47,7 +47,7 @@ struct RTXDI_RandomSamplerState
     uint index;
     uint2 pixel;
     uint frameIndex;
-    uint passSalt;
+    uint dimensionBase;
     uint useBlueNoise;
 };
 
@@ -58,21 +58,23 @@ RTXDI_RandomSamplerState RTXDI_CreateRandomSamplerFromDirectSeed(uint seed, uint
     rng.index = index;
     rng.pixel = uint2(0u, 0u);
     rng.frameIndex = 0u;
-    rng.passSalt = 0u;
+    rng.dimensionBase = 0u;
     rng.useBlueNoise = 0u;
     return rng;
 }
 
-RTXDI_RandomSamplerState RTXDI_InitRandomSampler(uint2 pixel, uint frameIndex, uint pass)
+// The third argument is the starting random dimension. Several call sites use
+// large per-pass constants as dimension namespaces, so it must live in index.
+RTXDI_RandomSamplerState RTXDI_InitRandomSampler(uint2 pixel, uint frameIndex, uint dimensionBase)
 {
     RTXDI_RandomSamplerState rng;
     rng.seed = RBPT_RestirHashCombine(
         RBPT_RestirHashCombine(pixel.x, pixel.y),
-        RBPT_RestirHashCombine(frameIndex, pass));
-    rng.index = 0u;
+        frameIndex);
+    rng.index = dimensionBase;
     rng.pixel = pixel;
     rng.frameIndex = frameIndex;
-    rng.passSalt = pass;
+    rng.dimensionBase = dimensionBase;
 #ifdef RBPT_ENABLE_BLUE_NOISE
     rng.useBlueNoise = 1u;
 #else
@@ -102,7 +104,7 @@ float RBPT_RestirGetNextBlue(inout RTXDI_RandomSamplerState rng)
 
     const uint epoch = rng.frameIndex / RBPT_BLUE_NOISE_LAYERS;
     const uint rotBits = RBPT_RestirHashCombine(
-        rng.passSalt,
+        rng.dimensionBase,
         RBPT_RestirHashCombine(dimension, epoch));
     return frac(mask + RBPT_RestirUintToUnitFloat(rotBits));
 }
