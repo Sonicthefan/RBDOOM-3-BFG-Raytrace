@@ -8,11 +8,10 @@
 // rbdoom-owned GI temporal resampling, replacing
 // Rtxdi/GI/TemporalResampling.hlsli. Math: Ouyang et al. 2021 (ReSTIR GI) -
 // two-candidate streaming merge of the fresh initial sample with the
-// back-projected history sample, with the reconnection-shift jacobian in the
-// resampling weight and 1/Z (BASIC) bias correction. Conventions match the
-// rbdoom GI spatial replacement (GISpatialResampling.hlsli): candidate
-// weight = m * p-hat_q(T(s)) * |J| * W, finalize
-// W_out = wSum / (normalization * p-hat_q(selected)).
+// back-projected history sample. Conventions match RTXDI GI temporal:
+// candidate weight = m * p-hat_q(T(s)) * W; OFF finalizes by 1/M, BASIC
+// finalizes with the selected sample's shifted target pdf over the
+// target-pdf-weighted candidate sum.
 //
 // The including shader must define, before this header:
 //   RAB_GetGBufferSurface(int2 pixel, bool previousFrame)   (bounds-safe)
@@ -115,10 +114,10 @@ bool RBPT_GITemporalFindHistory(
     RTXDI_GITemporalResamplingParameters tparams,
     inout RTXDI_RandomSamplerState rng,
     out RTXDI_GIReservoir historyReservoir,
-    out float3 historySurfacePos)
+    out RAB_Surface historySurface)
 {
     historyReservoir = RTXDI_EmptyGIReservoir();
-    historySurfacePos = float3(0.0, 0.0, 0.0);
+    historySurface = RAB_EmptySurface();
 
     int2 basePixel = int2(round(float2(pixelPosition) + screenSpaceMotion.xy));
     if (tparams.enablePermutationSampling != 0u)
@@ -163,7 +162,7 @@ bool RBPT_GITemporalFindHistory(
         }
 
         historyReservoir = candidate;
-        historySurfacePos = RAB_GetSurfaceWorldPos(previousSurface);
+        historySurface = previousSurface;
         return true;
     }
     return false;
@@ -186,7 +185,7 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     }
 
     RTXDI_GIReservoir historyReservoir;
-    float3 historySurfacePos;
+    RAB_Surface historySurface;
     if (!RBPT_GITemporalFindHistory(
         pixelPosition,
         surface,
@@ -197,7 +196,7 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         tparams,
         rng,
         historyReservoir,
-        historySurfacePos))
+        historySurface))
     {
         return inputReservoir;
     }
@@ -221,6 +220,7 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     // here would compound through the stored W frame over frame (temporal
     // output is its own next input) - that feedback was the cause of the
     // moving black-disc artifact (W -> inf -> NaN) seen under camera motion.
+    const float3 historySurfacePos = RAB_GetSurfaceWorldPos(historySurface);
     const float jHistoryToCurrent = RBPT_GITemporalReconnectionJacobian(
         historySurfacePos, receiverPos, historyReservoir);
     const bool historyJacobianValid = RBPT_GITemporalValidateJacobian(jHistoryToCurrent);
@@ -237,9 +237,9 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         : 0.0;
 
     // Two-candidate streaming merge; confidence-weighted RIS, bias handled
-    // by the normalization below (matches the GI spatial replacement).
+    // by the reference-shaped normalization below.
     RTXDI_GIReservoir selected = RTXDI_EmptyGIReservoir();
-    float selectedTarget = 0.0;
+    float selectedTargetAtCurrent = 0.0;
     bool selectedHistory = false;
     float wSum = 0.0;
 
@@ -247,7 +247,7 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     {
         wSum += canonicalM * canonicalTarget * inputReservoir.weightSum;
         selected = inputReservoir;
-        selectedTarget = canonicalTarget;
+        selectedTargetAtCurrent = canonicalTarget;
     }
 
     const float historyWeight =
@@ -258,39 +258,39 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         if (RTXDI_GetNextRandom(rng) * wSum <= historyWeight)
         {
             selected = historyReservoir;
-            selectedTarget = historyTargetAtCurrent;
+            selectedTargetAtCurrent = historyTargetAtCurrent;
             selectedHistory = true;
         }
     }
 
-    if (!(wSum > 0.0) || selectedTarget <= 0.0 || !RTXDI_IsValidGIReservoir(selected))
+    if (!(wSum > 0.0) || selectedTargetAtCurrent <= 0.0 || !RTXDI_IsValidGIReservoir(selected))
     {
         return inputReservoir;
     }
 
     const float mergedM = canonicalM + historyM;
-    float normalization;
+    float normalizationNumerator = 1.0;
+    float normalizationDenominator = selectedTargetAtCurrent * max(mergedM, 1.0);
     if (min(tparams.biasCorrectionMode, uint(RTXDI_BIAS_CORRECTION_BASIC)) >= RTXDI_BIAS_CORRECTION_BASIC)
     {
-        // 1/Z: count the confidence of every domain whose shift of the
-        // selected sample is valid. The domain the winner came from is
-        // always counted - its existence proves that domain produces it.
-        float normalizationZ = canonicalValid ? canonicalM : 0.0;
-        const float jCurrentToHistory = RBPT_GITemporalReconnectionJacobian(
-            receiverPos, historySurfacePos, selected);
-        if (selectedHistory || RBPT_GITemporalValidateJacobian(jCurrentToHistory))
+        const float selectedTargetAtHistory = RAB_GetGISampleTargetPdfForSurface(
+            selected.position, selected.radiance, historySurface);
+        const float piSum =
+            selectedTargetAtCurrent * canonicalM +
+            selectedTargetAtHistory * historyM;
+
+        normalizationNumerator = selectedHistory
+            ? selectedTargetAtHistory
+            : selectedTargetAtCurrent;
+        normalizationDenominator = piSum * selectedTargetAtCurrent;
+        if (!(normalizationNumerator > 0.0) || !(normalizationDenominator > 0.0))
         {
-            normalizationZ += historyM;
+            return inputReservoir;
         }
-        normalization = max(normalizationZ, 1.0);
-    }
-    else
-    {
-        normalization = max(mergedM, 1.0);
     }
 
     RTXDI_GIReservoir result = selected;
-    result.weightSum = wSum / (normalization * selectedTarget);
+    result.weightSum = (wSum * normalizationNumerator) / normalizationDenominator;
     if (!(result.weightSum > 0.0 && result.weightSum < 1.0e20))
     {
         return inputReservoir;
