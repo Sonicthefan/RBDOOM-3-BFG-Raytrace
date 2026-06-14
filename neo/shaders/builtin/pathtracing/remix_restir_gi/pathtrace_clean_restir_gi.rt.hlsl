@@ -1038,6 +1038,7 @@ struct CleanGiIndirectLobeResult
 {
     float3 diffuse;
     float3 specular;
+    float hitDistance;
 };
 
 float3 CleanGiEvaluateIndirectSpecularLobe(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance)
@@ -2695,10 +2696,12 @@ CleanGiIndirectLobeResult CleanGiFinalShadeIndirectSplit(RAB_Surface surface, RT
     {
         return result;
     }
-    return CleanGiEvaluateIndirectLobesSplit(
+    result = CleanGiEvaluateIndirectLobesSplit(
         surface,
         sampleDir,
         max(reservoir.radiance, float3(0.0, 0.0, 0.0)) * weight);
+    result.hitDistance = sqrt(distanceSquared);
+    return result;
 }
 
 float3 CleanGiFinalShadeIndirect(RAB_Surface surface, RTXDI_GIReservoir reservoir)
@@ -2717,7 +2720,7 @@ void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIRes
     const float3 indirect = lobes.diffuse + lobes.specular;
     CleanRestirGiIndirectDiffuse[pixel] = float4(indirect, 1.0);
     CleanRestirGiIndirectDiffuseLobe[pixel] = float4(lobes.diffuse, 1.0);
-    CleanRestirGiIndirectSpecularLobe[pixel] = float4(lobes.specular, 1.0);
+    CleanRestirGiIndirectSpecularLobe[pixel] = float4(lobes.specular, lobes.hitDistance);
 }
 
 // ---------------------------------------------------------------------------
@@ -2786,11 +2789,14 @@ void RayGen()
             const float3 indirect = CleanGiFinalShadeIndirect(spatialSurface, spatialReservoir);
             SmokeOutput[pixel] = float4(spatialSurfaceValid ? CleanGiToneMap(indirect) : float3(0.08, 0.08, 0.08), 1.0);
         }
-        else if (view == 11u || view == 12u)
+        else if (view == 11u || view == 12u || view == 16u)
         {
             const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(spatialSurface, spatialReservoir);
             const float3 lobe = view == 11u ? lobes.diffuse : lobes.specular;
-            SmokeOutput[pixel] = float4(spatialSurfaceValid ? CleanGiToneMap(lobe) : float3(0.08, 0.08, 0.08), 1.0);
+            const float3 distanceBands = saturate(float3(lobes.hitDistance / 128.0, lobes.hitDistance / 512.0, lobes.hitDistance / 2048.0));
+            SmokeOutput[pixel] = float4(
+                spatialSurfaceValid ? (view == 16u ? distanceBands : CleanGiToneMap(lobe)) : float3(0.08, 0.08, 0.08),
+                1.0);
         }
         else if (view == 5u)
         {
@@ -3047,11 +3053,11 @@ void RayGen()
             color = float3(hasDiffuseTexture ? 0.0 : 1.0, hasDiffuseTexture ? 1.0 : 0.0, forceDebugAlbedo ? 1.0 : 0.0);
         }
     }
-    else if (view == 11u || view == 12u)
+    else if (view == 11u || view == 12u || view == 16u)
     {
         if (CleanRestirGiSpatialEnabled != 0u)
         {
-            // Phase 1 owns final-lobe views when spatial actually runs.
+            // Phase 1 owns final-lobe/distance views when spatial actually runs.
             return;
         }
         if (!surfaceValid)
@@ -3062,7 +3068,11 @@ void RayGen()
         {
             RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
             const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(viewSurface, temporalReservoir);
-            color = CleanGiToneMap(view == 11u ? lobes.diffuse : lobes.specular);
+            color = view == 11u
+                ? CleanGiToneMap(lobes.diffuse)
+                : (view == 12u
+                    ? CleanGiToneMap(lobes.specular)
+                    : saturate(float3(lobes.hitDistance / 128.0, lobes.hitDistance / 512.0, lobes.hitDistance / 2048.0)));
         }
     }
     else if (view == 13u || view == 14u || view == 15u)

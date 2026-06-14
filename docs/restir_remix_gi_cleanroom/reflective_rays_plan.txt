@@ -129,6 +129,8 @@ specular lobe UAVs. Debug views:
 
 The boiling filter and resolve still consume the existing combined output.
 Denoiser/RR-aware consumption of the split outputs remains deferred.
+The specular split output alpha carries final sample hit distance; debug view
+16 visualizes it as distance bands.
 
 The current rbdoom output is one shaded GI RGB buffer. That is enough for a
 proof of reflective rays, but not a complete Remix/NRD-shaped output contract.
@@ -136,7 +138,7 @@ proof of reflective rays, but not a complete Remix/NRD-shaped output contract.
 Deferred output work:
 
     - split diffuse and specular indirect radiance outputs
-    - add specular hit distance / path length output
+    - route specular hit distance / path length output to denoiser/RR consumers
     - route specular GI through an RR/denoiser-aware path
     - keep the current combined buffer as a debug/proof fallback
 

@@ -51,6 +51,7 @@ r_pathTracingCleanRestirGiView
         13 specular producer radiance
         14 specular producer hit geometry
         15 specular producer PDF health
+        16 specular lobe hit distance
     Views must read only GI-lane resources.
 
 r_pathTracingCleanRestirGiTemporal
