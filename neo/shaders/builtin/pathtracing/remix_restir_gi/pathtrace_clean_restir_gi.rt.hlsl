@@ -713,6 +713,9 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
 static const uint CLEAN_RESTIR_GI_PRODUCER_RNG_PASS = 0x52525810u;
 static const uint CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS = 0x52525813u;
 static const float CLEAN_RESTIR_GI_FIREFLY_FACTOR = 30.0;
+static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MAX_ROUGHNESS = 0.35;
+static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0 = 0.035;
+static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_METAL_F0 = 0.12;
 
 float3 CleanGiSafeNormalize(float3 value, float3 fallback)
 {
@@ -1032,6 +1035,20 @@ void CleanGiSmokePBRFromSpecmap(float3 specMap, out float3 F0, out float roughne
 bool CleanGiToyFakePBRSpecularEnabled()
 {
     return (((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR) != 0u;
+}
+
+bool CleanGiSurfaceSupportsSpecularProducer(RAB_Surface surface)
+{
+    if (CleanRestirGiSpecularProducerEnabled == 0u || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    const float roughness = saturate(GetRoughness(surface.material));
+    const float specularLum = CleanGiLuminance(GetSpecularF0(surface.material));
+    return specularLum >= CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0 &&
+        (roughness <= CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MAX_ROUGHNESS ||
+            specularLum >= CLEAN_RESTIR_GI_SPECULAR_PRODUCER_METAL_F0);
 }
 
 struct CleanGiIndirectLobeResult
@@ -2299,13 +2316,13 @@ bool CleanGiSampleSpecularProducerDirection(
 {
     bounceDir = float3(0.0, 0.0, 0.0);
     solidAnglePdf = 0.0;
-    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
     {
         return false;
     }
 
     const float3 specularF0 = max(GetSpecularF0(surface.material), float3(0.0, 0.0, 0.0));
-    if (CleanGiLuminance(specularF0) <= 1.0e-4)
+    if (CleanGiLuminance(specularF0) < CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0)
     {
         return false;
     }
@@ -2357,14 +2374,19 @@ void CleanGiProducerMixtureProbabilities(RAB_Surface surface, out float diffuseP
 {
     diffuseProbability = 1.0;
     specularProbability = 0.0;
-    if (CleanRestirGiSpecularProducerEnabled == 0u || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
         return;
     }
 
     const float diffuseWeight = max(CleanGiLuminance(GetDiffuseAlbedo(surface.material)), 1.0e-4);
+    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
+    {
+        return;
+    }
+
     const float specularLum = CleanGiLuminance(GetSpecularF0(surface.material));
-    if (specularLum <= 1.0e-4)
+    if (specularLum < CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0)
     {
         return;
     }
@@ -2390,13 +2412,13 @@ float CleanGiDiffuseProducerPdf(RAB_Surface surface, float3 bounceDir)
 
 float CleanGiSpecularProducerPdf(RAB_Surface surface, float3 bounceDir)
 {
-    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
     {
         return 0.0;
     }
 
     const float3 specularF0 = max(GetSpecularF0(surface.material), float3(0.0, 0.0, 0.0));
-    if (CleanGiLuminance(specularF0) <= 1.0e-4)
+    if (CleanGiLuminance(specularF0) < CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0)
     {
         return 0.0;
     }
@@ -2594,6 +2616,11 @@ void CleanGiSeedInitPageFromSpecularProducer(uint2 pixel, bool surfaceValid, Pat
     }
 
     const RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
+    {
+        return;
+    }
+
     RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
     const CleanGiProducerResult producer = CleanGiRunSpecularProducer(record, rng);
     CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));

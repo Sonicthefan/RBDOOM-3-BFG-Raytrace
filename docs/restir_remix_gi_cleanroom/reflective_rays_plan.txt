@@ -21,6 +21,10 @@ It traces a specular/GGX producer candidate and preloads it into the INIT page
 so the existing raw diffuse initial sample can merge with it. The existing
 view 1/2 producer textures still show the diffuse producer only; dedicated
 specular candidate debug views remain part of RGI-RR-05.
+The producer is limited to meaningful reflective receivers: F0 luminance at
+least 0.035 and either roughness <= 0.35 or high-F0/metal-like F0 >= 0.12.
+Ordinary rough dielectric walls keep the diffuse-only producer path to avoid
+tracing an extra specular candidate ray across most of the screen.
 
 Add a cvar-gated specular/glossy GI producer candidate from the primary
 surface:
