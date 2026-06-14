@@ -7,10 +7,11 @@
 //         ray), and write the producer textures (views 1 and 2).
 //
 // Radiance factoring contract (remix_gi_contract.txt): the stored producer
-// radiance is L_in / solidAnglePdf of the bounce direction. It excludes the
-// primary-surface BSDF and primary albedo; the final shading pass applies the
-// receiving BRDF. Alpha channel = indirect path length. Miss = zero radiance
-// + invalid hit-geometry flag. The firefly clamp applies here only.
+// radiance is L_in / producer sample PDF (diffuse PDF, or diffuse/specular
+// mixture PDF when the specular producer is enabled). It excludes the primary-
+// surface BSDF and primary albedo; the final shading pass applies the
+// receiving BRDF. Alpha channel = indirect path length. Miss = zero radiance +
+// invalid hit-geometry flag. The firefly clamp applies here only.
 //
 // io_whitelist: reads GI-I-01 (current primary surface), GI-I-04 (current
 // light universe, secondary vertex only), GI-I-05 (TLAS rays), GI-I-06
@@ -2011,7 +2012,7 @@ float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3
 struct CleanGiProducerResult
 {
     uint valid;          // 1 when the bounce ray hit a usable surface
-    float3 radiance;     // L_in / solidAnglePdf (excludes primary BSDF/albedo)
+    float3 radiance;     // L_in / producer sample PDF (excludes primary BSDF/albedo)
     float pathLength;    // indirect path length (hitT)
     float3 hitPosition;
     float3 hitNormal;
@@ -2072,12 +2073,12 @@ CleanGiProducerResult CleanGiTraceProducerRay(
     float3 primaryPosition,
     float3 primaryGeometricNormal,
     float3 bounceDir,
-    float solidAnglePdf,
+    float samplePdf,
     inout RAB_RandomSamplerState rng)
 {
     CleanGiProducerResult result = (CleanGiProducerResult)0;
 
-    if (solidAnglePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
+    if (samplePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
     {
         return result;
     }
@@ -2204,9 +2205,9 @@ CleanGiProducerResult CleanGiTraceProducerRay(
     const float3 outgoing = CleanGiShadeSecondaryVertex(secondarySurface, hitGeometricNormal, hitEmissive, rng);
 
     // Producer radiance contract: incoming radiance at the primary surface
-    // divided by the bounce-direction solid-angle pdf; the primary BSDF and
+    // divided by the selected bounce proposal PDF; the primary BSDF and
     // albedo are excluded (applied by final shading).
-    float3 producerRadiance = outgoing / max(solidAnglePdf, 1.0e-6);
+    float3 producerRadiance = outgoing / max(samplePdf, 1.0e-6);
 
     // Firefly clamp (initial samples only). Matches the Remix shape:
     // luminance clamp at threshold * 30.
@@ -2300,19 +2301,104 @@ bool CleanGiSampleSpecularProducerDirection(
     return solidAnglePdf > 1.0e-6 && solidAnglePdf == solidAnglePdf;
 }
 
+void CleanGiProducerMixtureProbabilities(RAB_Surface surface, out float diffuseProbability, out float specularProbability)
+{
+    diffuseProbability = 1.0;
+    specularProbability = 0.0;
+    if (CleanRestirGiSpecularProducerEnabled == 0u || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return;
+    }
+
+    const float diffuseWeight = max(CleanGiLuminance(GetDiffuseAlbedo(surface.material)), 1.0e-4);
+    const float specularLum = CleanGiLuminance(GetSpecularF0(surface.material));
+    if (specularLum <= 1.0e-4)
+    {
+        return;
+    }
+
+    const float roughness = saturate(GetRoughness(surface.material));
+    const float glossWeight = lerp(1.25, 0.35, roughness);
+    const float specularWeight = max(specularLum * glossWeight, 0.0);
+    specularProbability = clamp(specularWeight / max(diffuseWeight + specularWeight, 1.0e-4), 0.05, 0.95);
+    diffuseProbability = 1.0 - specularProbability;
+}
+
+float CleanGiDiffuseProducerPdf(RAB_Surface surface, float3 bounceDir)
+{
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return 0.0;
+    }
+    const float3 normal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 geometryNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), normal);
+    const float ndotl = saturate(dot(normal, bounceDir));
+    return dot(geometryNormal, bounceDir) > 0.0 ? ndotl / RTXDI_PI : 0.0;
+}
+
+float CleanGiSpecularProducerPdf(RAB_Surface surface, float3 bounceDir)
+{
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return 0.0;
+    }
+
+    const float3 specularF0 = max(GetSpecularF0(surface.material), float3(0.0, 0.0, 0.0));
+    if (CleanGiLuminance(specularF0) <= 1.0e-4)
+    {
+        return 0.0;
+    }
+
+    const float3 normal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 geometryNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), normal);
+    const float3 viewDir = CleanGiSafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
+    if (dot(normal, bounceDir) <= 0.0 || dot(geometryNormal, bounceDir) <= 0.0 ||
+        dot(normal, viewDir) <= 0.0 || dot(geometryNormal, viewDir) <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float3 halfVector = CleanGiSafeNormalize(viewDir + bounceDir, normal);
+    const float ndoth = saturate(dot(normal, halfVector));
+    const float vdoth = saturate(dot(viewDir, halfVector));
+    if (ndoth <= 0.0 || vdoth <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float roughness = max(saturate(GetRoughness(surface.material)), 0.02);
+    const float alpha = max(roughness * roughness, 1.0e-3);
+    const float alphaSquared = max(alpha * alpha, 1.0e-6);
+    const float denominator = max((ndoth * ndoth) * (alphaSquared - 1.0) + 1.0, 1.0e-6);
+    const float D = alphaSquared / max(RTXDI_PI * denominator * denominator, 1.0e-6);
+    const float pdf = (D * ndoth) / max(4.0 * vdoth, 1.0e-6);
+    return pdf > 0.0 && pdf == pdf ? pdf : 0.0;
+}
+
+float CleanGiProducerMixturePdf(RAB_Surface surface, float3 bounceDir)
+{
+    float diffuseProbability;
+    float specularProbability;
+    CleanGiProducerMixtureProbabilities(surface, diffuseProbability, specularProbability);
+    const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+    const float specularPdf = specularProbability > 0.0 ? CleanGiSpecularProducerPdf(surface, bounceDir) : 0.0;
+    const float mixturePdf = diffuseProbability * diffusePdf + specularProbability * specularPdf;
+    return mixturePdf > 0.0 && mixturePdf == mixturePdf ? mixturePdf : 0.0;
+}
+
 CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
 {
-    const float3 primaryPosition = record.worldPositionAndViewDepth.xyz;
-    const float3 primaryShadingNormal = CleanGiSafeNormalize(record.shadingNormalAndOpacity.xyz, record.geometricNormalAndRoughness.xyz);
-    const float3 primaryGeometricNormal = CleanGiSafeNormalize(record.geometricNormalAndRoughness.xyz, primaryShadingNormal);
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+    const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
 
     // Cosine-weighted bounce direction around the primary shading normal;
-    // solidAnglePdf = ndotl / pi (the shared diffuse BRDF sampling model).
+    // with specular producer enabled, radiance is factored by the shared
+    // diffuse/specular mixture PDF.
     const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
     const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-    const float bounceNdotL = dot(primaryShadingNormal, bounceDir);
-    const float solidAnglePdf = bounceNdotL > 0.0 ? bounceNdotL / RTXDI_PI : 0.0;
-    return CleanGiTraceProducerRay(primaryPosition, primaryGeometricNormal, bounceDir, solidAnglePdf, rng);
+    const float mixturePdf = CleanGiProducerMixturePdf(surface, bounceDir);
+    return CleanGiTraceProducerRay(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, mixturePdf, rng);
 }
 
 CleanGiProducerResult CleanGiRunSpecularProducer(PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
@@ -2324,11 +2410,12 @@ CleanGiProducerResult CleanGiRunSpecularProducer(PathTracePrimarySurfaceRecord r
     {
         return (CleanGiProducerResult)0;
     }
+    const float mixturePdf = CleanGiProducerMixturePdf(surface, bounceDir);
     return CleanGiTraceProducerRay(
         RAB_GetSurfaceWorldPos(surface),
         RAB_GetSurfaceGeoNormal(surface),
         bounceDir,
-        solidAnglePdf,
+        mixturePdf,
         rng);
 }
 

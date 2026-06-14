@@ -47,6 +47,18 @@ existing diffuse GI remains testable.
 RGI-RR-02: Mixture PDF / Weight Contract
 ----------------------------------------
 
+Status: first slice implemented. When r_pathTracingCleanRestirGiSpecularProducer
+is off, diffuse samples keep the old cosine PDF. When it is on, both diffuse
+and specular producer rays divide incoming radiance by a deterministic material
+mixture PDF:
+
+    mixturePdf = diffuseProbability * diffusePdf
+               + specularProbability * specularPdf
+
+The current probabilities are derived from diffuse luminance, F0 luminance, and
+roughness, with a conservative clamp to keep both lobes sampleable on mixed
+materials. Dedicated PDF health debug views are still deferred to RGI-RR-05.
+
 Mixed diffuse/specular candidates need a consistent PDF contract before they
 are allowed through temporal/spatial reuse.
 
