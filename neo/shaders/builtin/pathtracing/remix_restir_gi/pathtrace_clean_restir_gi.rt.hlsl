@@ -189,6 +189,8 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerRadiance : r
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> CleanRestirGiProducerHitPosition : register(u82);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerHitNormal : register(u83);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : register(u84);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuseLobe : register(u85);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe : register(u86);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
@@ -1032,6 +1034,12 @@ bool CleanGiToyFakePBRSpecularEnabled()
     return (((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR) != 0u;
 }
 
+struct CleanGiIndirectLobeResult
+{
+    float3 diffuse;
+    float3 specular;
+};
+
 float3 CleanGiEvaluateIndirectSpecularLobe(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance)
 {
     const float3 specularF0 = max(GetSpecularF0(surface.material), float3(0.0, 0.0, 0.0));
@@ -1080,29 +1088,44 @@ float3 CleanGiEvaluateIndirectSpecularLobe(RAB_Surface surface, float3 sampleDir
     return CleanGiAllFinite3(reflected) ? reflected : float3(0.0, 0.0, 0.0);
 }
 
-float3 CleanGiEvaluateIndirectLobes(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance)
+CleanGiIndirectLobeResult CleanGiEvaluateIndirectLobesSplit(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance)
 {
+    CleanGiIndirectLobeResult result = (CleanGiIndirectLobeResult)0;
     if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
-        return float3(0.0, 0.0, 0.0);
+        return result;
     }
 
     const float3 normal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     if (dot(RAB_GetSurfaceGeoNormal(surface), sampleDir) <= 0.0)
     {
-        return float3(0.0, 0.0, 0.0);
+        return result;
     }
 
     const float ndotl = saturate(dot(normal, sampleDir));
     if (ndotl <= 0.0)
     {
-        return float3(0.0, 0.0, 0.0);
+        return result;
     }
 
     const float3 safeRadiance = max(incomingRadiance, float3(0.0, 0.0, 0.0));
-    const float3 diffuse = GetDiffuseAlbedo(surface.material) * safeRadiance * (ndotl / RTXDI_PI);
-    const float3 specular = CleanGiEvaluateIndirectSpecularLobe(surface, sampleDir, safeRadiance);
-    const float3 reflected = diffuse + specular;
+    result.diffuse = GetDiffuseAlbedo(surface.material) * safeRadiance * (ndotl / RTXDI_PI);
+    result.specular = CleanGiEvaluateIndirectSpecularLobe(surface, sampleDir, safeRadiance);
+    if (!CleanGiAllFinite3(result.diffuse))
+    {
+        result.diffuse = float3(0.0, 0.0, 0.0);
+    }
+    if (!CleanGiAllFinite3(result.specular))
+    {
+        result.specular = float3(0.0, 0.0, 0.0);
+    }
+    return result;
+}
+
+float3 CleanGiEvaluateIndirectLobes(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance)
+{
+    const CleanGiIndirectLobeResult lobes = CleanGiEvaluateIndirectLobesSplit(surface, sampleDir, incomingRadiance);
+    const float3 reflected = lobes.diffuse + lobes.specular;
     return CleanGiAllFinite3(reflected) ? reflected : float3(0.0, 0.0, 0.0);
 }
 
@@ -2623,32 +2646,39 @@ void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePr
 // still "IndirectDiffuse", but the value is now final reflected indirect GI.
 // ---------------------------------------------------------------------------
 
-float3 CleanGiFinalShadeIndirect(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+CleanGiIndirectLobeResult CleanGiFinalShadeIndirectSplit(RAB_Surface surface, RTXDI_GIReservoir reservoir)
 {
+    CleanGiIndirectLobeResult result = (CleanGiIndirectLobeResult)0;
     if (!RAB_IsSurfaceValid(surface) || !RTXDI_IsValidGIReservoir(reservoir))
     {
-        return float3(0.0, 0.0, 0.0);
+        return result;
     }
     const float weight = max(reservoir.weightSum, 0.0);
     if (weight <= 0.0 || !CleanGiAllFinite3(reservoir.radiance) || weight != weight)
     {
-        return float3(0.0, 0.0, 0.0);
+        return result;
     }
     const float3 toSample = reservoir.position - RAB_GetSurfaceWorldPos(surface);
     const float distanceSquared = dot(toSample, toSample);
     if (distanceSquared <= 1.0e-6)
     {
-        return float3(0.0, 0.0, 0.0);
+        return result;
     }
     const float3 sampleDir = toSample * rsqrt(distanceSquared);
     if (dot(sampleDir, RAB_GetSurfaceGeoNormal(surface)) <= 0.0)
     {
-        return float3(0.0, 0.0, 0.0);
+        return result;
     }
-    const float3 indirect = CleanGiEvaluateIndirectLobes(
+    return CleanGiEvaluateIndirectLobesSplit(
         surface,
         sampleDir,
         max(reservoir.radiance, float3(0.0, 0.0, 0.0)) * weight);
+}
+
+float3 CleanGiFinalShadeIndirect(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+{
+    const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(surface, reservoir);
+    const float3 indirect = lobes.diffuse + lobes.specular;
     return CleanGiAllFinite3(indirect) ? indirect : float3(0.0, 0.0, 0.0);
 }
 
@@ -2657,8 +2687,11 @@ float3 CleanGiFinalShadeIndirect(RAB_Surface surface, RTXDI_GIReservoir reservoi
 // (so the beauty image receives the FILTERED contribution).
 void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIReservoir reservoir)
 {
-    const float3 indirect = CleanGiFinalShadeIndirect(surface, reservoir);
+    const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(surface, reservoir);
+    const float3 indirect = lobes.diffuse + lobes.specular;
     CleanRestirGiIndirectDiffuse[pixel] = float4(indirect, 1.0);
+    CleanRestirGiIndirectDiffuseLobe[pixel] = float4(lobes.diffuse, 1.0);
+    CleanRestirGiIndirectSpecularLobe[pixel] = float4(lobes.specular, 1.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -2726,6 +2759,12 @@ void RayGen()
             // Isolated indirect GI (diffuse + specular, no DI).
             const float3 indirect = CleanGiFinalShadeIndirect(spatialSurface, spatialReservoir);
             SmokeOutput[pixel] = float4(spatialSurfaceValid ? CleanGiToneMap(indirect) : float3(0.08, 0.08, 0.08), 1.0);
+        }
+        else if (view == 11u || view == 12u)
+        {
+            const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(spatialSurface, spatialReservoir);
+            const float3 lobe = view == 11u ? lobes.diffuse : lobes.specular;
+            SmokeOutput[pixel] = float4(spatialSurfaceValid ? CleanGiToneMap(lobe) : float3(0.08, 0.08, 0.08), 1.0);
         }
         else if (view == 5u)
         {
@@ -2980,6 +3019,24 @@ void RayGen()
             const bool hasDiffuseTexture = producer.diffuseTextureIndex != 0xffffffffu;
             const bool forceDebugAlbedo = (producer.materialFlags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u;
             color = float3(hasDiffuseTexture ? 0.0 : 1.0, hasDiffuseTexture ? 1.0 : 0.0, forceDebugAlbedo ? 1.0 : 0.0);
+        }
+    }
+    else if (view == 11u || view == 12u)
+    {
+        if (CleanRestirGiSpatialEnabled != 0u)
+        {
+            // Phase 1 owns final-lobe views when spatial actually runs.
+            return;
+        }
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else
+        {
+            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
+            const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(viewSurface, temporalReservoir);
+            color = CleanGiToneMap(view == 11u ? lobes.diffuse : lobes.specular);
         }
     }
     SmokeOutput[pixel] = float4(color, 1.0);

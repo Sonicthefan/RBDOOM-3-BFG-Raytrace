@@ -52,6 +52,7 @@ RGI-06 spatial
 
 RGI-07 final shading + resolve
     view 6: indirect GI with diffuse + specular; black where no bounce light possible
+    view 11/12: split final diffuse/specular lobes; view 11 + view 12 should match view 6 before tonemap
     resolve on: colored wall bleeds onto neutral floor; removing the wall
         (or its light) removes the bleed
     resolve off: combined output identical to pre-GI baseline

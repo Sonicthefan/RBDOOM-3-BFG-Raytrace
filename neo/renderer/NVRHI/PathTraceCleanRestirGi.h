@@ -25,6 +25,8 @@ struct PathTraceCleanRestirGiState
     nvrhi::TextureHandle producerHitPositionTexture;
     nvrhi::TextureHandle producerHitNormalTexture;
     nvrhi::TextureHandle indirectDiffuseTexture;
+    nvrhi::TextureHandle indirectDiffuseLobeTexture;
+    nvrhi::TextureHandle indirectSpecularLobeTexture;
     nvrhi::BufferHandle placeholderSrvBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::ShaderLibraryHandle shaderLibrary;

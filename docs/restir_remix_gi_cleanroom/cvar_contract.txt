@@ -43,6 +43,11 @@ r_pathTracingCleanRestirGiView
         5  spatial output radiance * W
         6  final shaded indirect GI (diffuse + specular, isolated, no DI)
         7  reservoir M / age diagnostics
+        8  route sentinel
+        9  secondary material albedo
+        10 secondary material texture-source flags
+        11 final shaded diffuse lobe
+        12 final shaded specular lobe
     Views must read only GI-lane resources.
 
 r_pathTracingCleanRestirGiTemporal

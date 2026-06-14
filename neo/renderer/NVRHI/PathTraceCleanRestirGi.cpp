@@ -148,6 +148,8 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
         state.bindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -382,6 +384,11 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
 
     const bool texturesValid =
         state.producerRadianceTexture &&
+        state.producerHitPositionTexture &&
+        state.producerHitNormalTexture &&
+        state.indirectDiffuseTexture &&
+        state.indirectDiffuseLobeTexture &&
+        state.indirectSpecularLobeTexture &&
         state.producerRadianceTexture->getDesc().width == width &&
         state.producerRadianceTexture->getDesc().height == height;
     if (!texturesValid)
@@ -412,8 +419,14 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         producerDesc.debugName = "PathTraceCleanRestirGiIndirectDiffuse";
         state.indirectDiffuseTexture = inputs.device->createTexture(producerDesc);
 
+        producerDesc.debugName = "PathTraceCleanRestirGiIndirectDiffuseLobe";
+        state.indirectDiffuseLobeTexture = inputs.device->createTexture(producerDesc);
+
+        producerDesc.debugName = "PathTraceCleanRestirGiIndirectSpecularLobe";
+        state.indirectSpecularLobeTexture = inputs.device->createTexture(producerDesc);
+
         if (!state.producerRadianceTexture || !state.producerHitPositionTexture || !state.producerHitNormalTexture ||
-            !state.indirectDiffuseTexture)
+            !state.indirectDiffuseTexture || !state.indirectDiffuseLobeTexture || !state.indirectSpecularLobeTexture)
         {
             common->Printf("PathTraceCleanRestirGi: failed to create GI producer textures (%ux%u)\n", width, height);
             return false;
@@ -439,6 +452,8 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     producerHitPositionTexture = nullptr;
     producerHitNormalTexture = nullptr;
     indirectDiffuseTexture = nullptr;
+    indirectDiffuseLobeTexture = nullptr;
+    indirectSpecularLobeTexture = nullptr;
     placeholderSrvBuffer = nullptr;
     boilingFilterConstantsBuffer = nullptr;
     boilingFilterShader = nullptr;
@@ -554,7 +569,7 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    const int view = idMath::ClampInt(0, 10, r_pathTracingCleanRestirGiView.GetInteger());
+    const int view = idMath::ClampInt(0, 12, r_pathTracingCleanRestirGiView.GetInteger());
     if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0)
     {
         // Nothing consumes the lane yet without a debug view or resolve.
@@ -636,6 +651,8 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(82, state.producerHitPositionTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(83, state.producerHitNormalTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(84, state.indirectDiffuseTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(85, state.indirectDiffuseLobeTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(86, state.indirectSpecularLobeTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
     nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, state.bindingLayout);
@@ -693,6 +710,8 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setTextureState(inputs.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(inputs.motionVectorMaskTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.indirectDiffuseTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(state.indirectDiffuseLobeTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(state.indirectSpecularLobeTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(inputs.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -736,6 +755,8 @@ bool PathTraceCleanRestirGiExecute(
     nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
 
     nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
+    nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseLobeTexture);
+    nvrhi::utils::TextureUavBarrier(commandList, state.indirectSpecularLobeTexture);
 
     // RGI-06: spatial reuse runs as a second dispatch so every pixel's
     // TEMPORAL_OUTPUT page write has completed before neighbors read it.
@@ -751,6 +772,8 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
         nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseLobeTexture);
+        nvrhi::utils::TextureUavBarrier(commandList, state.indirectSpecularLobeTexture);
     }
 
     // RGI-08: boiling filter + resolve consumer over the GI output. The

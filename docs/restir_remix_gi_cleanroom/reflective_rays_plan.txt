@@ -120,6 +120,16 @@ Useful gates:
 RGI-RR-04: Output Shape / Denoising
 -----------------------------------
 
+Status: first output-shape slice implemented. The raygen now writes the
+existing combined shaded GI output plus separate final shaded diffuse and
+specular lobe UAVs. Debug views:
+
+    r_pathTracingCleanRestirGiView 11   final diffuse lobe
+    r_pathTracingCleanRestirGiView 12   final specular lobe
+
+The boiling filter and resolve still consume the existing combined output.
+Denoiser/RR-aware consumption of the split outputs remains deferred.
+
 The current rbdoom output is one shaded GI RGB buffer. That is enough for a
 proof of reflective rays, but not a complete Remix/NRD-shaped output contract.
 

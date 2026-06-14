@@ -136,8 +136,13 @@ GI-O-05: GI Indirect Output
     toward reservoir.position * radiance * W). Consumed by combined resolve
     only under r_pathTracingCleanRestirGiResolve.
 
+GI-O-05A/B: GI Split Indirect Lobe Outputs
+    Written by GI final shading only. GI-O-05A stores the final shaded diffuse
+    lobe and GI-O-05B stores the final shaded specular lobe. Debug views 11/12
+    expose them; denoiser/RR consumers are deferred.
+
 GI-O-06: GI Debug Output
-    Views 1-7 per cvar_contract.txt. Reads only GI lane resources +
+    Views 1-12 per cvar_contract.txt. Reads only GI lane resources +
     GI-I-01 for status. Every pixel explicitly written; invalid states are
     explicit colors; no fallback shading (view 6 isolated).
 
