@@ -92,7 +92,6 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::ITexture* motionVectorTexture = nullptr;
     nvrhi::ITexture* motionVectorMaskTexture = nullptr;
     nvrhi::ITexture* rrInputColorTexture = nullptr;
-    nvrhi::ITexture* rrGuideHitDistanceTexture = nullptr;
     nvrhi::ISampler* materialSampler = nullptr;
 };
 

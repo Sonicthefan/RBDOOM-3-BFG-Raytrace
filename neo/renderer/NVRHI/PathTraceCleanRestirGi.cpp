@@ -55,8 +55,7 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t phase;
     uint32_t resolveEnabled;
     uint32_t specularProducerEnabled;
-    uint32_t rrHitDistanceEnabled;
-    uint32_t padding0[2];
+    uint32_t padding0[3];
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
@@ -151,7 +150,6 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
         state.bindingLayout = inputs.device->createBindingLayout(layoutDesc);
@@ -482,7 +480,7 @@ bool PathTraceCleanRestirGiExecute(
         }
         common->Printf(
             "PathTraceCleanRestirGi DUMP enable=%d view=%d temporal=%d spatial=%d biasCorrection=%d jacobian=%d "
-            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d specProd=%d rrHitDistance=%d resolve=%d size=%dx%d frame=%u "
+            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d specProd=%d resolve=%d size=%dx%d frame=%u "
             "reservoirBuffer=%s pages[init=%u tIn=%u tOut=%u sOut=%u] arrayPitch=%u producerTex=%d pipeline=%d "
             "diBlob=%d lights=%d earlyReturn=%s\n",
             r_pathTracingCleanRestirGiEnable.GetInteger(),
@@ -496,7 +494,6 @@ bool PathTraceCleanRestirGiExecute(
             r_pathTracingCleanRestirGiFireflyThreshold.GetFloat(),
             r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger(),
             r_pathTracingCleanRestirGiSpecularProducer.GetInteger(),
-            r_pathTracingCleanRestirGiRrHitDistance.GetInteger(),
             r_pathTracingCleanRestirGiResolve.GetInteger(),
             inputs.width,
             inputs.height,
@@ -562,7 +559,6 @@ bool PathTraceCleanRestirGiExecute(
         if (!inputs.motionVectorTexture) return "motion-vectors";
         if (!inputs.motionVectorMaskTexture) return "motion-vector-mask";
         if (!inputs.rrInputColorTexture) return "rr-input-color";
-        if (!inputs.rrGuideHitDistanceTexture) return "rr-guide-hit-distance";
         if (!inputs.materialSampler) return "material-sampler";
         return nullptr;
     };
@@ -573,7 +569,7 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    const int view = idMath::ClampInt(0, 17, r_pathTracingCleanRestirGiView.GetInteger());
+    const int view = idMath::ClampInt(0, 16, r_pathTracingCleanRestirGiView.GetInteger());
     if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0)
     {
         // Nothing consumes the lane yet without a debug view or resolve.
@@ -598,7 +594,7 @@ bool PathTraceCleanRestirGiExecute(
         (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) ||
         !inputs.primarySurfaceCurrentBuffer || !inputs.primarySurfacePreviousBuffer ||
         !inputs.motionVectorTexture || !inputs.motionVectorMaskTexture ||
-        !inputs.rrInputColorTexture || !inputs.rrGuideHitDistanceTexture ||
+        !inputs.rrInputColorTexture ||
         !inputs.materialSampler)
     {
         clearFailureOutput();
@@ -657,7 +653,6 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(84, state.indirectDiffuseTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(85, state.indirectDiffuseLobeTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(86, state.indirectSpecularLobeTexture));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(51, inputs.rrGuideHitDistanceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
     nvrhi::BindingSetHandle bindingSet = inputs.device->createBindingSet(bindingSetDesc, state.bindingLayout);
@@ -692,8 +687,6 @@ bool PathTraceCleanRestirGiExecute(
     tail.frameIndex = state.frameIndex;
     tail.resolveEnabled = r_pathTracingCleanRestirGiResolve.GetInteger() != 0 ? 1u : 0u;
     tail.specularProducerEnabled = r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0 ? 1u : 0u;
-    tail.rrHitDistanceEnabled =
-        (r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 && r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0) ? 1u : 0u;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's
@@ -719,7 +712,6 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setTextureState(state.indirectDiffuseTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.indirectDiffuseLobeTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.indirectSpecularLobeTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
-    commandList->setTextureState(inputs.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(inputs.rrInputColorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.staticVertexBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.staticIndexBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -765,10 +757,6 @@ bool PathTraceCleanRestirGiExecute(
     nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
     nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseLobeTexture);
     nvrhi::utils::TextureUavBarrier(commandList, state.indirectSpecularLobeTexture);
-    if (tail.rrHitDistanceEnabled != 0u)
-    {
-        nvrhi::utils::TextureUavBarrier(commandList, inputs.rrGuideHitDistanceTexture);
-    }
 
     // RGI-06: spatial reuse runs as a second dispatch so every pixel's
     // TEMPORAL_OUTPUT page write has completed before neighbors read it.
@@ -786,10 +774,6 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
         nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseLobeTexture);
         nvrhi::utils::TextureUavBarrier(commandList, state.indirectSpecularLobeTexture);
-        if (tail.rrHitDistanceEnabled != 0u)
-        {
-            nvrhi::utils::TextureUavBarrier(commandList, inputs.rrGuideHitDistanceTexture);
-        }
     }
 
     // RGI-08: boiling filter + resolve consumer over the GI output. The

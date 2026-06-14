@@ -191,7 +191,6 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerHitNormal : 
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : register(u84);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuseLobe : register(u85);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe : register(u86);
-VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
@@ -272,8 +271,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiPhase;
     uint CleanRestirGiResolveEnabled;
     uint CleanRestirGiSpecularProducerEnabled;
-    uint CleanRestirGiRrHitDistanceEnabled;
-    uint2 CleanRestirGiPadding0;
+    uint3 CleanRestirGiPadding0;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -2713,27 +2711,6 @@ float3 CleanGiFinalShadeIndirect(RAB_Surface surface, RTXDI_GIReservoir reservoi
     return CleanGiAllFinite3(indirect) ? indirect : float3(0.0, 0.0, 0.0);
 }
 
-bool CleanGiHasRrSpecularHitDistance(RAB_Surface surface, float hitDistance, float3 diffuse, float3 specular)
-{
-    if (!RAB_IsSurfaceValid(surface) || hitDistance <= 0.0 || hitDistance >= 1.0e8)
-    {
-        return false;
-    }
-
-    const float roughness = saturate(surface.material.roughness);
-    const float f0Luminance = CleanGiLuminance(GetSpecularF0(surface.material));
-    const bool glossyMaterial = roughness < 0.65 || f0Luminance > 0.08;
-    if (!glossyMaterial)
-    {
-        return false;
-    }
-
-    const float specularLuminance = CleanGiLuminance(specular);
-    const float diffuseLuminance = CleanGiLuminance(diffuse);
-    return specularLuminance > 1.0e-4 &&
-        specularLuminance >= max(diffuseLuminance * 0.10, 1.0e-4);
-}
-
 // Writes the GI-O-05 output. The boiling-filter compute pass consumes it,
 // clamps outliers, and performs the resolve add into the combined outputs
 // (so the beauty image receives the FILTERED contribution).
@@ -2744,11 +2721,6 @@ void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIRes
     CleanRestirGiIndirectDiffuse[pixel] = float4(indirect, 1.0);
     CleanRestirGiIndirectDiffuseLobe[pixel] = float4(lobes.diffuse, 1.0);
     CleanRestirGiIndirectSpecularLobe[pixel] = float4(lobes.specular, lobes.hitDistance);
-    if (CleanRestirGiRrHitDistanceEnabled != 0u)
-    {
-        const bool validSpecularHit = CleanGiHasRrSpecularHitDistance(surface, lobes.hitDistance, lobes.diffuse, lobes.specular);
-        PathTraceRRGuideHitDistance[pixel] = validSpecularHit ? lobes.hitDistance : 0.0;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2773,22 +2745,6 @@ float3 PathTraceCleanRestirGiSentinelColor(uint2 pixel)
     const uint band = ((pixel.x + pixel.y + CleanRestirGiFrameIndex) / 32u) & 1u;
     const float pulse = band != 0u ? 0.85 : 0.25;
     return roundTripOk ? float3(0.05, pulse, 0.25) : float3(1.0, 0.0, 0.0);
-}
-
-float3 CleanGiRrHitDistanceRouteParityColor(RAB_Surface surface, CleanGiIndirectLobeResult lobes, uint2 pixel)
-{
-    if (CleanRestirGiRrHitDistanceEnabled == 0u)
-    {
-        return float3(0.0, 0.0, 0.25);
-    }
-
-    const bool validSource = CleanGiHasRrSpecularHitDistance(surface, lobes.hitDistance, lobes.diffuse, lobes.specular);
-    const float safeSourceHitDistance = validSource ? lobes.hitDistance : 0.0;
-    const float guideHitDistance = max(PathTraceRRGuideHitDistance[pixel], 0.0);
-    const float sourceRamp = saturate(safeSourceHitDistance / 2048.0);
-    const float guideRamp = saturate(guideHitDistance / 2048.0);
-    const float mismatchRamp = saturate(abs(guideHitDistance - safeSourceHitDistance) / 256.0);
-    return float3(sourceRamp, guideRamp, mismatchRamp);
 }
 
 [shader("raygeneration")]
@@ -2833,17 +2789,13 @@ void RayGen()
             const float3 indirect = CleanGiFinalShadeIndirect(spatialSurface, spatialReservoir);
             SmokeOutput[pixel] = float4(spatialSurfaceValid ? CleanGiToneMap(indirect) : float3(0.08, 0.08, 0.08), 1.0);
         }
-        else if (view == 11u || view == 12u || view == 16u || view == 17u)
+        else if (view == 11u || view == 12u || view == 16u)
         {
             const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(spatialSurface, spatialReservoir);
             const float3 lobe = view == 11u ? lobes.diffuse : lobes.specular;
             const float3 distanceBands = saturate(float3(lobes.hitDistance / 128.0, lobes.hitDistance / 512.0, lobes.hitDistance / 2048.0));
             SmokeOutput[pixel] = float4(
-                spatialSurfaceValid
-                    ? (view == 16u
-                        ? distanceBands
-                        : (view == 17u ? CleanGiRrHitDistanceRouteParityColor(spatialSurface, lobes, pixel) : CleanGiToneMap(lobe)))
-                    : float3(0.08, 0.08, 0.08),
+                spatialSurfaceValid ? (view == 16u ? distanceBands : CleanGiToneMap(lobe)) : float3(0.08, 0.08, 0.08),
                 1.0);
         }
         else if (view == 5u)
@@ -3101,7 +3053,7 @@ void RayGen()
             color = float3(hasDiffuseTexture ? 0.0 : 1.0, hasDiffuseTexture ? 1.0 : 0.0, forceDebugAlbedo ? 1.0 : 0.0);
         }
     }
-    else if (view == 11u || view == 12u || view == 16u || view == 17u)
+    else if (view == 11u || view == 12u || view == 16u)
     {
         if (CleanRestirGiSpatialEnabled != 0u)
         {
@@ -3120,9 +3072,7 @@ void RayGen()
                 ? CleanGiToneMap(lobes.diffuse)
                 : (view == 12u
                     ? CleanGiToneMap(lobes.specular)
-                    : (view == 16u
-                        ? saturate(float3(lobes.hitDistance / 128.0, lobes.hitDistance / 512.0, lobes.hitDistance / 2048.0))
-                        : CleanGiRrHitDistanceRouteParityColor(viewSurface, lobes, pixel)));
+                    : saturate(float3(lobes.hitDistance / 128.0, lobes.hitDistance / 512.0, lobes.hitDistance / 2048.0)));
         }
     }
     else if (view == 13u || view == 14u || view == 15u)

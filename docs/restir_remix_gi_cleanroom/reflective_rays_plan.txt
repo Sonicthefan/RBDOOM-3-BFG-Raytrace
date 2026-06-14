@@ -131,16 +131,6 @@ The boiling filter and resolve still consume the existing combined output.
 Denoiser/RR-aware consumption of the split outputs remains deferred.
 The specular split output alpha carries final sample hit distance; debug view
 16 visualizes it as distance bands.
-Debug view 17 compares that source value to the actual
-PathTraceRRGuideHitDistance write, so RR route validation does not depend on
-the retiring mode-56 guide debug path.
-
-RR hit-distance route: first opt-in slice implemented with
-r_pathTracingCleanRestirGiRrHitDistance. When both it and
-r_pathTracingCleanRestirGiSpecularProducer are enabled, finite positive
-specular-lobe distances are written to PathTraceRRGuideHitDistance in linear
-world/engine units for RR/DLSS tagging. It is off by default so existing
-primary guide behavior and accepted GI debug views stay A/B testable.
 
 The current rbdoom output is one shaded GI RGB buffer. That is enough for a
 proof of reflective rays, but not a complete Remix/NRD-shaped output contract.
@@ -148,8 +138,7 @@ proof of reflective rays, but not a complete Remix/NRD-shaped output contract.
 Deferred output work:
 
     - split diffuse and specular indirect radiance outputs
-    - validate the cvar-gated specular hit distance / path length output with
-      RR/DLSS consumers
+    - route specular hit distance / path length output to denoiser/RR consumers
     - route specular GI through an RR/denoiser-aware path
     - keep the current combined buffer as a debug/proof fallback
 
@@ -165,8 +154,6 @@ Status: first debug slice implemented. Debug views:
     r_pathTracingCleanRestirGiView 13   specular producer radiance
     r_pathTracingCleanRestirGiView 14   specular producer hit geometry
     r_pathTracingCleanRestirGiView 15   specular producer PDF health
-    r_pathTracingCleanRestirGiView 16   specular lobe hit distance source
-    r_pathTracingCleanRestirGiView 17   RR hit-distance route parity
 
 View 15 packs red = specular sampling probability, green = log-scaled mixture
 PDF, blue = log-scaled specular PDF. It is a health/debug view, not energy.
