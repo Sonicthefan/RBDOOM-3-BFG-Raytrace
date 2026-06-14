@@ -167,17 +167,21 @@ Status: first debug slice implemented. Debug views:
     r_pathTracingCleanRestirGiView 14   specular producer hit geometry
     r_pathTracingCleanRestirGiView 15   specular producer PDF health
     r_pathTracingCleanRestirGiView 17   specular producer eligibility
+    r_pathTracingCleanRestirGiView 18   specular reuse state
 
 View 15 packs red = specular sampling probability, green = log-scaled mixture
 PDF, blue = log-scaled specular PDF. It is a health/debug view, not energy.
 View 17 is a no-extra-ray material gate view: red marks receivers eligible for
 the specular producer, green is smoothness (1 - roughness), and blue is scaled
 F0 luminance.
+View 18 is a no-extra-ray reuse-state view for reflective receivers: red marks
+mirror/glossy reuse quarantine, orange marks temporal disabled, yellow marks no
+valid temporal history, green marks accumulated history, blue marks specular
+producer off, and dark green/gray mark non-eligible or invalid surfaces.
 
 Add views before tuning reuse:
 
     - specular-only final contribution
-    - reuse rejection reason for glossy samples
 
 View 6 should remain the final shaded diffuse+specular GI view. It is not
 enough by itself to diagnose reflective ray producer failures.

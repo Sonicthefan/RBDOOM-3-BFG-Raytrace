@@ -53,6 +53,7 @@ r_pathTracingCleanRestirGiView
         15 specular producer PDF health
         16 specular lobe hit distance
         17 specular producer eligibility/material gate
+        18 specular reuse state
     Views must read only GI-lane resources.
 
 r_pathTracingCleanRestirGiTemporal
@@ -102,6 +103,11 @@ r_pathTracingCleanRestirGiSpecularProducer
     debug the specular producer. View 17 is a no-extra-ray material gate view:
     red means the receiver is eligible for the specular producer, green is
     smoothness (1 - roughness), and blue is F0 luminance scaled for display.
+    View 18 is a no-extra-ray reuse state view for reflective receivers: red
+    means mirror/glossy reuse quarantine, orange means temporal disabled, yellow
+    means no valid temporal history, green means history is accumulating, blue
+    means the specular producer is disabled, and dark green/gray are non-eligible
+    or invalid surfaces.
 
 r_pathTracingCleanRestirGiRrHitDistance
     int, default 0. When 1, and only when the specular producer is also enabled,

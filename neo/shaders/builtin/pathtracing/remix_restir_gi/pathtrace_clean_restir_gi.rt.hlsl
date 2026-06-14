@@ -1070,6 +1070,38 @@ float3 CleanGiSpecularProducerEligibilityColor(RAB_Surface surface)
     return float3(eligible ? 1.0 : 0.0, saturate(1.0 - roughness), saturate(specularLum * 8.0));
 }
 
+float3 CleanGiSpecularReuseStateColor(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+{
+    if (CleanRestirGiSpecularProducerEnabled == 0u)
+    {
+        return float3(0.0, 0.0, 0.25);
+    }
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.08, 0.08, 0.08);
+    }
+    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
+    {
+        return float3(0.02, 0.12, 0.04);
+    }
+    if (CleanGiSpecularProducerNeedsReuseQuarantine(surface))
+    {
+        return float3(1.0, 0.0, 0.0);
+    }
+    if (CleanRestirGiTemporalEnabled == 0u)
+    {
+        return float3(1.0, 0.45, 0.0);
+    }
+    if (!RTXDI_IsValidGIReservoir(reservoir))
+    {
+        return float3(0.85, 0.65, 0.0);
+    }
+
+    const float mRamp = saturate((float)reservoir.M / max((float)CleanRestirGiMaxHistoryLength, 1.0));
+    const float ageRamp = saturate((float)reservoir.age / max((float)CleanRestirGiMaxReservoirAge, 1.0));
+    return float3(0.0, max(mRamp, 0.12), ageRamp);
+}
+
 struct CleanGiIndirectLobeResult
 {
     float3 diffuse;
@@ -2863,6 +2895,12 @@ void RayGen()
                 spatialSurfaceValid ? CleanGiSpecularProducerEligibilityColor(spatialSurface) : float3(0.08, 0.08, 0.08),
                 1.0);
         }
+        else if (view == 18u)
+        {
+            SmokeOutput[pixel] = float4(
+                spatialSurfaceValid ? CleanGiSpecularReuseStateColor(spatialSurface, spatialReservoir) : float3(0.08, 0.08, 0.08),
+                1.0);
+        }
         else if (view == 11u || view == 12u || view == 16u)
         {
             const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(spatialSurface, spatialReservoir);
@@ -3141,6 +3179,22 @@ void RayGen()
         {
             RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
             color = CleanGiSpecularProducerEligibilityColor(viewSurface);
+        }
+    }
+    else if (view == 18u)
+    {
+        if (CleanRestirGiSpatialEnabled != 0u)
+        {
+            return;
+        }
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else
+        {
+            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
+            color = CleanGiSpecularReuseStateColor(viewSurface, temporalReservoir);
         }
     }
     else if (view == 11u || view == 12u || view == 16u)

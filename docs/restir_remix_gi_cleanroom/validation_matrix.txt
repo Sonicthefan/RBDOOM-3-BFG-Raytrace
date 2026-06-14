@@ -66,6 +66,9 @@ RGI-RR-05 reflective debug
     view 16: final specular hit distance bands; red near, green mid, blue far
     view 17: specular producer eligibility/material gate; red only on
         glossy/high-F0 eligible receivers, green is smoothness, blue is F0
+    view 18: specular reuse state; red means glossy reuse quarantine, orange
+        temporal disabled, yellow no valid history, green accumulated history,
+        blue specular producer off, dark green/gray non-eligible or invalid
     r_pathTracingCleanRestirGiRrHitDistance 1: with specular producer enabled,
         eligible glossy/high-F0 receivers write linear hit distance into
         PathTraceRRGuideHitDistance; rough ordinary walls remain zero
