@@ -27,7 +27,7 @@ Required CVars
 --------------
 
 r_pathTracingCleanRestirGiEnable
-    int, default 0.
+    int, default 1.
     When 0 the GI path must not run: no producer dispatch, no GI reservoir
     writes, no GI contribution to resolve. When 1 the path runs only through
     its own explicit route.
@@ -54,6 +54,7 @@ r_pathTracingCleanRestirGiView
         16 specular lobe hit distance
         17 specular producer eligibility/material gate
         18 specular reuse state
+        19 stored specular output
     Views must read only GI-lane resources.
 
 r_pathTracingCleanRestirGiTemporal
@@ -108,6 +109,9 @@ r_pathTracingCleanRestirGiSpecularProducer
     means no valid temporal history, green means history is accumulating, blue
     means the specular producer is disabled, and dark green/gray are non-eligible
     or invalid surfaces.
+    View 19 reads the stored CleanRestirGiIndirectSpecularLobe UAV after final
+    shading writes it. Its RGB should match view 12, modulo normal debug
+    tonemapping/order, and yellow marks invalid stored values.
 
 r_pathTracingCleanRestirGiRrHitDistance
     int, default 0. When 1, and only when the specular producer is also enabled,

@@ -69,6 +69,8 @@ RGI-RR-05 reflective debug
     view 18: specular reuse state; red means glossy reuse quarantine, orange
         temporal disabled, yellow no valid history, green accumulated history,
         blue specular producer off, dark green/gray non-eligible or invalid
+    view 19: stored split specular output; should match view 12 in RGB, yellow
+        marks invalid stored values
     r_pathTracingCleanRestirGiRrHitDistance 1: with specular producer enabled,
         eligible glossy/high-F0 receivers write linear hit distance into
         PathTraceRRGuideHitDistance; rough ordinary walls remain zero

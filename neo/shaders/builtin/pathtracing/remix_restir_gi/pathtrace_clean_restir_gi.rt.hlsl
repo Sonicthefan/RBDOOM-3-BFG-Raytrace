@@ -2833,6 +2833,16 @@ float3 CleanGiToneMap(float3 radiance)
     return safeRadiance / (float3(1.0, 1.0, 1.0) + safeRadiance);
 }
 
+float3 CleanGiStoredSpecularOutputColor(uint2 pixel)
+{
+    const float4 storedSpecular = CleanRestirGiIndirectSpecularLobe[pixel];
+    if (!CleanGiAllFinite3(storedSpecular.rgb) || storedSpecular.a != storedSpecular.a)
+    {
+        return float3(1.0, 1.0, 0.0);
+    }
+    return CleanGiToneMap(max(storedSpecular.rgb, float3(0.0, 0.0, 0.0)));
+}
+
 // RGI-01 sentinel (view 8): GI lane state only; green pulse proves a packed-
 // reservoir store/load round-trip through the INIT page; red = ABI failure.
 float3 PathTraceCleanRestirGiSentinelColor(uint2 pixel)
@@ -2900,6 +2910,10 @@ void RayGen()
             SmokeOutput[pixel] = float4(
                 spatialSurfaceValid ? CleanGiSpecularReuseStateColor(spatialSurface, spatialReservoir) : float3(0.08, 0.08, 0.08),
                 1.0);
+        }
+        else if (view == 19u)
+        {
+            SmokeOutput[pixel] = float4(CleanGiStoredSpecularOutputColor(pixel), 1.0);
         }
         else if (view == 11u || view == 12u || view == 16u)
         {
@@ -3196,6 +3210,14 @@ void RayGen()
             RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
             color = CleanGiSpecularReuseStateColor(viewSurface, temporalReservoir);
         }
+    }
+    else if (view == 19u)
+    {
+        if (CleanRestirGiSpatialEnabled != 0u)
+        {
+            return;
+        }
+        color = CleanGiStoredSpecularOutputColor(pixel);
     }
     else if (view == 11u || view == 12u || view == 16u)
     {
