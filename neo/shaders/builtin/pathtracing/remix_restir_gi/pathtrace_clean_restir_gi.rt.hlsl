@@ -1053,6 +1053,23 @@ bool CleanGiSurfaceSupportsSpecularProducer(RAB_Surface surface)
             specularLum >= CLEAN_RESTIR_GI_SPECULAR_PRODUCER_METAL_F0);
 }
 
+float3 CleanGiSpecularProducerEligibilityColor(RAB_Surface surface)
+{
+    if (CleanRestirGiSpecularProducerEnabled == 0u)
+    {
+        return float3(0.0, 0.0, 0.25);
+    }
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return float3(0.08, 0.08, 0.08);
+    }
+
+    const float roughness = saturate(GetRoughness(surface.material));
+    const float specularLum = CleanGiLuminance(GetSpecularF0(surface.material));
+    const bool eligible = CleanGiSurfaceSupportsSpecularProducer(surface);
+    return float3(eligible ? 1.0 : 0.0, saturate(1.0 - roughness), saturate(specularLum * 8.0));
+}
+
 struct CleanGiIndirectLobeResult
 {
     float3 diffuse;
@@ -2840,6 +2857,12 @@ void RayGen()
             const float3 indirect = CleanGiFinalShadeIndirect(spatialSurface, spatialReservoir);
             SmokeOutput[pixel] = float4(spatialSurfaceValid ? CleanGiToneMap(indirect) : float3(0.08, 0.08, 0.08), 1.0);
         }
+        else if (view == 17u)
+        {
+            SmokeOutput[pixel] = float4(
+                spatialSurfaceValid ? CleanGiSpecularProducerEligibilityColor(spatialSurface) : float3(0.08, 0.08, 0.08),
+                1.0);
+        }
         else if (view == 11u || view == 12u || view == 16u)
         {
             const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(spatialSurface, spatialReservoir);
@@ -3102,6 +3125,22 @@ void RayGen()
             const bool hasDiffuseTexture = producer.diffuseTextureIndex != 0xffffffffu;
             const bool forceDebugAlbedo = (producer.materialFlags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u;
             color = float3(hasDiffuseTexture ? 0.0 : 1.0, hasDiffuseTexture ? 1.0 : 0.0, forceDebugAlbedo ? 1.0 : 0.0);
+        }
+    }
+    else if (view == 17u)
+    {
+        if (CleanRestirGiSpatialEnabled != 0u)
+        {
+            return;
+        }
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else
+        {
+            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
+            color = CleanGiSpecularProducerEligibilityColor(viewSurface);
         }
     }
     else if (view == 11u || view == 12u || view == 16u)

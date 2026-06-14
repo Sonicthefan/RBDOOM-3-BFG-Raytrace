@@ -166,15 +166,16 @@ Status: first debug slice implemented. Debug views:
     r_pathTracingCleanRestirGiView 13   specular producer radiance
     r_pathTracingCleanRestirGiView 14   specular producer hit geometry
     r_pathTracingCleanRestirGiView 15   specular producer PDF health
+    r_pathTracingCleanRestirGiView 17   specular producer eligibility
 
 View 15 packs red = specular sampling probability, green = log-scaled mixture
 PDF, blue = log-scaled specular PDF. It is a health/debug view, not energy.
+View 17 is a no-extra-ray material gate view: red marks receivers eligible for
+the specular producer, green is smoothness (1 - roughness), and blue is scaled
+F0 luminance.
 
 Add views before tuning reuse:
 
-    - specular candidate radiance
-    - specular ray hit position / normal
-    - specular PDF and mixture PDF health
     - specular-only final contribution
     - reuse rejection reason for glossy samples
 

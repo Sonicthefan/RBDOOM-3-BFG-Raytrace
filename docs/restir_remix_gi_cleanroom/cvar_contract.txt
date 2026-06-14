@@ -52,6 +52,7 @@ r_pathTracingCleanRestirGiView
         14 specular producer hit geometry
         15 specular producer PDF health
         16 specular lobe hit distance
+        17 specular producer eligibility/material gate
     Views must read only GI-lane resources.
 
 r_pathTracingCleanRestirGiTemporal
@@ -97,9 +98,10 @@ r_pathTracingCleanRestirGiSpecularProducer
     int, default 0. When 1, traces a cvar-gated glossy/specular initial
     producer ray and merges it into the INIT reservoir before the normal raw
     diffuse producer sample joins the initial RIS update. The existing producer
-    radiance/hit debug textures still show the diffuse producer; dedicated
-    specular producer debug views are deferred to the reflective-ray debug
-    slice.
+    radiance/hit debug textures still show the diffuse producer. Views 13-15
+    debug the specular producer. View 17 is a no-extra-ray material gate view:
+    red means the receiver is eligible for the specular producer, green is
+    smoothness (1 - roughness), and blue is F0 luminance scaled for display.
 
 r_pathTracingCleanRestirGiRrHitDistance
     int, default 0. When 1, and only when the specular producer is also enabled,
