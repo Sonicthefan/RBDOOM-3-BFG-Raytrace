@@ -569,7 +569,7 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    const int view = idMath::ClampInt(0, 12, r_pathTracingCleanRestirGiView.GetInteger());
+    const int view = idMath::ClampInt(0, 15, r_pathTracingCleanRestirGiView.GetInteger());
     if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0)
     {
         // Nothing consumes the lane yet without a debug view or resolve.

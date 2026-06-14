@@ -57,7 +57,7 @@ mixture PDF:
 
 The current probabilities are derived from diffuse luminance, F0 luminance, and
 roughness, with a conservative clamp to keep both lobes sampleable on mixed
-materials. Dedicated PDF health debug views are still deferred to RGI-RR-05.
+materials. PDF health is visible in view 15.
 
 Mixed diffuse/specular candidates need a consistent PDF contract before they
 are allowed through temporal/spatial reuse.
@@ -146,6 +146,15 @@ only for proof. Expect temporal instability on glossy/mirror surfaces.
 
 RGI-RR-05: Debug Views
 ----------------------
+
+Status: first debug slice implemented. Debug views:
+
+    r_pathTracingCleanRestirGiView 13   specular producer radiance
+    r_pathTracingCleanRestirGiView 14   specular producer hit geometry
+    r_pathTracingCleanRestirGiView 15   specular producer PDF health
+
+View 15 packs red = specular sampling probability, green = log-scaled mixture
+PDF, blue = log-scaled specular PDF. It is a health/debug view, not energy.
 
 Add views before tuning reuse:
 

@@ -711,7 +711,7 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
 }
 
 static const uint CLEAN_RESTIR_GI_PRODUCER_RNG_PASS = 0x52525810u;
-static const uint CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS = 0x52525812u;
+static const uint CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS = 0x52525813u;
 static const float CLEAN_RESTIR_GI_FIREFLY_FACTOR = 30.0;
 
 float3 CleanGiSafeNormalize(float3 value, float3 fallback)
@@ -2061,6 +2061,18 @@ struct CleanGiProducerResult
     uint diffuseTextureIndex;
 };
 
+struct CleanGiSpecularProducerDebug
+{
+    CleanGiProducerResult producer;
+    float3 bounceDir;
+    float diffusePdf;
+    float specularPdf;
+    float mixturePdf;
+    float diffuseProbability;
+    float specularProbability;
+    uint sampledDirection;
+};
+
 // Shades the secondary vertex: its own emissive plus one direct-light proposal.
 // The NEE cache provider is the preferred proposal source when ready; otherwise
 // the producer falls back to one analytic and one emissive sample.
@@ -2440,22 +2452,36 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     return CleanGiTraceProducerRay(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, mixturePdf, rng);
 }
 
-CleanGiProducerResult CleanGiRunSpecularProducer(PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
+CleanGiSpecularProducerDebug CleanGiBuildSpecularProducerDebug(PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
 {
+    CleanGiSpecularProducerDebug debug = (CleanGiSpecularProducerDebug)0;
     const RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
     float3 bounceDir;
     float solidAnglePdf;
     if (!CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, solidAnglePdf))
     {
-        return (CleanGiProducerResult)0;
+        return debug;
     }
+    debug.sampledDirection = 1u;
+    debug.bounceDir = bounceDir;
+    CleanGiProducerMixtureProbabilities(surface, debug.diffuseProbability, debug.specularProbability);
+    debug.diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+    debug.specularPdf = CleanGiSpecularProducerPdf(surface, bounceDir);
     const float mixturePdf = CleanGiProducerMixturePdf(surface, bounceDir);
-    return CleanGiTraceProducerRay(
+    debug.mixturePdf = mixturePdf;
+    debug.producer = CleanGiTraceProducerRay(
         RAB_GetSurfaceWorldPos(surface),
         RAB_GetSurfaceGeoNormal(surface),
         bounceDir,
         mixturePdf,
         rng);
+    return debug;
+}
+
+CleanGiProducerResult CleanGiRunSpecularProducer(PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
+{
+    const CleanGiSpecularProducerDebug debug = CleanGiBuildSpecularProducerDebug(record, rng);
+    return debug.producer;
 }
 
 // RGI-03/RGI-04: drives the frozen temporal contract. Builds the initial
@@ -3037,6 +3063,55 @@ void RayGen()
             RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
             const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(viewSurface, temporalReservoir);
             color = CleanGiToneMap(view == 11u ? lobes.diffuse : lobes.specular);
+        }
+    }
+    else if (view == 13u || view == 14u || view == 15u)
+    {
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (CleanRestirGiSpecularProducerEnabled == 0u)
+        {
+            color = float3(0.0, 0.0, 0.25);
+        }
+        else
+        {
+            RAB_RandomSamplerState specDebugRng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
+            const CleanGiSpecularProducerDebug specDebug = CleanGiBuildSpecularProducerDebug(record, specDebugRng);
+            if (view == 13u)
+            {
+                if (specDebug.producer.valid == 0u)
+                {
+                    color = specDebug.sampledDirection != 0u ? float3(0.25, 0.0, 0.0) : float3(0.0, 0.0, 0.0);
+                }
+                else
+                {
+                    color = CleanGiToneMap(specDebug.producer.radiance);
+                }
+            }
+            else if (view == 14u)
+            {
+                if (specDebug.producer.valid == 0u)
+                {
+                    color = specDebug.sampledDirection != 0u ? float3(0.25, 0.0, 0.0) : float3(0.0, 0.0, 0.0);
+                }
+                else
+                {
+                    const uint band = ((pixel.x / 32u) + (pixel.y / 32u)) & 1u;
+                    color = band == 0u
+                        ? saturate(abs(frac(specDebug.producer.hitPosition * 0.05)))
+                        : saturate(specDebug.producer.hitNormal * 0.5 + 0.5);
+                }
+            }
+            else
+            {
+                const float mixtureRamp = saturate(log2(max(specDebug.mixturePdf, 1.0e-8)) * (1.0 / 16.0) + 1.0);
+                const float specRamp = saturate(log2(max(specDebug.specularPdf, 1.0e-8)) * (1.0 / 16.0) + 1.0);
+                color = specDebug.sampledDirection != 0u
+                    ? float3(saturate(specDebug.specularProbability), mixtureRamp, specRamp)
+                    : float3(0.35, 0.0, 0.0);
+            }
         }
     }
     SmokeOutput[pixel] = float4(color, 1.0);

@@ -57,6 +57,11 @@ RGI-07 final shading + resolve
         (or its light) removes the bleed
     resolve off: combined output identical to pre-GI baseline
 
+RGI-RR-05 reflective debug
+    view 13: specular producer radiance; blue means cvar off, red means sampled direction but missed/rejected
+    view 14: specular producer hit geometry; alternating position/normal bands
+    view 15: specular producer PDF health; red=spec probability, green=mixture PDF, blue=specular PDF
+
 RGI-08 stabilization
     boiling filter on/off comparison: fewer persistent bright blobs,
         no overall darkening
