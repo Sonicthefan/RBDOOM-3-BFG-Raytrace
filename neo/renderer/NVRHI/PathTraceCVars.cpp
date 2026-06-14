@@ -1645,7 +1645,7 @@ idCVar r_pathTracingCleanRestirGiView(
     "r_pathTracingCleanRestirGiView",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect GI (diffuse+specular isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags, 11 final diffuse lobe, 12 final specular lobe, 13 specular producer radiance, 14 specular producer hit geometry, 15 specular producer PDF health, 16 specular lobe hit distance. Reads GI lane resources only" );
+    "Clean-room ReSTIR GI debug view: 0 off, 1 producer radiance, 2 producer hit geometry, 3 initial reservoir radiance*W, 4 temporal output radiance*W, 5 spatial output radiance*W, 6 final shaded indirect GI (diffuse+specular isolated), 7 reservoir M/age diagnostics, 8 route sentinel, 9 secondary material albedo, 10 secondary material texture-source flags, 11 final diffuse lobe, 12 final specular lobe, 13 specular producer radiance, 14 specular producer hit geometry, 15 specular producer PDF health, 16 specular lobe hit distance, 17 RR hit-distance route parity. Reads GI lane resources only" );
 
 idCVar r_pathTracingCleanRestirGiTemporal(
     "r_pathTracingCleanRestirGiTemporal",
@@ -1700,6 +1700,12 @@ idCVar r_pathTracingCleanRestirGiSpecularProducer(
     "0",
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI: add a cvar-gated specular/glossy initial producer candidate into the INIT reservoir. Off until reflective-ray PDF/reuse diagnostics are proven" );
+
+idCVar r_pathTracingCleanRestirGiRrHitDistance(
+    "r_pathTracingCleanRestirGiRrHitDistance",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI: write final specular lobe hit distance into the RR/DLSS specular hit-distance guide when the specular producer is enabled. Off by default for A/B validation" );
 
 idCVar r_pathTracingCleanRestirGiResolve(
     "r_pathTracingCleanRestirGiResolve",

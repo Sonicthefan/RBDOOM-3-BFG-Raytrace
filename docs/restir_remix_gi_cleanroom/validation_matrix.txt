@@ -62,6 +62,14 @@ RGI-RR-05 reflective debug
     view 14: specular producer hit geometry; alternating position/normal bands
     view 15: specular producer PDF health; red=spec probability, green=mixture PDF, blue=specular PDF
     view 16: final specular hit distance bands; red near, green mid, blue far
+    r_pathTracingCleanRestirGiRrHitDistance 1: with specular producer enabled,
+        RR guide hit-distance debug should show nonzero linear distances only on
+        pixels with visible final specular GI; disabling the cvar restores the
+        previous primary guide hit-distance output
+    view 17: route parity without mode 56; black means no eligible glossy or
+        high-F0 specular hit-distance source, blue means disabled, yellow means
+        source distance and PathTraceRRGuideHitDistance match, red/green split
+        means the write/readback route differs
 
 RGI-08 stabilization
     boiling filter on/off comparison: fewer persistent bright blobs,

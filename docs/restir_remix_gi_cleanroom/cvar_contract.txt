@@ -52,6 +52,7 @@ r_pathTracingCleanRestirGiView
         14 specular producer hit geometry
         15 specular producer PDF health
         16 specular lobe hit distance
+        17 RR hit-distance route parity
     Views must read only GI-lane resources.
 
 r_pathTracingCleanRestirGiTemporal
@@ -100,6 +101,17 @@ r_pathTracingCleanRestirGiSpecularProducer
     radiance/hit debug textures still show the diffuse producer; dedicated
     specular producer debug views are deferred to the reflective-ray debug
     slice.
+
+r_pathTracingCleanRestirGiRrHitDistance
+    int, default 0. When 1, and only when the specular producer is also enabled,
+    writes eligible final specular lobe linear hit distances into the RR/DLSS
+    specular hit-distance guide. Eligibility rejects diffuse-dominant/tiny
+    dielectric specular response so ordinary rough walls do not all export a
+    hit distance. This is an A/B validation route; debug view 16 remains the
+    visual distance-band view and is not the value passed to RR.
+    Debug view 17 compares the eligible specular source distance to the actual
+    RR guide write: blue means disabled, yellow means source/readback match,
+    red or green means only one side has distance.
 
 r_pathTracingCleanRestirGiResolve
     int, default 0 until RGI-07. When 1, the final-shaded GI output is
