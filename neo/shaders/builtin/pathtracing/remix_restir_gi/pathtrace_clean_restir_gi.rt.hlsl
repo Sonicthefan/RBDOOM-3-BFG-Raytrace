@@ -651,6 +651,18 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
     RemixRAB_GetGISampleTargetPdfForSurface((reservoir).position, (reservoir).radiance, (surface))
 #include "Rtxdi/GI/SpatialResampling.hlsli"
 
+bool CleanGiSpecularProducerNeedsReuseQuarantine(RAB_Surface surface)
+{
+    if (CleanRestirGiSpecularProducerEnabled == 0u || !RAB_IsSurfaceValid(surface))
+    {
+        return false;
+    }
+
+    const float roughness = saturate(GetRoughness(surface.material));
+    const float specularLum = RAB_MaterialLuminance(GetSpecularF0(surface.material));
+    return roughness < 0.28 && specularLum > 0.04;
+}
+
 // Spatial reuse over the TEMPORAL_OUTPUT page per the Remix policy:
 // 4 neighbor samples while history-starved (M below the history cap), else 1;
 // search radius alternates large/small per frame and pixel block. Relaxed
@@ -659,6 +671,10 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI_GIReservoir inputReservoir)
 {
     if (!RAB_IsSurfaceValid(surface))
+    {
+        return inputReservoir;
+    }
+    if (CleanGiSpecularProducerNeedsReuseQuarantine(surface))
     {
         return inputReservoir;
     }
@@ -2435,6 +2451,7 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     {
         surface = CleanGiMaterialSurfaceFromRecord(record);
     }
+    const bool glossyReuseQuarantine = CleanGiSpecularProducerNeedsReuseQuarantine(surface);
 
     RemixRestirGITemporalReuseDesc desc = (RemixRestirGITemporalReuseDesc)0;
     desc.pixel = pixel;
@@ -2446,7 +2463,7 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     desc.temporalInputPage = RemixRAB_GetGITemporalInputReservoirIndex();
     desc.temporalOutputPage = RemixRAB_GetGITemporalOutputReservoirIndex();
     desc.activeCheckerboardField = 0u;
-    desc.enableTemporalReuse = CleanRestirGiTemporalEnabled;
+    desc.enableTemporalReuse = glossyReuseQuarantine ? 0u : CleanRestirGiTemporalEnabled;
     // Remix-shaped reprojection thresholds: depth scales with view angle,
     // normal relaxes with roughness. When the receiver is actually moving,
     // including forward/back motion near the screen-space expansion center,
@@ -2470,7 +2487,7 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     }
     desc.depthThreshold = depthThreshold;
     desc.normalThreshold = normalThreshold;
-    desc.maxHistoryLength = CleanRestirGiMaxHistoryLength;
+    desc.maxHistoryLength = glossyReuseQuarantine ? 1u : CleanRestirGiMaxHistoryLength;
     desc.enableFallbackSampling = 1u;
     desc.biasCorrectionMode = CleanRestirGiBiasCorrection;
     desc.maxReservoirAge = CleanRestirGiMaxReservoirAge;

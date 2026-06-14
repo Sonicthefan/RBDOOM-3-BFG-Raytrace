@@ -87,6 +87,13 @@ Acceptance checks:
 RGI-RR-03: Temporal / Spatial Reuse Rules
 -----------------------------------------
 
+Status: first conservative slice implemented. With
+r_pathTracingCleanRestirGiSpecularProducer enabled, receiver surfaces with
+roughness < 0.28 and F0 luminance > 0.04 bypass temporal reuse and spatial
+reuse. This avoids blindly reusing near-mirror reflective samples before the
+reservoir carries lobe/source metadata. Rougher specular materials still use
+the existing temporal/spatial policy and material similarity gates.
+
 Reflective samples are strongly view-dependent. Do not let the first specular
 producer blindly inherit the diffuse temporal/spatial policy.
 
