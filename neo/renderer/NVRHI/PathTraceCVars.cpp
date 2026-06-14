@@ -1695,6 +1695,12 @@ idCVar r_pathTracingCleanRestirGiNeeCacheSeed(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI: merge the NEE-cache-seeded reservoir at the temporal pass initial-sample step (Remix neeCache.enableOnFirstBounce equivalent). Off for bring-up" );
 
+idCVar r_pathTracingCleanRestirGiSpecularProducer(
+    "r_pathTracingCleanRestirGiSpecularProducer",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI: add a cvar-gated specular/glossy initial producer candidate into the INIT reservoir. Off until reflective-ray PDF/reuse diagnostics are proven" );
+
 idCVar r_pathTracingCleanRestirGiResolve(
     "r_pathTracingCleanRestirGiResolve",
     "0",

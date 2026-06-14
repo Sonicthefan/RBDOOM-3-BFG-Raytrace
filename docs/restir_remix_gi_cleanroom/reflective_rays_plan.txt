@@ -1,0 +1,150 @@
+Clean ReSTIR GI Reflective Rays Plan
+====================================
+
+Purpose
+-------
+
+The current GI lane evaluates diffuse + specular receiver lobes for the chosen
+GI reservoir sample, but the producer still traces the original diffuse-style
+secondary ray. That gives specular response to cached GI samples; it does not
+produce actual reflective rays or mirror/glossy hit chains.
+
+This plan records the missing work so the reflection path is not lost across
+context compaction.
+
+
+RGI-RR-01: Specular Initial Candidate
+-------------------------------------
+
+Status: first slice implemented with r_pathTracingCleanRestirGiSpecularProducer.
+It traces a specular/GGX producer candidate and preloads it into the INIT page
+so the existing raw diffuse initial sample can merge with it. The existing
+view 1/2 producer textures still show the diffuse producer only; dedicated
+specular candidate debug views remain part of RGI-RR-05.
+
+Add a cvar-gated specular/glossy GI producer candidate from the primary
+surface:
+
+    r_pathTracingCleanRestirGiSpecularProducer 0/1
+
+For each valid primary surface:
+
+    1. Read primary normal, geometric normal, view dir, roughness, and F0 from
+       the existing primary surface record.
+    2. Sample a specular/GGX direction using the same local material
+       interpretation as the GI/NEE specular lobe.
+    3. Gate the ray by geometric normal and roughness/F0 sanity checks.
+    4. Trace the ray into the existing TLAS.
+    5. Shade the secondary hit with the same secondary-hit lighting path used
+       by the diffuse GI producer.
+    6. Store as a second initial candidate for the GI reservoir.
+
+Do not replace the diffuse producer. The first implementation should merge one
+diffuse candidate and one specular candidate into the initial reservoir so
+existing diffuse GI remains testable.
+
+
+RGI-RR-02: Mixture PDF / Weight Contract
+----------------------------------------
+
+Mixed diffuse/specular candidates need a consistent PDF contract before they
+are allowed through temporal/spatial reuse.
+
+Required contract:
+
+    producerRadiance = incomingRadiance / mixturePdf
+
+where:
+
+    mixturePdf = diffuseProbability * diffusePdf
+               + specularProbability * specularPdf
+
+The diffuse probability and specular probability must be deterministic from
+the primary material, for example based on diffuse luminance, F0 luminance, and
+roughness. The target PDF must evaluate the same diffuse + specular reflected
+luminance model used by final GI shading.
+
+Acceptance checks:
+
+    - diffuse-only materials produce the old diffuse behavior
+    - high-F0/glossy materials can select specular directions
+    - zero/invalid PDFs reject the candidate instead of creating fireflies
+    - view 3/4/5 radiance*W does not explode when specular producer is enabled
+
+
+RGI-RR-03: Temporal / Spatial Reuse Rules
+-----------------------------------------
+
+Reflective samples are strongly view-dependent. Do not let the first specular
+producer blindly inherit the diffuse temporal/spatial policy.
+
+Initial safe policy:
+
+    - allow temporal/spatial reuse for rough specular only
+    - disable or heavily clamp reuse for near-mirror roughness
+    - require stricter normal, roughness, F0, and view-direction similarity
+    - keep the existing maxReservoirAge fallback until lighting validation is
+      implemented
+
+Useful gates:
+
+    roughness < mirrorThreshold:
+        either no temporal reuse or maxHistoryLength = 1
+
+    abs(dot(currentViewDir, previousViewDir)) below threshold:
+        reject temporal reuse
+
+    roughness/F0 material mismatch:
+        reject temporal and spatial reuse
+
+
+RGI-RR-04: Output Shape / Denoising
+-----------------------------------
+
+The current rbdoom output is one shaded GI RGB buffer. That is enough for a
+proof of reflective rays, but not a complete Remix/NRD-shaped output contract.
+
+Deferred output work:
+
+    - split diffuse and specular indirect radiance outputs
+    - add specular hit distance / path length output
+    - route specular GI through an RR/denoiser-aware path
+    - keep the current combined buffer as a debug/proof fallback
+
+Until this exists, reflective rays can be accumulated into the shared GI output
+only for proof. Expect temporal instability on glossy/mirror surfaces.
+
+
+RGI-RR-05: Debug Views
+----------------------
+
+Add views before tuning reuse:
+
+    - specular candidate radiance
+    - specular ray hit position / normal
+    - specular PDF and mixture PDF health
+    - specular-only final contribution
+    - reuse rejection reason for glossy samples
+
+View 6 should remain the final shaded diffuse+specular GI view. It is not
+enough by itself to diagnose reflective ray producer failures.
+
+
+Implementation Order
+--------------------
+
+    1. Add the cvar-gated specular initial candidate with temporal/spatial off
+       for that candidate if needed.
+    2. Prove candidate hit/radiance/debug views without changing diffuse GI.
+    3. Implement mixture PDF and target PDF parity.
+    4. Enable limited temporal/spatial reuse for rough specular only.
+    5. Add split outputs and denoiser/RR-aware resolve when proof is stable.
+
+
+Known Non-Goals For First Slice
+-------------------------------
+
+    - no external RTXDI/Remix header copying
+    - no portal-sensitive validation substitute
+    - no mirror-quality reflection denoising
+    - no broad rewrite of shared DI RAB_Brdf behavior

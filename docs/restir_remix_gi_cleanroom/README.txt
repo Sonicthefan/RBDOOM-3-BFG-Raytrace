@@ -141,5 +141,7 @@ File Map
     di_reuse_map.txt        what is reused from the DI lane vs built new
     cvar_contract.txt       clean-room GI cvar set
     worker_tasks.txt        ordered implementation tasks RGI-00 .. RGI-08
+    reflective_rays_plan.txt
+                            deferred plan for actual glossy/reflection rays
     validation_matrix.txt   required proofs per task
     field_notes.txt         runtime crash/material findings from field tests

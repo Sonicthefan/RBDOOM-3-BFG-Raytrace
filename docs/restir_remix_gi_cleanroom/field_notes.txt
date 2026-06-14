@@ -121,7 +121,9 @@ Remaining deferred features and their trigger conditions:
     virtual samples                 OFF in shipped HL2 RTX; revisit only if
                                     glossy GI is added (needs roughness-aware
                                     sample repositioning)
-    reflection reprojection         needs specular GI lane
+    reflection reprojection         needs specular GI lane; see
+                                    reflective_rays_plan.txt for the staged
+                                    producer/PDF/reuse/output plan
     portal-space sample transforms  needs active ray portals (none in rbdoom)
     sample stealing                 ON in HL2 RTX; port after the resolve
                                     path is proven (feeds PT integrator)

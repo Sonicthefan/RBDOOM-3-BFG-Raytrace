@@ -84,6 +84,14 @@ r_pathTracingCleanRestirGiNeeCacheSeed
     neeCache.enableOnFirstBounce equivalent). Off for the first proofs so
     producer correctness is judged alone.
 
+r_pathTracingCleanRestirGiSpecularProducer
+    int, default 0. When 1, traces a cvar-gated glossy/specular initial
+    producer ray and merges it into the INIT reservoir before the normal raw
+    diffuse producer sample joins the initial RIS update. The existing producer
+    radiance/hit debug textures still show the diffuse producer; dedicated
+    specular producer debug views are deferred to the reflective-ray debug
+    slice.
+
 r_pathTracingCleanRestirGiResolve
     int, default 0 until RGI-07. When 1, the final-shaded GI output is
     added into the combined resolve. Debug views must work without it.

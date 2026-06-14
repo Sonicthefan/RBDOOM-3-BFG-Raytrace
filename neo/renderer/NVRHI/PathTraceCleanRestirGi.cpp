@@ -54,10 +54,12 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t frameIndex;
     uint32_t phase;
     uint32_t resolveEnabled;
+    uint32_t specularProducerEnabled;
+    uint32_t padding0[3];
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
-static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 80, "GI constants tail must match the HLSL cbuffer tail layout");
+static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 96, "GI constants tail must match the HLSL cbuffer tail layout");
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
@@ -463,7 +465,7 @@ bool PathTraceCleanRestirGiExecute(
         }
         common->Printf(
             "PathTraceCleanRestirGi DUMP enable=%d view=%d temporal=%d spatial=%d biasCorrection=%d jacobian=%d "
-            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d resolve=%d size=%dx%d frame=%u "
+            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d specProd=%d resolve=%d size=%dx%d frame=%u "
             "reservoirBuffer=%s pages[init=%u tIn=%u tOut=%u sOut=%u] arrayPitch=%u producerTex=%d pipeline=%d "
             "diBlob=%d lights=%d earlyReturn=%s\n",
             r_pathTracingCleanRestirGiEnable.GetInteger(),
@@ -476,6 +478,7 @@ bool PathTraceCleanRestirGiExecute(
             r_pathTracingCleanRestirGiMaxReservoirAge.GetInteger(),
             r_pathTracingCleanRestirGiFireflyThreshold.GetFloat(),
             r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger(),
+            r_pathTracingCleanRestirGiSpecularProducer.GetInteger(),
             r_pathTracingCleanRestirGiResolve.GetInteger(),
             inputs.width,
             inputs.height,
@@ -666,6 +669,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.neeCacheSeedEnabled = r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0 ? 1u : 0u;
     tail.frameIndex = state.frameIndex;
     tail.resolveEnabled = r_pathTracingCleanRestirGiResolve.GetInteger() != 0 ? 1u : 0u;
+    tail.specularProducerEnabled = r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0 ? 1u : 0u;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's

@@ -267,6 +267,8 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiFrameIndex;
     uint CleanRestirGiPhase;
     uint CleanRestirGiResolveEnabled;
+    uint CleanRestirGiSpecularProducerEnabled;
+    uint3 CleanRestirGiPadding0;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -510,9 +512,9 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
         return reservoir;
     }
 
-    // RGI-05 hook: when the NEE-cache seed is enabled, the seeded reservoir
-    // pre-loaded into the INIT page joins the RIS update here.
-    if (CleanRestirGiNeeCacheSeedEnabled != 0u)
+    // Seed hooks: cvar-gated producers can preload the INIT page before the
+    // raw diffuse initial sample joins the RIS update here.
+    if (CleanRestirGiNeeCacheSeedEnabled != 0u || CleanRestirGiSpecularProducerEnabled != 0u)
     {
         reservoir = RAB_LoadGIReservoir(int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
     }
@@ -690,6 +692,7 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
 }
 
 static const uint CLEAN_RESTIR_GI_PRODUCER_RNG_PASS = 0x52525810u;
+static const uint CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS = 0x52525812u;
 static const float CLEAN_RESTIR_GI_FIREFLY_FACTOR = 30.0;
 
 float3 CleanGiSafeNormalize(float3 value, float3 fallback)
@@ -2065,24 +2068,19 @@ float3 CleanGiShadeSecondaryVertex(
     return radiance;
 }
 
-CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
+CleanGiProducerResult CleanGiTraceProducerRay(
+    float3 primaryPosition,
+    float3 primaryGeometricNormal,
+    float3 bounceDir,
+    float solidAnglePdf,
+    inout RAB_RandomSamplerState rng)
 {
     CleanGiProducerResult result = (CleanGiProducerResult)0;
 
-    const float3 primaryPosition = record.worldPositionAndViewDepth.xyz;
-    const float3 primaryShadingNormal = CleanGiSafeNormalize(record.shadingNormalAndOpacity.xyz, record.geometricNormalAndRoughness.xyz);
-    const float3 primaryGeometricNormal = CleanGiSafeNormalize(record.geometricNormalAndRoughness.xyz, primaryShadingNormal);
-
-    // Cosine-weighted bounce direction around the primary shading normal;
-    // solidAnglePdf = ndotl / pi (the shared diffuse BRDF sampling model).
-    const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
-    const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-    const float bounceNdotL = dot(primaryShadingNormal, bounceDir);
-    if (bounceNdotL <= 0.0 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
+    if (solidAnglePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
     {
         return result;
     }
-    const float solidAnglePdf = bounceNdotL / RTXDI_PI;
 
     RayDesc bounceRay;
     bounceRay.Origin = primaryPosition + primaryGeometricNormal * 0.5 + bounceDir * 0.25;
@@ -2240,6 +2238,100 @@ CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRec
     return result;
 }
 
+bool CleanGiSampleSpecularProducerDirection(
+    RAB_Surface surface,
+    inout RAB_RandomSamplerState rng,
+    out float3 bounceDir,
+    out float solidAnglePdf)
+{
+    bounceDir = float3(0.0, 0.0, 0.0);
+    solidAnglePdf = 0.0;
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    const float3 specularF0 = max(GetSpecularF0(surface.material), float3(0.0, 0.0, 0.0));
+    if (CleanGiLuminance(specularF0) <= 1.0e-4)
+    {
+        return false;
+    }
+
+    const float3 normal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 geometryNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), normal);
+    const float3 viewDir = CleanGiSafeNormalize(RAB_GetSurfaceViewDir(surface), normal);
+    if (dot(normal, viewDir) <= 0.0 || dot(geometryNormal, viewDir) <= 0.0)
+    {
+        return false;
+    }
+
+    const float roughness = max(saturate(GetRoughness(surface.material)), 0.02);
+    const float alpha = max(roughness * roughness, 1.0e-3);
+    const float alphaSquared = max(alpha * alpha, 1.0e-6);
+    const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+    const float phi = 2.0 * RTXDI_PI * randomValues.x;
+    const float cosTheta = sqrt((1.0 - randomValues.y) / max(1.0 + (alphaSquared - 1.0) * randomValues.y, 1.0e-6));
+    const float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    const float3 tangent = CleanGiBuildPerpendicular(normal);
+    const float3 bitangent = CleanGiSafeNormalize(cross(normal, tangent), float3(0.0, 1.0, 0.0));
+    float3 halfVector = CleanGiSafeNormalize(
+        tangent * (cos(phi) * sinTheta) +
+        bitangent * (sin(phi) * sinTheta) +
+        normal * cosTheta,
+        normal);
+    if (dot(halfVector, viewDir) <= 0.0)
+    {
+        halfVector = -halfVector;
+    }
+
+    bounceDir = CleanGiSafeNormalize(reflect(-viewDir, halfVector), normal);
+    const float ndotl = dot(normal, bounceDir);
+    const float gdntl = dot(geometryNormal, bounceDir);
+    const float ndoth = saturate(dot(normal, halfVector));
+    const float vdoth = saturate(dot(viewDir, halfVector));
+    if (ndotl <= 0.0 || gdntl <= 0.0 || ndoth <= 0.0 || vdoth <= 0.0)
+    {
+        return false;
+    }
+
+    const float denominator = max((ndoth * ndoth) * (alphaSquared - 1.0) + 1.0, 1.0e-6);
+    const float D = alphaSquared / max(RTXDI_PI * denominator * denominator, 1.0e-6);
+    solidAnglePdf = (D * ndoth) / max(4.0 * vdoth, 1.0e-6);
+    return solidAnglePdf > 1.0e-6 && solidAnglePdf == solidAnglePdf;
+}
+
+CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
+{
+    const float3 primaryPosition = record.worldPositionAndViewDepth.xyz;
+    const float3 primaryShadingNormal = CleanGiSafeNormalize(record.shadingNormalAndOpacity.xyz, record.geometricNormalAndRoughness.xyz);
+    const float3 primaryGeometricNormal = CleanGiSafeNormalize(record.geometricNormalAndRoughness.xyz, primaryShadingNormal);
+
+    // Cosine-weighted bounce direction around the primary shading normal;
+    // solidAnglePdf = ndotl / pi (the shared diffuse BRDF sampling model).
+    const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+    const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
+    const float bounceNdotL = dot(primaryShadingNormal, bounceDir);
+    const float solidAnglePdf = bounceNdotL > 0.0 ? bounceNdotL / RTXDI_PI : 0.0;
+    return CleanGiTraceProducerRay(primaryPosition, primaryGeometricNormal, bounceDir, solidAnglePdf, rng);
+}
+
+CleanGiProducerResult CleanGiRunSpecularProducer(PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
+{
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+    float3 bounceDir;
+    float solidAnglePdf;
+    if (!CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, solidAnglePdf))
+    {
+        return (CleanGiProducerResult)0;
+    }
+    return CleanGiTraceProducerRay(
+        RAB_GetSurfaceWorldPos(surface),
+        RAB_GetSurfaceGeoNormal(surface),
+        bounceDir,
+        solidAnglePdf,
+        rng);
+}
+
 // RGI-03/RGI-04: drives the frozen temporal contract. Builds the initial
 // reservoir from the producer textures (via the REMIX_RAB_* initial-sample
 // callbacks), stores it to the INIT page, then runs RTXDI GI temporal
@@ -2313,6 +2405,46 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
 
 static const uint CLEAN_RESTIR_GI_NEE_SEED_RNG_PASS = 0x52525811u;
 
+void CleanGiMergeProducerSeedIntoInitPage(
+    uint2 pixel,
+    RAB_Surface surface,
+    CleanGiProducerResult producer,
+    float randomValue)
+{
+    if (producer.valid == 0u || !RAB_IsSurfaceValid(surface) || !CleanGiAllFinite3(producer.radiance))
+    {
+        return;
+    }
+
+    const RTXDI_GIReservoir sample = RTXDI_MakeGIReservoir(
+        producer.hitPosition,
+        CleanGiSafeNormalize(producer.hitNormal, float3(0.0, 0.0, 1.0)),
+        max(producer.radiance, float3(0.0, 0.0, 0.0)),
+        1.0);
+    const float targetPdf = RemixRAB_GetGISampleTargetPdfForSurface(sample.position, sample.radiance, surface);
+    if (targetPdf <= 0.0)
+    {
+        return;
+    }
+
+    RTXDI_GIReservoir seeded = RAB_LoadGIReservoir(int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+    RTXDI_CombineGIReservoirs(seeded, sample, randomValue, targetPdf);
+    RAB_StoreGIReservoir(seeded, int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+}
+
+void CleanGiSeedInitPageFromSpecularProducer(uint2 pixel, bool surfaceValid, PathTracePrimarySurfaceRecord record)
+{
+    if (CleanRestirGiSpecularProducerEnabled == 0u || !surfaceValid)
+    {
+        return;
+    }
+
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+    RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
+    const CleanGiProducerResult producer = CleanGiRunSpecularProducer(record, rng);
+    CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
+}
+
 void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePrimarySurfaceRecord record)
 {
     if (CleanRestirGiNeeCacheSeedEnabled == 0u)
@@ -2320,9 +2452,7 @@ void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePr
         return;
     }
 
-    // The INIT page is transient: always overwrite it so a stale reservoir
-    // from a previous frame can never masquerade as a seed.
-    RTXDI_GIReservoir seeded = RTXDI_EmptyGIReservoir();
+    RTXDI_GIReservoir seeded = RAB_LoadGIReservoir(int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
 
     if (surfaceValid && CleanGiNeeCacheProviderReady())
     {
@@ -2533,7 +2663,9 @@ void RayGen()
     CleanRestirGiProducerHitPosition[pixel] = float4(producer.hitPosition, producer.valid != 0u ? 1.0 : 0.0);
     CleanRestirGiProducerHitNormal[pixel] = float4(producer.hitNormal, 0.0);
 
-    // ---- RGI-05 NEE cache seed (writes the INIT page pre-merge) ----
+    // ---- Initial reservoir seeds (preloaded into the transient INIT page) ----
+    RAB_StoreGIReservoir(RTXDI_EmptyGIReservoir(), int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+    CleanGiSeedInitPageFromSpecularProducer(pixel, surfaceValid, record);
     CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
 
     // ---- RGI-03/04 initial reservoir + temporal reuse (frozen contract) ----
