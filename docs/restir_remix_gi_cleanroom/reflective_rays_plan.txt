@@ -143,15 +143,26 @@ PathTraceRRGuideHitDistance in linear world/engine units. The write uses the
 same reflective-receiver gate as the specular producer and remains off by
 default for A/B validation.
 
+RR specular input route: opt-in slice implemented with
+r_pathTracingCleanRestirGiRrSpecularInput. When both it and the specular
+producer are enabled, eligible stored specular GI is added into
+PathTraceRRInputColor for RR/DLSS experiments. It is independent from the
+hit-distance CVar but uses the same reflective receiver/lobe eligibility.
+For clean DI DLSS-RR views 12/16, view-0 RR export dispatches before the
+DLSS-RR bridge evaluates so the added specular GI and hit distance are
+available to RR instead of being overlaid after RR output copy. GI debug
+views remain late overlays and should still be tested with DLSS-RR off.
+The boiling-filter beauty resolve must not also add shaded indirect GI into
+PathTraceRRInputColor; doing both makes r_pathTracingCleanRestirGiRrSpecularInput
+look ineffective at 0 and double-counts the specular lobe at 1.
+
 The current rbdoom output is one shaded GI RGB buffer. That is enough for a
 proof of reflective rays, but not a complete Remix/NRD-shaped output contract.
 
 Deferred output work:
 
-    - split diffuse and specular indirect radiance outputs
-    - validate the cvar-gated specular hit distance / path length output with
-      denoiser/RR consumers
-    - route specular GI through an RR/denoiser-aware path
+    - validate the cvar-gated pre-DLSSRR specular color and hit-distance
+      export with RR consumers
     - keep the current combined buffer as a debug/proof fallback
 
 Until this exists, reflective rays can be accumulated into the shared GI output

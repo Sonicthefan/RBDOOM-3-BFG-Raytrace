@@ -61,6 +61,7 @@ struct PathTraceCleanRestirGiDispatchInputs
     // shared DI-lane helper code sees identical values.
     const void* diConstantsBlob = nullptr;
     uint32_t diConstantsSize = 0;
+    uint32_t doomAnalyticLightCountOverride = 0;
 
     // Scene resources shared read-only with the DI lane (GI io_whitelist
     // input classes GI-I-01/04/05/06/09).

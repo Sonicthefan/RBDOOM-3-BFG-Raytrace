@@ -273,7 +273,8 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiResolveEnabled;
     uint CleanRestirGiSpecularProducerEnabled;
     uint CleanRestirGiRrHitDistanceEnabled;
-    uint2 CleanRestirGiPadding0;
+    uint CleanRestirGiRrSpecularInputEnabled;
+    uint CleanRestirGiPadding0;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -2144,7 +2145,9 @@ struct CleanGiSpecularProducerDebug
 
 // Shades the secondary vertex: its own emissive plus one direct-light proposal.
 // The NEE cache provider is the preferred proposal source when ready; otherwise
-// the producer falls back to one analytic and one emissive sample.
+// the producer falls back to a mixed analytic/emissive proposal. Keep this as a
+// single proposal so merely enabling the analytic domain does not add another
+// shadow ray at every secondary vertex.
 float3 CleanGiShadeSecondaryVertex(
     RAB_Surface secondarySurface,
     float3 hitGeometricNormal,
@@ -2158,18 +2161,33 @@ float3 CleanGiShadeSecondaryVertex(
         return radiance;
     }
 
-    const uint lightCount = CleanRtxdiDiAnalyticLightCount;
-    if (lightCount > 0u)
+    const uint analyticCount = CleanRtxdiDiAnalyticLightCount;
+    const uint emissiveCount = CleanRtxdiDiCurrentEmissiveTriangleCount;
+    const bool hasAnalyticDomain = analyticCount > 0u;
+    const bool hasEmissiveDomain = emissiveCount > 0u;
+    if (!hasAnalyticDomain && !hasEmissiveDomain)
     {
-        const uint lightIndex = min((uint)(RAB_GetNextRandom(rng) * lightCount), lightCount - 1u);
+        return radiance;
+    }
+
+    const float analyticDomainProbability = hasAnalyticDomain && hasEmissiveDomain
+        ? 0.5
+        : (hasAnalyticDomain ? 1.0 : 0.0);
+    const bool chooseAnalytic = hasAnalyticDomain &&
+        (!hasEmissiveDomain || RAB_GetNextRandom(rng) < analyticDomainProbability);
+
+    if (chooseAnalytic)
+    {
+        const uint lightIndex = min((uint)(RAB_GetNextRandom(rng) * analyticCount), analyticCount - 1u);
         const RAB_LightInfo lightInfo = CleanGiBuildAnalyticLightInfo(DoomAnalyticLights[lightIndex], lightIndex);
         CleanGiAccumulateLightSample(
             radiance,
             secondarySurface,
             hitGeometricNormal,
             lightInfo,
-            1.0 / max((float)lightCount, 1.0),
+            analyticDomainProbability / max((float)analyticCount, 1.0),
             rng);
+        return radiance;
     }
 
     uint emissiveSourceIndex;
@@ -2182,7 +2200,7 @@ float3 CleanGiShadeSecondaryVertex(
             secondarySurface,
             hitGeometricNormal,
             emissiveInfo,
-            emissiveSourcePdf,
+            (1.0 - analyticDomainProbability) * emissiveSourcePdf,
             rng);
     }
 
@@ -2789,10 +2807,9 @@ float3 CleanGiFinalShadeIndirect(RAB_Surface surface, RTXDI_GIReservoir reservoi
     return CleanGiAllFinite3(indirect) ? indirect : float3(0.0, 0.0, 0.0);
 }
 
-bool CleanGiShouldWriteRrHitDistance(RAB_Surface surface, CleanGiIndirectLobeResult lobes)
+bool CleanGiReflectiveOutputEligible(RAB_Surface surface, CleanGiIndirectLobeResult lobes)
 {
-    if (CleanRestirGiRrHitDistanceEnabled == 0u ||
-        !CleanGiSurfaceSupportsSpecularProducer(surface) ||
+    if (!CleanGiSurfaceSupportsSpecularProducer(surface) ||
         lobes.hitDistance <= 0.0 ||
         lobes.hitDistance >= 1.0e8)
     {
@@ -2803,6 +2820,11 @@ bool CleanGiShouldWriteRrHitDistance(RAB_Surface surface, CleanGiIndirectLobeRes
     const float diffuseLuminance = CleanGiLuminance(lobes.diffuse);
     return specularLuminance > 1.0e-4 &&
         specularLuminance >= max(diffuseLuminance * 0.10, 1.0e-4);
+}
+
+bool CleanGiShouldWriteRrHitDistance(RAB_Surface surface, CleanGiIndirectLobeResult lobes)
+{
+    return CleanRestirGiRrHitDistanceEnabled != 0u && CleanGiReflectiveOutputEligible(surface, lobes);
 }
 
 // Writes the GI-O-05 output. The boiling-filter compute pass consumes it,
@@ -2820,6 +2842,10 @@ void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIRes
         PathTraceRRGuideHitDistance[pixel] = CleanGiShouldWriteRrHitDistance(surface, lobes)
             ? lobes.hitDistance
             : 0.0;
+    }
+    if (CleanRestirGiRrSpecularInputEnabled != 0u && CleanGiReflectiveOutputEligible(surface, lobes))
+    {
+        PathTraceRRInputColor[pixel] += float4(max(lobes.specular, float3(0.0, 0.0, 0.0)), 0.0);
     }
 }
 

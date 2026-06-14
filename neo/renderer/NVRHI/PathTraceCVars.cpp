@@ -1707,6 +1707,12 @@ idCVar r_pathTracingCleanRestirGiRrHitDistance(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI: write eligible reflective GI specular hit distances into the RR/DLSS specular hit-distance guide. Requires the specular producer and is off by default for A/B validation" );
 
+idCVar r_pathTracingCleanRestirGiRrSpecularInput(
+    "r_pathTracingCleanRestirGiRrSpecularInput",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI: add eligible stored specular GI into PathTraceRRInputColor for RR/DLSS experiments. Requires the specular producer and is off by default for A/B validation" );
+
 idCVar r_pathTracingCleanRestirGiResolve(
     "r_pathTracingCleanRestirGiResolve",
     "0",

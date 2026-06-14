@@ -74,6 +74,13 @@ RGI-RR-05 reflective debug
     r_pathTracingCleanRestirGiRrHitDistance 1: with specular producer enabled,
         eligible glossy/high-F0 receivers write linear hit distance into
         PathTraceRRGuideHitDistance; rough ordinary walls remain zero
+    r_pathTracingCleanRestirGiRrSpecularInput 1: with specular producer enabled,
+        eligible glossy/high-F0 receivers add stored specular GI into
+        PathTraceRRInputColor; in clean DI views 12/16 with DLSS-RR on and
+        GI view 0, this export occurs before DLSS-RR consumes the input color
+    r_pathTracingCleanRestirGiRrSpecularInput 0 with resolve on: no specular
+        GI should be added to PathTraceRRInputColor by the beauty resolve;
+        turning the CVar to 1 should add the specular lobe once, not double it
 
 RGI-08 stabilization
     boiling filter on/off comparison: fewer persistent bright blobs,

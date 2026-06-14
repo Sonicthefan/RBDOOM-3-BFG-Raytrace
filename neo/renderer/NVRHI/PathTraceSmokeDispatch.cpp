@@ -3896,11 +3896,82 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->dispatchRays(cleanArgs);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
         }
+        auto dispatchCleanRestirGi = [&]() -> bool
+        {
+            PathTraceCleanRestirGiDispatchInputs giInputs;
+            giInputs.device = device;
+            giInputs.commandList = commandList;
+            giInputs.outputTexture = m_frameResources.outputTexture;
+            giInputs.textureDescriptorTable = m_smokeTextureDescriptorTable;
+            giInputs.textureBindlessLayout = m_smokeTextureBindlessLayout;
+            giInputs.isD3D12 = deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::D3D12;
+            giInputs.isVulkan = deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
+            giInputs.width = m_frameResources.width;
+            giInputs.height = m_frameResources.height;
+            giInputs.diConstantsBlob = &cleanConstants;
+            giInputs.diConstantsSize = static_cast<uint32_t>(sizeof(cleanConstants));
+            giInputs.doomAnalyticLightCountOverride = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
+            giInputs.tlas = m_smokeTlas;
+            giInputs.staticVertexBuffer = m_smokeStaticVertexBuffer;
+            giInputs.staticIndexBuffer = m_smokeStaticIndexBuffer;
+            giInputs.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
+            giInputs.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
+            giInputs.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
+            giInputs.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
+            giInputs.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
+            giInputs.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
+            giInputs.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
+            giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
+            giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
+            giInputs.fallbackTexture = cleanFallbackTexture;
+            const bool cleanGiNeedsEmissiveTriangles = cleanConstants.currentEmissiveTriangleCount > 0u;
+            const bool cleanGiNeedsEmissiveDistribution = cleanEmissiveDistributionCount > 0u;
+            const bool cleanGiNeedsDoomAnalyticLights =
+                cleanConstants.analyticLightCount > 0u || cleanConstants.doomAnalyticFullCurrentCount > 0u;
+            const bool cleanGiNeedsRluCurrentLights = cleanConstants.rluCurrentLightCount > 0u;
+            giInputs.emissiveTriangleBuffer = cleanGiNeedsEmissiveTriangles
+                ? m_smokeEmissiveTriangleBuffer
+                : cleanOptionalSrv(m_smokeEmissiveTriangleBuffer);
+            giInputs.emissiveDistributionBuffer = cleanGiNeedsEmissiveDistribution
+                ? m_smokeEmissiveDistributionBuffer
+                : cleanOptionalSrv(m_smokeEmissiveDistributionBuffer);
+            giInputs.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
+            giInputs.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
+            giInputs.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
+            giInputs.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
+            giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+            giInputs.doomAnalyticLightBuffer = cleanGiNeedsDoomAnalyticLights
+                ? m_smokeDoomAnalyticLightBuffer
+                : cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer);
+            giInputs.rluCurrentLightBuffer = cleanGiNeedsRluCurrentLights
+                ? m_smokeRestirLightManagerCurrentPayloadBuffer
+                : cleanOptionalSrv(m_smokeRestirLightManagerCurrentPayloadBuffer);
+            giInputs.neeCacheProviderResultBuffer = cleanNeeCacheProviderSrv;
+            giInputs.primarySurfaceCurrentBuffer = m_frameResources.primarySurfaceHistoryBuffers.current;
+            giInputs.primarySurfacePreviousBuffer = m_frameResources.primarySurfaceHistoryBuffers.previous;
+            giInputs.motionVectorTexture = m_frameResources.motionVectorTexture;
+            giInputs.motionVectorMaskTexture = m_frameResources.motionVectorMaskTexture;
+            giInputs.rrInputColorTexture = m_frameResources.rrInputColorTexture;
+            giInputs.rrGuideHitDistanceTexture = m_frameResources.rrGuideHitDistanceTexture;
+            giInputs.materialSampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
+            return PathTraceCleanRestirGiExecute(m_cleanRestirGiState, giInputs);
+        };
         const bool cleanDlssRrEvaluateRequested =
             cleanSpatialRoute &&
             (cleanRtxdiDiView == 12 || cleanRtxdiDiView == 16) &&
             r_pathTracingDLSSRR.GetInteger() != 0 &&
             r_pathTracingDLSSRRGuideDebugView.GetInteger() == 0;
+        const bool cleanGiDispatchRequested =
+            r_pathTracingCleanRestirGiEnable.GetInteger() != 0 ||
+            r_pathTracingCleanRestirGiDump.GetInteger() != 0;
+        const bool cleanGiRrPreDlssRequested =
+            cleanGiDispatchRequested &&
+            cleanDlssRrEvaluateRequested &&
+            r_pathTracingCleanRestirGiView.GetInteger() == 0 &&
+            r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0 &&
+            (r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 ||
+                r_pathTracingCleanRestirGiRrSpecularInput.GetInteger() != 0);
+        bool cleanGiDispatchedBeforeRr = false;
         if (cleanDlssRrEvaluateRequested)
         {
             const idVec2 cleanDlssRrJitterPixels = PathTraceDLSSRRPixelJitter(viewDef, cleanConstants.frameIndex, true);
@@ -3973,6 +4044,12 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
 
                     nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
                 }
+            }
+
+            if (cleanGiRrPreDlssRequested)
+            {
+                dispatchCleanRestirGi();
+                cleanGiDispatchedBeforeRr = true;
             }
 
             commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
@@ -4095,69 +4172,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
             m_frameResources.primarySurfaceHistoryNeedsClear = false;
         }
-        if (r_pathTracingCleanRestirGiEnable.GetInteger() != 0 ||
-            r_pathTracingCleanRestirGiDump.GetInteger() != 0)
+        if (cleanGiDispatchRequested && !cleanGiDispatchedBeforeRr)
         {
             // Clean-room ReSTIR GI lane (docs/restir_remix_gi_cleanroom). Runs
-            // after the DI lane so GI debug views overwrite the output; when
-            // r_pathTracingCleanRestirGiEnable is 0 this dispatches nothing
-            // and the DI output is untouched.
-            PathTraceCleanRestirGiDispatchInputs giInputs;
-            giInputs.device = device;
-            giInputs.commandList = commandList;
-            giInputs.outputTexture = m_frameResources.outputTexture;
-            giInputs.textureDescriptorTable = m_smokeTextureDescriptorTable;
-            giInputs.textureBindlessLayout = m_smokeTextureBindlessLayout;
-            giInputs.isD3D12 = deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::D3D12;
-            giInputs.isVulkan = deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
-            giInputs.width = m_frameResources.width;
-            giInputs.height = m_frameResources.height;
-            giInputs.diConstantsBlob = &cleanConstants;
-            giInputs.diConstantsSize = static_cast<uint32_t>(sizeof(cleanConstants));
-            giInputs.tlas = m_smokeTlas;
-            giInputs.staticVertexBuffer = m_smokeStaticVertexBuffer;
-            giInputs.staticIndexBuffer = m_smokeStaticIndexBuffer;
-            giInputs.dynamicVertexBuffer = m_smokeDynamicVertexBuffer;
-            giInputs.dynamicIndexBuffer = m_smokeDynamicIndexBuffer;
-            giInputs.staticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
-            giInputs.dynamicTriangleClassBuffer = m_smokeDynamicTriangleClassBuffer;
-            giInputs.staticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
-            giInputs.dynamicTriangleMaterialBuffer = m_smokeDynamicTriangleMaterialBuffer;
-            giInputs.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
-            giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
-            giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
-            giInputs.fallbackTexture = cleanFallbackTexture;
-            const bool cleanGiNeedsEmissiveTriangles = cleanConstants.currentEmissiveTriangleCount > 0u;
-            const bool cleanGiNeedsEmissiveDistribution = cleanEmissiveDistributionCount > 0u;
-            const bool cleanGiNeedsDoomAnalyticLights =
-                cleanConstants.analyticLightCount > 0u || cleanConstants.doomAnalyticFullCurrentCount > 0u;
-            const bool cleanGiNeedsRluCurrentLights = cleanConstants.rluCurrentLightCount > 0u;
-            giInputs.emissiveTriangleBuffer = cleanGiNeedsEmissiveTriangles
-                ? m_smokeEmissiveTriangleBuffer
-                : cleanOptionalSrv(m_smokeEmissiveTriangleBuffer);
-            giInputs.emissiveDistributionBuffer = cleanGiNeedsEmissiveDistribution
-                ? m_smokeEmissiveDistributionBuffer
-                : cleanOptionalSrv(m_smokeEmissiveDistributionBuffer);
-            giInputs.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
-            giInputs.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
-            giInputs.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
-            giInputs.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
-            giInputs.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
-            giInputs.doomAnalyticLightBuffer = cleanGiNeedsDoomAnalyticLights
-                ? m_smokeDoomAnalyticLightBuffer
-                : cleanOptionalSrv(m_smokeDoomAnalyticLightBuffer);
-            giInputs.rluCurrentLightBuffer = cleanGiNeedsRluCurrentLights
-                ? m_smokeRestirLightManagerCurrentPayloadBuffer
-                : cleanOptionalSrv(m_smokeRestirLightManagerCurrentPayloadBuffer);
-            giInputs.neeCacheProviderResultBuffer = cleanNeeCacheProviderSrv;
-            giInputs.primarySurfaceCurrentBuffer = m_frameResources.primarySurfaceHistoryBuffers.current;
-            giInputs.primarySurfacePreviousBuffer = m_frameResources.primarySurfaceHistoryBuffers.previous;
-            giInputs.motionVectorTexture = m_frameResources.motionVectorTexture;
-            giInputs.motionVectorMaskTexture = m_frameResources.motionVectorMaskTexture;
-            giInputs.rrInputColorTexture = m_frameResources.rrInputColorTexture;
-            giInputs.rrGuideHitDistanceTexture = m_frameResources.rrGuideHitDistanceTexture;
-            giInputs.materialSampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
-            PathTraceCleanRestirGiExecute(m_cleanRestirGiState, giInputs);
+            // after the DI lane so GI debug views overwrite the output. View-0
+            // RR export runs before DLSSRR above so those inputs are consumed
+            // by RR instead of being overlaid afterward.
+            dispatchCleanRestirGi();
         }
         if (!m_smokeTestDispatched)
         {

@@ -3,8 +3,8 @@
 // Remix final-shading-shaped boiling filter for the shaded GI output:
 // compute the threadgroup's average nonzero shaded luminance and clamp
 // outliers down to that average.
-// This pass also owns the resolve add so the combined outputs receive the
-// FILTERED contribution: SmokeOutput/RRInputColor += indirect.
+// This pass also owns the beauty resolve add so the combined output receives
+// the FILTERED contribution. RR input is owned by explicit RR export paths.
 //
 // io_whitelist: reads GI-O-05 (shaded indirect GI) + GI-I-01 (validity only);
 // writes GI-O-05 (filtered in place) and the combined beauty outputs under
@@ -18,7 +18,9 @@ cbuffer PathTraceCleanRestirGiBoilingFilterConstants : register(b0)
     uint CleanGiBfWidth;
     uint CleanGiBfHeight;
     float CleanGiBfThreshold;     // 0 disables clamping
-    uint CleanGiBfResolveEnabled; // adds shaded indirect GI into the outputs
+    uint CleanGiBfResolveEnabled; // adds shaded indirect GI into SmokeOutput
+    uint CleanGiBfRrInputResolveEnabled; // legacy/debug only; normal RR export owns RR input
+    uint2 CleanGiBfPadding0;
 };
 
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanGiBfIndirectDiffuse : register(u1);
@@ -94,7 +96,10 @@ void main(uint2 pixel : SV_DispatchThreadID, uint2 localIndex : SV_GroupThreadID
             (record.header.y & RT_PRIMARY_SURFACE_VALID) != 0u)
         {
             CleanGiBfSmokeOutput[pixel] += float4(indirect, 0.0);
-            CleanGiBfRRInputColor[pixel] += float4(indirect, 0.0);
+            if (CleanGiBfRrInputResolveEnabled != 0u)
+            {
+                CleanGiBfRRInputColor[pixel] += float4(indirect, 0.0);
+            }
         }
     }
 }

@@ -120,9 +120,22 @@ r_pathTracingCleanRestirGiRrHitDistance
     debug-scaled color. Eligibility uses the same reflective-receiver gate as
     the specular producer so rough ordinary walls do not export hit distance.
 
+r_pathTracingCleanRestirGiRrSpecularInput
+    int, default 0. When 1, and only when the specular producer is also enabled,
+    adds eligible stored specular GI into PathTraceRRInputColor for RR/DLSS
+    experiments. This is an opt-in export path: it does not change the normal
+    beauty resolve and uses the same reflective receiver/lobe eligibility as
+    the hit-distance route. In clean DI views 12/16 with DLSS-RR enabled and
+    GI view 0, this export dispatch runs before DLSS-RR evaluates so RR can
+    consume the modified input color. This is the only normal GI path that may
+    add GI radiance to PathTraceRRInputColor; the beauty resolve must not also
+    write RR input or the specular lobe is double-counted.
+
 r_pathTracingCleanRestirGiResolve
     int, default 0 until RGI-07. When 1, the final-shaded GI output is
-    added into the combined resolve. Debug views must work without it.
+    added into the combined beauty resolve. It must not write
+    PathTraceRRInputColor; RR input is owned by
+    r_pathTracingCleanRestirGiRrSpecularInput.
 
 
 Rules

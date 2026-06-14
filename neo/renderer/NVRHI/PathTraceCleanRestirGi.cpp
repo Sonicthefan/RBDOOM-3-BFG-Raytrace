@@ -37,6 +37,7 @@ const uint32_t CLEAN_RESTIR_GI_PAGE_COUNT = 4u;
 // Must match the DI sentinel constants blob size mirrored at the head of the
 // GI cbuffer (PathTraceCleanRtxdiDiSentinelConstants).
 const uint32_t CLEAN_RESTIR_GI_DI_BLOB_SIZE = 480u;
+const uint32_t CLEAN_RESTIR_GI_DI_ANALYTIC_LIGHT_COUNT_OFFSET = 4u * sizeof(uint32_t);
 
 // GI-owned cbuffer tail; layout must match the trailing fields of
 // PathTraceCleanRestirGiConstants in pathtrace_clean_restir_gi.rt.hlsl.
@@ -56,7 +57,8 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t resolveEnabled;
     uint32_t specularProducerEnabled;
     uint32_t rrHitDistanceEnabled;
-    uint32_t padding0[2];
+    uint32_t rrSpecularInputEnabled;
+    uint32_t padding0;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
@@ -218,7 +220,10 @@ struct PathTraceCleanRestirGiBoilingFilterConstants
     uint32_t height;
     float threshold;
     uint32_t resolveEnabled;
+    uint32_t rrInputResolveEnabled;
+    uint32_t padding0[3];
 };
+static_assert(sizeof(PathTraceCleanRestirGiBoilingFilterConstants) == 32, "GI boiling filter constants size must match HLSL packing");
 
 bool CleanRestirGiEnsureBoilingFilterPipeline(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
 {
@@ -295,7 +300,7 @@ bool CleanRestirGiEnsureBoilingFilterPipeline(PathTraceCleanRestirGiState& state
     }
 
     nvrhi::BufferDesc constantsDesc;
-    constantsDesc.byteSize = 16;
+    constantsDesc.byteSize = sizeof(PathTraceCleanRestirGiBoilingFilterConstants);
     constantsDesc.debugName = "PathTraceCleanRestirGiBoilingFilterConstants";
     constantsDesc.isConstantBuffer = true;
     constantsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
@@ -482,7 +487,7 @@ bool PathTraceCleanRestirGiExecute(
         }
         common->Printf(
             "PathTraceCleanRestirGi DUMP enable=%d view=%d temporal=%d spatial=%d biasCorrection=%d jacobian=%d "
-            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d specProd=%d rrHitDistance=%d resolve=%d size=%dx%d frame=%u "
+            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d specProd=%d rrHitDistance=%d rrSpecInput=%d resolve=%d size=%dx%d frame=%u "
             "reservoirBuffer=%s pages[init=%u tIn=%u tOut=%u sOut=%u] arrayPitch=%u producerTex=%d pipeline=%d "
             "diBlob=%d lights=%d earlyReturn=%s\n",
             r_pathTracingCleanRestirGiEnable.GetInteger(),
@@ -497,6 +502,7 @@ bool PathTraceCleanRestirGiExecute(
             r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger(),
             r_pathTracingCleanRestirGiSpecularProducer.GetInteger(),
             r_pathTracingCleanRestirGiRrHitDistance.GetInteger(),
+            r_pathTracingCleanRestirGiRrSpecularInput.GetInteger(),
             r_pathTracingCleanRestirGiResolve.GetInteger(),
             inputs.width,
             inputs.height,
@@ -577,7 +583,10 @@ bool PathTraceCleanRestirGiExecute(
     const bool rrHitDistanceRequested =
         r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 &&
         r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0;
-    if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0 && !rrHitDistanceRequested)
+    const bool rrSpecularInputRequested =
+        r_pathTracingCleanRestirGiRrSpecularInput.GetInteger() != 0 &&
+        r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0;
+    if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0 && !rrHitDistanceRequested && !rrSpecularInputRequested)
     {
         // Nothing consumes the lane yet without a debug view or resolve.
         printDump("no-view");
@@ -682,6 +691,14 @@ bool PathTraceCleanRestirGiExecute(
 
     uint8_t constants[CLEAN_RESTIR_GI_CONSTANTS_SIZE] = {};
     std::memcpy(constants, inputs.diConstantsBlob, inputs.diConstantsSize);
+    if (inputs.doomAnalyticLightCountOverride > 0u &&
+        inputs.diConstantsSize >= CLEAN_RESTIR_GI_DI_ANALYTIC_LIGHT_COUNT_OFFSET + sizeof(uint32_t))
+    {
+        std::memcpy(
+            constants + CLEAN_RESTIR_GI_DI_ANALYTIC_LIGHT_COUNT_OFFSET,
+            &inputs.doomAnalyticLightCountOverride,
+            sizeof(inputs.doomAnalyticLightCountOverride));
+    }
     PathTraceCleanRestirGiConstantsTail tail = {};
     tail.view = static_cast<uint32_t>(view);
     tail.temporalEnabled = r_pathTracingCleanRestirGiTemporal.GetInteger() != 0 ? 1u : 0u;
@@ -696,6 +713,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.resolveEnabled = r_pathTracingCleanRestirGiResolve.GetInteger() != 0 ? 1u : 0u;
     tail.specularProducerEnabled = r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0 ? 1u : 0u;
     tail.rrHitDistanceEnabled = rrHitDistanceRequested ? 1u : 0u;
+    tail.rrSpecularInputEnabled = rrSpecularInputRequested ? 1u : 0u;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's
@@ -823,6 +841,7 @@ bool PathTraceCleanRestirGiExecute(
             filterConstants.height = static_cast<uint32_t>(inputs.height);
             filterConstants.threshold = boilingFilterThreshold;
             filterConstants.resolveEnabled = resolveAddRequested ? 1u : 0u;
+            filterConstants.rrInputResolveEnabled = 0u;
             commandList->writeBuffer(state.boilingFilterConstantsBuffer, &filterConstants, sizeof(filterConstants));
 
             commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::ShaderResource);
