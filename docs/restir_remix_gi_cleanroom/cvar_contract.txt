@@ -101,6 +101,13 @@ r_pathTracingCleanRestirGiSpecularProducer
     specular producer debug views are deferred to the reflective-ray debug
     slice.
 
+r_pathTracingCleanRestirGiRrHitDistance
+    int, default 0. When 1, and only when the specular producer is also enabled,
+    writes eligible reflective GI specular lobe hit distance into
+    PathTraceRRGuideHitDistance. The value is linear world/engine distance, not
+    debug-scaled color. Eligibility uses the same reflective-receiver gate as
+    the specular producer so rough ordinary walls do not export hit distance.
+
 r_pathTracingCleanRestirGiResolve
     int, default 0 until RGI-07. When 1, the final-shaded GI output is
     added into the combined resolve. Debug views must work without it.

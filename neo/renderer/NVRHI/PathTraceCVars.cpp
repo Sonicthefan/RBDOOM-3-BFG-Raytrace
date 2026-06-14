@@ -1701,6 +1701,12 @@ idCVar r_pathTracingCleanRestirGiSpecularProducer(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI: add a cvar-gated specular/glossy initial producer candidate into the INIT reservoir. Off until reflective-ray PDF/reuse diagnostics are proven" );
 
+idCVar r_pathTracingCleanRestirGiRrHitDistance(
+    "r_pathTracingCleanRestirGiRrHitDistance",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI: write eligible reflective GI specular hit distances into the RR/DLSS specular hit-distance guide. Requires the specular producer and is off by default for A/B validation" );
+
 idCVar r_pathTracingCleanRestirGiResolve(
     "r_pathTracingCleanRestirGiResolve",
     "0",

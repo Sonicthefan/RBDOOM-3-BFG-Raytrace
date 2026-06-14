@@ -136,13 +136,21 @@ Denoiser/RR-aware consumption of the split outputs remains deferred.
 The specular split output alpha carries final sample hit distance; debug view
 16 visualizes it as distance bands.
 
+RR hit-distance route: opt-in slice implemented with
+r_pathTracingCleanRestirGiRrHitDistance. When both it and the specular producer
+are enabled, eligible reflective GI specular lobe distances are written to
+PathTraceRRGuideHitDistance in linear world/engine units. The write uses the
+same reflective-receiver gate as the specular producer and remains off by
+default for A/B validation.
+
 The current rbdoom output is one shaded GI RGB buffer. That is enough for a
 proof of reflective rays, but not a complete Remix/NRD-shaped output contract.
 
 Deferred output work:
 
     - split diffuse and specular indirect radiance outputs
-    - route specular hit distance / path length output to denoiser/RR consumers
+    - validate the cvar-gated specular hit distance / path length output with
+      denoiser/RR consumers
     - route specular GI through an RR/denoiser-aware path
     - keep the current combined buffer as a debug/proof fallback
 

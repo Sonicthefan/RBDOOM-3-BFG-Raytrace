@@ -191,6 +191,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerHitNormal : 
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : register(u84);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuseLobe : register(u85);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe : register(u86);
+VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
 SamplerState SmokeMaterialSampler : register(s0);
@@ -271,7 +272,8 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiPhase;
     uint CleanRestirGiResolveEnabled;
     uint CleanRestirGiSpecularProducerEnabled;
-    uint3 CleanRestirGiPadding0;
+    uint CleanRestirGiRrHitDistanceEnabled;
+    uint2 CleanRestirGiPadding0;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -2738,6 +2740,22 @@ float3 CleanGiFinalShadeIndirect(RAB_Surface surface, RTXDI_GIReservoir reservoi
     return CleanGiAllFinite3(indirect) ? indirect : float3(0.0, 0.0, 0.0);
 }
 
+bool CleanGiShouldWriteRrHitDistance(RAB_Surface surface, CleanGiIndirectLobeResult lobes)
+{
+    if (CleanRestirGiRrHitDistanceEnabled == 0u ||
+        !CleanGiSurfaceSupportsSpecularProducer(surface) ||
+        lobes.hitDistance <= 0.0 ||
+        lobes.hitDistance >= 1.0e8)
+    {
+        return false;
+    }
+
+    const float specularLuminance = CleanGiLuminance(lobes.specular);
+    const float diffuseLuminance = CleanGiLuminance(lobes.diffuse);
+    return specularLuminance > 1.0e-4 &&
+        specularLuminance >= max(diffuseLuminance * 0.10, 1.0e-4);
+}
+
 // Writes the GI-O-05 output. The boiling-filter compute pass consumes it,
 // clamps outliers, and performs the resolve add into the combined outputs
 // (so the beauty image receives the FILTERED contribution).
@@ -2748,6 +2766,12 @@ void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIRes
     CleanRestirGiIndirectDiffuse[pixel] = float4(indirect, 1.0);
     CleanRestirGiIndirectDiffuseLobe[pixel] = float4(lobes.diffuse, 1.0);
     CleanRestirGiIndirectSpecularLobe[pixel] = float4(lobes.specular, lobes.hitDistance);
+    if (CleanRestirGiRrHitDistanceEnabled != 0u)
+    {
+        PathTraceRRGuideHitDistance[pixel] = CleanGiShouldWriteRrHitDistance(surface, lobes)
+            ? lobes.hitDistance
+            : 0.0;
+    }
 }
 
 // ---------------------------------------------------------------------------

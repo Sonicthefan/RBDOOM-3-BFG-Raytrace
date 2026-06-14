@@ -64,6 +64,9 @@ RGI-RR-05 reflective debug
     rough ordinary walls: specular-producer cvar should not cost an extra
         candidate ray; glossy/high-F0 receivers should still show producer hits
     view 16: final specular hit distance bands; red near, green mid, blue far
+    r_pathTracingCleanRestirGiRrHitDistance 1: with specular producer enabled,
+        eligible glossy/high-F0 receivers write linear hit distance into
+        PathTraceRRGuideHitDistance; rough ordinary walls remain zero
 
 RGI-08 stabilization
     boiling filter on/off comparison: fewer persistent bright blobs,
