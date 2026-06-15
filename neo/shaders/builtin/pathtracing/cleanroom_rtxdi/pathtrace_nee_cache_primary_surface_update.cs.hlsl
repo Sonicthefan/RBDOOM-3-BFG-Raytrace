@@ -2,6 +2,8 @@
 
 StructuredBuffer<PathTracePrimarySurfaceRecord> PathTraceNeeCachePrimarySurfaces : register(t30);
 
+// Keep this wrapper as an explicit dependency edge for shared NEE-cache builder
+// changes used by the GI/clean-DI provider prepass.
 #define PATH_TRACE_NEE_CACHE_COMPUTE_UPDATE 1
 #include "../pathtrace_nee_cache_debug.rt.hlsl"
 

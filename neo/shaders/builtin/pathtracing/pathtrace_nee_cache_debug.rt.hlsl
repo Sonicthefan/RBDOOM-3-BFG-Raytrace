@@ -482,6 +482,8 @@ void PathTraceNeeCacheDecayTaskCell(uint cellIndex)
         PathTraceNeeCacheTasks[taskIndex].flags = 0u;
         PathTraceNeeCacheCells[cellIndex].flags = 0u;
         PathTraceNeeCacheCells[cellIndex].taskCount = 0u;
+        PathTraceNeeCacheCells[cellIndex].reserved0 = 0u;
+        PathTraceNeeCacheCells[cellIndex].reserved1 = 0u;
         PathTraceNeeCacheProviderResults[cellIndex].selectedDenseRluIndex = 0xffffffffu;
         PathTraceNeeCacheProviderResults[cellIndex].sourceLabel = PATH_TRACE_NEE_CACHE_SOURCE_NONE;
         PathTraceNeeCacheProviderResults[cellIndex].fallbackReason = PATH_TRACE_NEE_CACHE_FALLBACK_EMPTY_CELL;
@@ -1231,14 +1233,29 @@ float4 PathTraceNeeCacheBuildCandidatesForCell(PathTraceNeeCacheCellDebug cell, 
     const uint activeEmissiveRangeCount = sourceAllowsEmissive ? emissiveRangeCount : 0u;
     const uint activeAnalyticRangeCount = sourceAllowsAnalytic ? analyticRangeCount : 0u;
 
+    const uint ownerKey = cell.hash != 0u ? cell.hash : 1u;
+    uint previousOwnerKey = 0u;
+    InterlockedCompareExchange(PathTraceNeeCacheCells[cell.cellIndex].reserved0, 0u, ownerKey, previousOwnerKey);
+    if (previousOwnerKey != 0u && previousOwnerKey != ownerKey)
+    {
+        return float4(0.10, 0.02, 0.16, 1.0);
+    }
+
+    const uint frameUpdateKey = PathTraceNeeCacheFrameIndex() + 1u;
+    uint previousFrameUpdateKey = 0u;
+    InterlockedExchange(PathTraceNeeCacheCells[cell.cellIndex].reserved1, frameUpdateKey, previousFrameUpdateKey);
+    if (previousFrameUpdateKey == frameUpdateKey)
+    {
+        return float4(0.02, 0.18, 0.26, 1.0);
+    }
+
     const PathTraceNeeCacheCellRecord previousCell = PathTraceNeeCacheCells[cell.cellIndex];
     if (previousCell.flags != 0u && previousCell.hash != cell.hash)
     {
-        [loop]
-        for (uint clearSlot = 0u; clearSlot < candidateSlots; ++clearSlot)
-        {
-            PathTraceNeeCacheCandidates[baseSlot + clearSlot] = PathTraceNeeCacheMakeEmptyCandidate(cell.cellIndex, clearSlot);
-        }
+        return float4(0.10, 0.02, 0.16, 1.0);
+    }
+    if (previousOwnerKey == 0u)
+    {
         PathTraceNeeCacheProviderResults[cell.cellIndex] =
             PathTraceNeeCacheMakeInvalidProviderResult(cell.cellIndex, PATH_TRACE_NEE_CACHE_FALLBACK_EMPTY_CELL);
     }

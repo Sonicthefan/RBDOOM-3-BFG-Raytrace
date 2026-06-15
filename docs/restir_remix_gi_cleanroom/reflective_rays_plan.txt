@@ -13,6 +13,123 @@ This plan records the missing work so the reflection path is not lost across
 context compaction.
 
 
+RGI-RR-00: NEE-Cache Seed Contract Blocker
+------------------------------------------
+
+Status: first corrective slice implemented. The old GI NEE-cache seed path was
+not Remix-shaped enough to build more reflection work on top of it: it could
+visibly stamp one selected light across an entire cache cell, producing
+cell-sized strobing blocks. The primary seed now uses a per-pixel proposal
+draw; secondary-hit cache consume is still opt-in and now uses the same
+per-pixel no-provider-slot shape, but remains default-off until real
+bounce-hit cache population exists. The current secondary implementation is a
+cheap single-slot cache probe because the full weighted scan cost about half
+the frame rate.
+
+Observed failure:
+
+    - r_pathTracingCleanRestirGiNeeCacheSeed 1 can make GI sample one light
+      source across a whole cell.
+    - r_pathTracingCleanRestirGiNeeCacheSecondary 0 does not fix this because
+      the primary seed path still consumes the cell provider.
+    - The symptom is cell-correlated light identity, not just generic temporal
+      noise.
+
+Old wrong shape:
+
+    CleanGiSeedInitPageFromNeeCache maps the primary surface to a cache cell,
+    picks a provider/candidate for that cell, samples that light once, divides
+    by providerResult.sourcePdf and lightSample.solidAnglePdf, then combines
+    the result directly into the GI reservoir. If the cache cell has one strong
+    candidate, every pixel mapped to that cell can get the same visible light.
+
+    CleanGiBuildNeeCacheFallbackProvider is also cell-hash/frame-index driven,
+    so fallback can change whole-cell identity under motion.
+
+Why this is incorrect:
+
+    - The NEE cache provider must be a proposal distribution, not a
+      cell-owned final light or finished GI sample.
+    - Each pixel must draw its own proposal from the mapped cell/fallback
+      mixture.
+    - The chosen light must replay through normal RAB light sampling,
+      visibility, target-PDF evaluation, and reservoir update.
+    - The selected source PDF must include the full cache/fallback identity
+      mixture, not just the branch that happened to select the sample.
+    - Cached radiance or a cell-owned selected light must never be painted
+      directly as final GI.
+
+Reference shape from the working clean-DI provider consume:
+
+    1. Map the receiving surface to a cache cell.
+    2. Use the pixel RNG to choose cache vs fallback.
+    3. If cache is chosen, draw a candidate from the cell candidate
+       distribution with RNG.
+    4. If cache misses, draw from the fallback light domain with RNG.
+    5. Compute:
+
+           sourceSelectionPdf =
+               cacheProbability * cacheIdentityPdf
+             + fallbackProbability * fallbackIdentityPdf
+
+       where both terms are evaluated for the selected dense RLU light.
+    6. Sample that exact light with a per-pixel UV.
+    7. Use the same light sample for solidAnglePdf, visibility, target PDF,
+       and the GI reservoir update.
+
+Required GI replacement shape:
+
+    - Replace direct PathTraceNeeCacheProviderResults[cell] consumption in
+      CleanGiSeedInitPageFromNeeCache with a per-pixel proposal helper shaped
+      like PathTraceCleanRoomNeeCacheStreamProviderIntoReservoir.
+    - Keep the GI reservoir as the owner of the selected path sample. The NEE
+      cache may bias proposal selection only.
+    - Reuse the DI helper logic where possible, but evaluate GI target PDF
+      against the primary GI surface and build a GI reservoir sample, not a DI
+      reservoir.
+    - Keep secondary-hit NEE-cache consume opt-in until it has real bounce-hit
+      population; even while opt-in, it must never read the provider slot as
+      final lighting. The current fast path probes one random candidate slot
+      and falls back to the existing secondary proposal on miss. The full
+      weighted secondary scan worked visually but cost too much, so it remains
+      deferred behind performance work.
+    - Match the Remix after-first-bounce control shape instead of treating
+      secondary enable as an all-rays query. The local dxvk-remix reference
+      exposes enableModeAfterFirstBounce as None / Specular Only / All, with
+      the specular-only path rejecting diffuse and rough specular rays. The
+      clean GI route mirrors that policy with:
+          r_pathTracingCleanRestirGiNeeCacheSecondaryMode
+          r_pathTracingCleanRestirGiNeeCacheSecondaryRoughness
+          r_pathTracingCleanRestirGiNeeCacheSecondaryProbability
+      Mode 1 is the default so rough diffuse producer rays do not pay the
+      secondary cache probe cost.
+
+Cell-frame fix:
+
+    PathTraceNeeCacheMapWorldPositionToCell used snapped camera origin to
+    choose its LOD level. That made the effective cell identity
+    camera-dependent. The non-onion NEE-cache provider now uses fixed
+    world-anchored cells so a stationary world point keeps the same cache cell
+    identity under camera movement.
+
+Acceptance before continuing NEE-cache-assisted reflection work:
+
+    - No one deterministic light square per cache cell in normal GI output.
+    - Moving the camera does not make stationary surfaces change cache cell
+      identity because of camera-relative LOD shells.
+    - Seed on/off changes variance or proposal distribution, not mean energy
+      in blocky cell regions.
+    - Empty/stale cache cells fall back through the explicit proposal mixture
+      and do not black out, brighten, or strobe whole cells.
+    - With secondary cache enabled, mode 1 should be materially cheaper than
+      mode 2 in rough/diffuse views while still allowing glossy/specular
+      secondary cache reuse. Probability below 1 should trade cache influence
+      for cost without introducing rare over-bright hits.
+    - Russian roulette is deferred until a real multi-bounce path exists.
+      Applying it to the first producer ray behaves as a sparsity setting, not
+      Remix-style path-continuation roulette.
+
+
 RGI-RR-01: Specular Initial Candidate
 -------------------------------------
 
@@ -201,6 +318,8 @@ enough by itself to diagnose reflective ray producer failures.
 Implementation Order
 --------------------
 
+    0. Fix the NEE-cache GI seed contract in RGI-RR-00 before using it as a
+       reflective-ray proposal source.
     1. Add the cvar-gated specular initial candidate with temporal/spatial off
        for that candidate if needed.
     2. Prove candidate hit/radiance/debug views without changing diffuse GI.

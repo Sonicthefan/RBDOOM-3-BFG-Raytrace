@@ -167,3 +167,71 @@ Known debug-view caveats:
     DLSS-RR active the RR output copy can overwrite GI views. Use GI views
     with DLSS-RR off. View 6 shows the pre-filter indirect diffuse; the
     beauty resolve uses the filtered value.
+    View 20 is a NEE-cache provider-state diagnostic for the same primary
+    surface query used by r_pathTracingCleanRestirGiNeeCacheSeed, not a shaded
+    output: dark blue means the provider is not ready, green/orange-red mean
+    cache emissive/analytic providers, yellow means fallback was selected even
+    though usable cache candidates exist, orange-brown means candidate records
+    exist but do not replay as usable, magenta means candidates exist but the
+    provider result slot was empty, bright cyan/blue/violet mean shared
+    provider fallback sources with no usable candidates, dark cyan/blue/violet
+    mean GI synthesized the provider fallback with no usable candidates, and
+    purple/cyan indicate a provider mapping or replay-contract fault.
+    GI primary seed consume: r_pathTracingCleanRestirGiNeeCacheSeed must not
+    consume PathTraceNeeCacheProviderResults[cell] as a cell-owned selected
+    light. The seed path now draws a per-pixel cache/fallback proposal from
+    the mapped cell candidate distribution, evaluates the full
+    cacheProbability * cacheIdentityPdf + fallbackProbability *
+    fallbackIdentityPdf mixture for the selected dense RLU light, then samples
+    that light with per-pixel UV before merging a GI reservoir sample. View 20
+    remains a provider-state diagnostic, not proof that the shaded GI seed path
+    should use the provider slot directly.
+    The clean-DI/GI constants contract stores NEE-cache candidateSlots in
+    CleanRtxdiDiNeeCacheInfo0.w. CleanRtxdiDiNeeCacheInfo1.w is the provider
+    result count on this route and must not be used as the candidate stride.
+    The NEE-cache primary-surface compute prepass must also carry the live
+    analytic intensity scale and toy emissive scale. Its candidate admission
+    replays RLU records through the RAB loader; leaving those scales at the
+    primary-surface defaults makes analytic candidates look invalid/zero.
+    Field result: the NEE cache can reduce noise heavily in the clean-DI view,
+    so the shared provider is not globally broken. View 20 must not force a
+    live provider rebuild, because that compares GI against the cache's
+    noisiest mid-build state while DI consumes the delayed/frozen provider
+    snapshot. The useful GI acceptance test is normal GI output or reservoir
+    views with r_pathTracingCleanRestirGiNeeCacheSeed toggled, after the
+    provider has had time to reach snapshot hold.
+    The current cache producer is still primary-surface populated. That is
+    enough for DI and the GI primary-seed path, but secondary-bounce NEE cache
+    queries can legitimately miss off-screen/behind-corner cells that the
+    primary prepass never populated. Treat secondary-bounce cache population
+    as follow-up design work, not proof that the primary seed path is broken.
+    r_pathTracingCleanRestirGiNeeCacheSecondary gates that secondary-hit query
+    and defaults off so r_pathTracingCleanRestirGiNeeCacheSeed can be validated
+    independently against normal GI reservoir/output views. When opted in, the
+    secondary-hit query must not read the provider slot as a cell-owned
+    selected light. Field result: the full weighted candidate scan worked but
+    cost about half the frame rate, so the opt-in secondary path now uses one
+    random cache-candidate slot probe and falls through to the existing
+    secondary-light proposal on cache miss. This is a performance compromise,
+    not the final full-PDF secondary cache consumer.
+    The local dxvk-remix reference gates NEE-cache use after the first bounce
+    with an explicit mode: none, specular-only, or all. Its specular-only path
+    rejects diffuse and rough specular rays because ReSTIR GI handles diffuse
+    rays better than highly specular ones and the extra cache work is not worth
+    paying everywhere. The clean GI route now mirrors that control principle:
+    r_pathTracingCleanRestirGiNeeCacheSecondary remains the master switch,
+    r_pathTracingCleanRestirGiNeeCacheSecondaryMode defaults to specular-only,
+    r_pathTracingCleanRestirGiNeeCacheSecondaryRoughness defaults to 0.1, and
+    r_pathTracingCleanRestirGiNeeCacheSecondaryProbability throttles cache
+    attempts after policy gating. Mode 2 restores the prior broad secondary
+    behavior for A/B testing.
+    RTX Remix field/reference note: Remix commonly pairs Russian roulette with
+    two-or-more indirect bounces; in that shape it can terminate whole
+    continuation paths and gave a reported 10-15 percent FPS gain in-game.
+    Applying roulette to the first clean-GI producer ray is just stochastic
+    sparsity, not path-continuation roulette, and the experiment was removed.
+    Reintroduce roulette only with real second-bounce/path-depth controls.
+    The shared PathTraceNeeCacheMapWorldPositionToCell helper now uses fixed
+    world-anchored cells for the non-onion provider. The old snapped-camera
+    LOD frame could change a stationary point's cell identity under camera
+    movement and produced movement-correlated cell strobe.

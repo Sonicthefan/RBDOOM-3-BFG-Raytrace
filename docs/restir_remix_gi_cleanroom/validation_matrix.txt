@@ -43,6 +43,35 @@ RGI-04 temporal
 RGI-05 NEE cache seed
     seed on: lower variance in view 3/4 near cached lights
     seed off/on: no mean-brightness shift on a converged still
+    r_pathTracingCleanRestirGiNeeCacheSecondary 0: no cell-correlated strobe
+        from secondary-hit cache misses; primary seed testing remains valid
+    r_pathTracingCleanRestirGiNeeCacheSecondary 1 with
+        r_pathTracingCleanRestirGiNeeCacheSecondaryMode 1: secondary cache
+        probes occur only on specular/glossy producer rays with secondary
+        roughness <= r_pathTracingCleanRestirGiNeeCacheSecondaryRoughness.
+        Rough diffuse surfaces should be much closer to secondary=0 cost.
+    r_pathTracingCleanRestirGiNeeCacheSecondaryMode 2: legacy broad opt-in
+        for A/B testing; expect higher cost because all secondary producer
+        rays may query the cache.
+    r_pathTracingCleanRestirGiNeeCacheSecondaryProbability 0.25: visible
+        result should move toward the fallback secondary proposal while cache
+        probe cost drops. 1 restores the full policy-selected attempt rate.
+    view 20: with NEE cache unavailable, dark blue; with seed/provider enabled,
+        primary surfaces should show cache providers as green/orange-red,
+        fallback-with-candidates as yellow, candidate-record replay failure as
+        orange-brown, provider-empty-with-candidates as magenta, shared fallback
+        providers with no usable candidates as bright cyan/blue/violet, or
+        GI-synthesized no-candidate fallbacks as dark cyan/blue/violet. A
+        mostly brown screen means the provider is ready but neither the shared
+        provider nor the GI fallback can produce a result for the mapped cells.
+        Purple/cyan fault colors mean the provider cannot be replayed at the
+        mapped cell and should be treated as a contract bug, not a
+        lighting-art difference.
+
+RGI-05B roulette
+    Deferred until the GI path has real multi-bounce continuation. Do not add
+    roulette to the first producer ray as a performance feature: that is only
+    stochastic sparsity, not Remix-style multi-bounce path termination.
 
 RGI-06 spatial
     spatial cvar 0: output identical to temporal output

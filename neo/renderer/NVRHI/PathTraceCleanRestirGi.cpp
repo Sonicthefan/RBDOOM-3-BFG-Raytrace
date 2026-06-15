@@ -58,11 +58,15 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t specularProducerEnabled;
     uint32_t rrHitDistanceEnabled;
     uint32_t rrSpecularInputEnabled;
-    uint32_t padding0;
+    uint32_t neeCacheSecondaryEnabled;
+    uint32_t neeCacheSecondaryMode;
+    float neeCacheSecondaryRoughness;
+    float neeCacheSecondaryProbability;
+    uint32_t neeCacheSecondaryPadding;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
-static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 96, "GI constants tail must match the HLSL cbuffer tail layout");
+static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 112, "GI constants tail must match the HLSL cbuffer tail layout");
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
@@ -142,6 +146,8 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
@@ -579,7 +585,7 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    const int view = idMath::ClampInt(0, 19, r_pathTracingCleanRestirGiView.GetInteger());
+    const int view = idMath::ClampInt(0, 20, r_pathTracingCleanRestirGiView.GetInteger());
     const bool rrHitDistanceRequested =
         r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 &&
         r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0;
@@ -657,7 +663,11 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(46, inputs.emissiveDistributionBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(66, inputs.rluCurrentLightBuffer));
     nvrhi::IBuffer* neeCacheProviderResultBuffer = inputs.neeCacheProviderResultBuffer ? inputs.neeCacheProviderResultBuffer : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* neeCacheCellBuffer = inputs.neeCacheCellBuffer ? inputs.neeCacheCellBuffer : state.placeholderSrvBuffer.Get();
+    nvrhi::IBuffer* neeCacheCandidateBuffer = inputs.neeCacheCandidateBuffer ? inputs.neeCacheCandidateBuffer : state.placeholderSrvBuffer.Get();
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(74, neeCacheProviderResultBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(75, neeCacheCellBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(77, neeCacheCandidateBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(30, inputs.primarySurfaceCurrentBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(31, inputs.primarySurfacePreviousBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(39, inputs.motionVectorTexture));
@@ -714,6 +724,10 @@ bool PathTraceCleanRestirGiExecute(
     tail.specularProducerEnabled = r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0 ? 1u : 0u;
     tail.rrHitDistanceEnabled = rrHitDistanceRequested ? 1u : 0u;
     tail.rrSpecularInputEnabled = rrSpecularInputRequested ? 1u : 0u;
+    tail.neeCacheSecondaryEnabled = r_pathTracingCleanRestirGiNeeCacheSecondary.GetInteger() != 0 ? 1u : 0u;
+    tail.neeCacheSecondaryMode = static_cast<uint32_t>(idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiNeeCacheSecondaryMode.GetInteger()));
+    tail.neeCacheSecondaryRoughness = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiNeeCacheSecondaryRoughness.GetFloat());
+    tail.neeCacheSecondaryProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiNeeCacheSecondaryProbability.GetFloat());
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's
@@ -766,6 +780,8 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(inputs.doomAnalyticLightBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(inputs.rluCurrentLightBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->setBufferState(neeCacheProviderResultBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(neeCacheCellBuffer, nvrhi::ResourceStates::ShaderResource);
+    commandList->setBufferState(neeCacheCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
 
     nvrhi::rt::State giState;

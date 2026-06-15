@@ -49,11 +49,8 @@ PathTraceNeeCacheCellDebug PathTraceNeeCacheMapWorldPositionToCell(
     cellCount = max(cellCount, 1u);
 
     const float baseCellSize = max(minRange / (float)cellResolution, 1.0);
-    const float3 snappedCameraOrigin = floor(cameraOrigin / baseCellSize + 0.5) * baseCellSize;
-    const float distanceToMovingHighResCenter = max(length(worldPosition - snappedCameraOrigin), 1.0);
-    const float normalizedDistance = max(distanceToMovingHighResCenter / minRange, 1.0);
-    const uint level = (uint)floor(log2(normalizedDistance));
-    const float cellSize = max(baseCellSize * exp2((float)level), 1.0);
+    const uint level = 0u;
+    const float cellSize = baseCellSize;
     const float3 cellPosition = worldPosition / cellSize;
     const int3 coord = int3(floor(cellPosition));
     const uint hash = PathTraceNeeCacheHashCell(coord, level);

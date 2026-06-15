@@ -88,6 +88,8 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::IBuffer* doomAnalyticLightBuffer = nullptr;
     nvrhi::IBuffer* rluCurrentLightBuffer = nullptr;
     nvrhi::IBuffer* neeCacheProviderResultBuffer = nullptr;
+    nvrhi::IBuffer* neeCacheCellBuffer = nullptr;
+    nvrhi::IBuffer* neeCacheCandidateBuffer = nullptr;
     nvrhi::IBuffer* primarySurfaceCurrentBuffer = nullptr;
     nvrhi::IBuffer* primarySurfacePreviousBuffer = nullptr;
     nvrhi::ITexture* motionVectorTexture = nullptr;

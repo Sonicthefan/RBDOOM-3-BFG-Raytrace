@@ -55,6 +55,7 @@ r_pathTracingCleanRestirGiView
         17 specular producer eligibility/material gate
         18 specular reuse state
         19 stored specular output
+        20 NEE-cache provider state at the primary surface
     Views must read only GI-lane resources.
 
 r_pathTracingCleanRestirGiTemporal
@@ -94,7 +95,37 @@ r_pathTracingCleanRestirGiNeeCacheSeed
     int, default 0 for bring-up. When 1, merges the NEE-cache-seeded
     reservoir at the temporal pass's initial-sample step (Remix
     neeCache.enableOnFirstBounce equivalent). Off for the first proofs so
-    producer correctness is judged alone.
+    producer correctness is judged alone. This GI CVar requests the shared
+    clean NEE-cache provider; it does not require the clean-DI
+    r_pathTracingCleanRtxdiDiNeeCacheProvider diagnostic CVar to be enabled.
+
+r_pathTracingCleanRestirGiNeeCacheSecondary
+    int, default 0. When 1, allows the secondary-bounce GI shader to query
+    the shared NEE-cache provider at the secondary hit. This is a master
+    switch; the actual after-first-bounce policy is controlled by the mode,
+    roughness, and probability CVars below. Off by default because the current
+    cache producer is primary-surface populated; keep the primary seed path
+    controlled by r_pathTracingCleanRestirGiNeeCacheSeed.
+
+r_pathTracingCleanRestirGiNeeCacheSecondaryMode
+    int, default 1. Remix-shaped after-first-bounce cache policy:
+        0  disabled even when the secondary master switch is on
+        1  specular/glossy producer rays only
+        2  all secondary producer rays (legacy broad opt-in behavior)
+    Mode 1 is the default because the local dxvk-remix reference gates higher
+    bounce NEE-cache use away from diffuse and rough specular rays for
+    performance.
+
+r_pathTracingCleanRestirGiNeeCacheSecondaryRoughness
+    float, default 0.1. Maximum secondary material roughness for mode 1.
+    Lower values reduce cache probes on broad/rough surfaces; higher values
+    move toward mode 2 behavior.
+
+r_pathTracingCleanRestirGiNeeCacheSecondaryProbability
+    float, default 1. Bernoulli attempt probability after mode/roughness
+    gating. This is a practical performance/quality throttle: lowering it
+    makes more rays fall through to the existing secondary proposal instead
+    of querying the cache.
 
 r_pathTracingCleanRestirGiSpecularProducer
     int, default 0. When 1, traces a cvar-gated glossy/specular initial
@@ -112,6 +143,21 @@ r_pathTracingCleanRestirGiSpecularProducer
     View 19 reads the stored CleanRestirGiIndirectSpecularLobe UAV after final
     shading writes it. Its RGB should match view 12, modulo normal debug
     tonemapping/order, and yellow marks invalid stored values.
+    View 20 maps the primary surface into the NEE-cache provider grid and
+    colors the provider state/source: dark blue means provider unavailable,
+    dark gray invalid primary surface, purple invalid cell, brown valid cell
+    with no provider, cyan bad replay contract, green cache-emissive,
+    orange/red cache-analytic, bright cyan/blue/violet mean shared-provider
+    fallback typed-emissive/typed-analytic/full-RLU with no usable candidates
+    in that cell, yellow means the shared provider chose fallback even though
+    usable cache candidates exist, orange-brown means candidate records exist
+    but none replayed as usable, magenta means GI synthesized fallback because
+    the provider slot was empty even though usable candidates exist, and dark
+    cyan/blue/violet mean GI synthesized fallback with no usable candidates.
+    Selecting view 20 also requests the shared clean NEE-cache provider. It
+    reads provider/candidate state for the mapped primary cell; it is not the
+    shaded GI seed consume path and must not be used as proof that GI should
+    consume PathTraceNeeCacheProviderResults[cell] directly.
 
 r_pathTracingCleanRestirGiRrHitDistance
     int, default 0. When 1, and only when the specular producer is also enabled,
