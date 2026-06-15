@@ -69,9 +69,37 @@ RGI-05 NEE cache seed
         lighting-art difference.
 
 RGI-05B roulette
-    Deferred until the GI path has real multi-bounce continuation. Do not add
-    roulette to the first producer ray as a performance feature: that is only
-    stochastic sparsity, not Remix-style multi-bounce path termination.
+    r_pathTracingCleanRestirGiContinuationRoulette 1 applies only when
+        MaxBounces is 2 and only to the secondary-to-tertiary continuation
+        segment. It must not change MaxBounces 1 output.
+    roulette min 0.6 / max 0.9: expect lower second-bounce cost and higher
+        variance, with no stable darkening/brightening after convergence.
+    roulette 0: full-rate second-bounce reference for quality/cost comparison.
+    r_pathTracingCleanRestirGiContinuationDirectProbability 0.5: default
+        terminal direct-light budget for the tertiary hit. Set to 1 for the
+        full-rate reference; lower values should improve FPS with more direct
+        lighting variance. Emissive terminal hits should remain visible even
+        when this is 0.
+    r_pathTracingCleanRestirGiSecondaryDirectProbability 0.5: default
+        first-secondary direct-light budget. Set to 1 for the old full-rate
+        one-bounce reference; set to 0 to isolate the primary-to-secondary
+        material ray cost. Lower values should improve FPS with higher direct
+        lighting variance but should not change producer hit geometry.
+    r_pathTracingCleanRestirGiContinuationOpaqueTrace 1: default second-bounce
+        fast traversal. It should improve MaxBounces 2 cost in alpha-heavy
+        scenes while leaving MaxBounces 1 unchanged. Set to 0 to compare the
+        full alpha-any-hit continuation reference.
+
+RGI-05C multi-bounce
+    r_pathTracingCleanRestirGiMaxBounces 1: baseline one-bounce producer path.
+    r_pathTracingCleanRestirGiMaxBounces 2: one additional
+        secondary-to-tertiary continuation ray is traced. Expect higher cost,
+        brighter/less black indirect in areas that need a second bounce, and
+        more variance. The tertiary hit uses terminal emissive/direct lighting
+        only; no recursive third bounce.
+    specular producer on: continuation may use the same diffuse/specular
+        mixture PDF at glossy secondary surfaces. Rough diffuse surfaces should
+        mainly behave as diffuse continuation.
 
 RGI-06 spatial
     spatial cvar 0: output identical to temporal output

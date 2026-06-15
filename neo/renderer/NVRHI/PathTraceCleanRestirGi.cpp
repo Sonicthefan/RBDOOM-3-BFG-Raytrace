@@ -62,11 +62,19 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t neeCacheSecondaryMode;
     float neeCacheSecondaryRoughness;
     float neeCacheSecondaryProbability;
-    uint32_t neeCacheSecondaryPadding;
+    uint32_t maxBounces;
+    uint32_t continuationRouletteEnabled;
+    float continuationRouletteMin;
+    float continuationRouletteMax;
+    float continuationDirectProbability;
+    float secondaryDirectProbability;
+    uint32_t continuationOpaqueTrace;
+    uint32_t directProbabilityPadding1;
+    uint32_t directProbabilityPadding2;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
-static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 112, "GI constants tail must match the HLSL cbuffer tail layout");
+static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 144, "GI constants tail must match the HLSL cbuffer tail layout");
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
@@ -728,6 +736,13 @@ bool PathTraceCleanRestirGiExecute(
     tail.neeCacheSecondaryMode = static_cast<uint32_t>(idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiNeeCacheSecondaryMode.GetInteger()));
     tail.neeCacheSecondaryRoughness = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiNeeCacheSecondaryRoughness.GetFloat());
     tail.neeCacheSecondaryProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiNeeCacheSecondaryProbability.GetFloat());
+    tail.maxBounces = static_cast<uint32_t>(idMath::ClampInt(1, 2, r_pathTracingCleanRestirGiMaxBounces.GetInteger()));
+    tail.continuationRouletteEnabled = r_pathTracingCleanRestirGiContinuationRoulette.GetInteger() != 0 ? 1u : 0u;
+    tail.continuationRouletteMin = idMath::ClampFloat(0.01f, 1.0f, r_pathTracingCleanRestirGiContinuationRouletteMin.GetFloat());
+    tail.continuationRouletteMax = idMath::ClampFloat(tail.continuationRouletteMin, 1.0f, r_pathTracingCleanRestirGiContinuationRouletteMax.GetFloat());
+    tail.continuationDirectProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiContinuationDirectProbability.GetFloat());
+    tail.secondaryDirectProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiSecondaryDirectProbability.GetFloat());
+    tail.continuationOpaqueTrace = r_pathTracingCleanRestirGiContinuationOpaqueTrace.GetInteger() != 0 ? 1u : 0u;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's

@@ -231,6 +231,31 @@ Known debug-view caveats:
     Applying roulette to the first clean-GI producer ray is just stochastic
     sparsity, not path-continuation roulette, and the experiment was removed.
     Reintroduce roulette only with real second-bounce/path-depth controls.
+    Multi-bounce bring-up starts with r_pathTracingCleanRestirGiMaxBounces.
+    The default remains 1. Value 2 traces one secondary-to-tertiary
+    continuation ray, shades the tertiary hit with terminal emissive/direct
+    lighting, and reflects that contribution through the secondary material
+    with the same diffuse/specular mixture PDF used by the producer. This is a
+    bounded two-indirect-segment proof, not a recursive path tracer.
+    Russian roulette is now valid only for that continuation segment:
+    r_pathTracingCleanRestirGiContinuationRoulette defaults on and compensates
+    accepted secondary-to-tertiary paths by the continuation probability. It
+    does not affect MaxBounces 1 and must not be moved back onto the first
+    producer ray.
+    The tertiary hit's direct-light proposal is separately budgeted by
+    r_pathTracingCleanRestirGiContinuationDirectProbability. This keeps the
+    expensive terminal light/shadow work from running on every accepted
+    continuation path while preserving a full-rate reference at value 1.
+    The first secondary hit's direct-light proposal is separately budgeted by
+    r_pathTracingCleanRestirGiSecondaryDirectProbability. This is the first
+    one-bounce cost reducer because it avoids thinning the primary-to-secondary
+    material ray while measuring and reducing the secondary NEE/shadow cost.
+    The optional secondary-to-tertiary ray defaults to opaque traversal via
+    r_pathTracingCleanRestirGiContinuationOpaqueTrace. This mirrors the
+    reference's use of specialized opaque/translucent traversal variants more
+    closely than forcing the alpha any-hit path on every continuation ray. The
+    first producer ray remains alpha-capable, preserving the alpha-clip support
+    validated earlier.
     The shared PathTraceNeeCacheMapWorldPositionToCell helper now uses fixed
     world-anchored cells for the non-onion provider. The old snapped-camera
     LOD frame could change a stationary point's cell identity under camera

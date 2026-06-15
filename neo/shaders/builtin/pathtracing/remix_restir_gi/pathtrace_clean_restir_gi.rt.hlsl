@@ -312,7 +312,15 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiNeeCacheSecondaryMode;
     float CleanRestirGiNeeCacheSecondaryRoughness;
     float CleanRestirGiNeeCacheSecondaryProbability;
-    uint CleanRestirGiNeeCacheSecondaryPadding;
+    uint CleanRestirGiMaxBounces;
+    uint CleanRestirGiContinuationRouletteEnabled;
+    float CleanRestirGiContinuationRouletteMin;
+    float CleanRestirGiContinuationRouletteMax;
+    float CleanRestirGiContinuationDirectProbability;
+    float CleanRestirGiSecondaryDirectProbability;
+    uint CleanRestirGiContinuationOpaqueTrace;
+    uint CleanRestirGiDirectProbabilityPadding1;
+    uint CleanRestirGiDirectProbabilityPadding2;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -383,6 +391,9 @@ float CleanGiLuminance(float3 value);
 float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3 toPosition);
 bool CleanGiToyFakePBRSpecularEnabled();
 float3 CleanGiEvaluateIndirectLobes(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance);
+bool CleanGiSampleSpecularProducerDirection(RAB_Surface surface, inout RAB_RandomSamplerState rng, out float3 bounceDir, out float solidAnglePdf);
+void CleanGiProducerMixtureProbabilities(RAB_Surface surface, out float diffuseProbability, out float specularProbability);
+float CleanGiProducerMixturePdf(RAB_Surface surface, float3 bounceDir);
 
 // ---------------------------------------------------------------------------
 // Surface bridge callback (GI-I-01/GI-I-02): material RAB_Surface from the
@@ -2506,25 +2517,182 @@ struct CleanGiSpecularProducerDebug
     uint sampledDirection;
 };
 
+bool CleanGiTraceMaterialSurfaceRay(
+    float3 origin,
+    float3 originGeometricNormal,
+    float3 rayDirection,
+    uint ignoreInstanceId,
+    uint ignorePrimitiveIndex,
+    uint ignoreMaterialIndex,
+    bool forceOpaqueTrace,
+    out RAB_Surface hitSurface,
+    out float3 hitGeometricNormal,
+    out float3 hitEmissive,
+    out float hitT)
+{
+    hitSurface = RAB_EmptySurface();
+    hitGeometricNormal = -rayDirection;
+    hitEmissive = float3(0.0, 0.0, 0.0);
+    hitT = 0.0;
+
+    RayDesc ray;
+    ray.Origin = origin + originGeometricNormal * 0.5 + rayDirection * 0.25;
+    ray.Direction = rayDirection;
+    ray.TMin = 0.01;
+    ray.TMax = 100000.0;
+
+    PathTraceCleanRestirGiPayload payload = (PathTraceCleanRestirGiPayload)0;
+    payload.rayMode = 1u;
+    payload.ignoreInstanceId = ignoreInstanceId;
+    payload.ignorePrimitiveIndex = ignorePrimitiveIndex;
+    payload.ignoreMaterialIndex = ignoreMaterialIndex;
+    const uint traceFlags = forceOpaqueTrace ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
+    TraceRay(SmokeScene, traceFlags, 0xff, 0, 1, 0, ray, payload);
+    if (payload.value == 0u)
+    {
+        return false;
+    }
+
+    const float3 hitPosition = ray.Origin + rayDirection * payload.hitT;
+
+    float3 p0, p1, p2;
+    float3 n0, n1, n2;
+    float2 uv0, uv1, uv2;
+    float4 c0, c1, c2;
+    float4 c20, c21, c22;
+    float3 localGeometricNormal = -rayDirection;
+    float3 hitShadingNormal = -rayDirection;
+    float2 hitTexCoord = float2(0.0, 0.0);
+    float4 hitVertexColor = float4(1.0, 1.0, 1.0, 1.0);
+    if (CleanGiLoadTriangleGeometryFull(
+        payload.hitInstanceId,
+        payload.hitPrimitiveIndex,
+        p0, p1, p2,
+        n0, n1, n2,
+        uv0, uv1, uv2,
+        c0, c1, c2,
+        c20, c21, c22))
+    {
+        const float3 crossValue = cross(p1 - p0, p2 - p0);
+        localGeometricNormal = CleanGiSafeNormalize(crossValue, -rayDirection);
+        if (dot(localGeometricNormal, rayDirection) > 0.0)
+        {
+            localGeometricNormal = -localGeometricNormal;
+        }
+        const float b1 = saturate(payload.hitBarycentrics.x);
+        const float b2 = saturate(payload.hitBarycentrics.y);
+        const float b0 = saturate(1.0 - b1 - b2);
+        hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
+        hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
+
+        const uint hitTriangleClassAndFlagsForNormal = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+        const bool forceGeometricNormal = (hitTriangleClassAndFlagsForNormal & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
+        float3 interpolatedNormal = CleanGiSafeNormalize(n0 * b0 + n1 * b1 + n2 * b2, localGeometricNormal);
+        if (dot(interpolatedNormal, localGeometricNormal) < 0.0)
+        {
+            interpolatedNormal = -interpolatedNormal;
+        }
+        hitShadingNormal = forceGeometricNormal ? localGeometricNormal : interpolatedNormal;
+
+        const float3 tangentFallback = CleanGiBuildPerpendicular(hitShadingNormal);
+        const float3 bitangentFallback = CleanGiSafeNormalize(cross(hitShadingNormal, tangentFallback), float3(0.0, 1.0, 0.0));
+        float3 hitTangent = tangentFallback;
+        float3 hitBitangent = bitangentFallback;
+        const float3 dp1 = p1 - p0;
+        const float3 dp2 = p2 - p0;
+        const float2 duv1 = uv1 - uv0;
+        const float2 duv2 = uv2 - uv0;
+        const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
+        if (abs(uvDeterminant) > 1.0e-8)
+        {
+            const float inverseDeterminant = 1.0 / uvDeterminant;
+            const float3 rawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
+            const float3 rawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
+            hitTangent = CleanGiSafeNormalize(rawTangent - hitShadingNormal * dot(hitShadingNormal, rawTangent), tangentFallback);
+            hitBitangent = CleanGiSafeNormalize(rawBitangent - hitShadingNormal * dot(hitShadingNormal, rawBitangent) - hitTangent * dot(hitTangent, rawBitangent), bitangentFallback);
+            if (dot(cross(hitTangent, hitBitangent), hitShadingNormal) < 0.0)
+            {
+                hitBitangent = -hitBitangent;
+            }
+        }
+
+        const uint hitMaterialIndexForNormal = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
+        const PathTraceSmokeMaterial hitMaterialForNormal = CleanGiLoadSmokeMaterial(hitMaterialIndexForNormal);
+        hitShadingNormal = CleanGiConstrainShadingNormal(
+            CleanGiDecodeNormalTexture(hitMaterialForNormal, hitTexCoord, hitShadingNormal, hitTangent, hitBitangent),
+            localGeometricNormal);
+    }
+
+    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitMaterialId = CleanGiLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitSurfaceClass = CleanGiTriangleSurfaceClass(hitTriangleClassAndFlags);
+    const uint hitTranslucentSubtype = CleanGiTriangleTranslucentSubtype(hitTriangleClassAndFlags);
+    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
+    const RAB_Material hitRabMaterial = CleanGiBuildMaterialFromHit(
+        hitMaterialId,
+        hitMaterialIndex,
+        hitMaterial,
+        hitTexCoord,
+        hitSurfaceClass,
+        hitTranslucentSubtype,
+        hitTriangleClassAndFlags,
+        hitVertexColor);
+
+    hitSurface = RAB_EmptySurface();
+    hitSurface.valid = 1u;
+    hitSurface.worldPos = hitPosition;
+    hitSurface.linearDepth = payload.hitT;
+    hitSurface.geometryNormal = localGeometricNormal;
+    hitSurface.shadingNormal = hitShadingNormal;
+    hitSurface.viewDir = -rayDirection;
+    hitSurface.materialId = hitMaterialId;
+    hitSurface.materialIndex = hitMaterialIndex;
+    hitSurface.instanceId = payload.hitInstanceId;
+    hitSurface.primitiveIndex = payload.hitPrimitiveIndex;
+    hitSurface.surfaceClass = hitSurfaceClass;
+    hitSurface.flags = hitTriangleClassAndFlags;
+    hitSurface.material = hitRabMaterial;
+
+    hitGeometricNormal = localGeometricNormal;
+    hitEmissive = hitRabMaterial.emissiveRadiance;
+    hitT = payload.hitT;
+    return true;
+}
+
 // Shades the secondary vertex: its own emissive plus one direct-light proposal.
 // The NEE cache provider is the preferred proposal source when ready; otherwise
 // the producer falls back to a mixed analytic/emissive proposal. Keep this as a
 // single proposal so merely enabling the analytic domain does not add another
 // shadow ray at every secondary vertex.
-float3 CleanGiShadeSecondaryVertex(
+float3 CleanGiShadeDirectVertex(
     RAB_Surface secondarySurface,
     float3 hitGeometricNormal,
     float3 secondaryEmissive,
     bool primarySampledSpecular,
+    bool allowNeeCache,
+    float directSampleProbability,
     inout RAB_RandomSamplerState rng)
 {
     float3 radiance = secondaryEmissive;
     float3 directRadiance = float3(0.0, 0.0, 0.0);
+    const float directProbability = saturate(directSampleProbability);
+    if (directProbability <= 0.0)
+    {
+        return radiance;
+    }
 
-    if (CleanRestirGiNeeCacheSecondaryEnabled != 0u &&
+    if (directProbability < 1.0 && RAB_GetNextRandom(rng) >= directProbability)
+    {
+        return radiance;
+    }
+    const float directWeight = 1.0 / max(directProbability, 1.0e-6);
+
+    if (allowNeeCache &&
+        CleanRestirGiNeeCacheSecondaryEnabled != 0u &&
         CleanGiAccumulateNeeCacheProviderSample(directRadiance, secondarySurface, hitGeometricNormal, primarySampledSpecular, rng))
     {
-        return radiance + directRadiance;
+        return radiance + directRadiance * directWeight;
     }
 
     const uint analyticCount = CleanRtxdiDiAnalyticLightCount;
@@ -2553,7 +2721,7 @@ float3 CleanGiShadeSecondaryVertex(
             lightInfo,
             analyticDomainProbability / max((float)analyticCount, 1.0),
             rng);
-        return radiance + directRadiance;
+        return radiance + directRadiance * directWeight;
     }
 
     uint emissiveSourceIndex;
@@ -2570,7 +2738,169 @@ float3 CleanGiShadeSecondaryVertex(
             rng);
     }
 
-    return radiance + directRadiance;
+    return radiance + directRadiance * directWeight;
+}
+
+bool CleanGiSampleContinuationDirection(
+    RAB_Surface surface,
+    bool primarySampledSpecular,
+    inout RAB_RandomSamplerState rng,
+    out float3 continuationDir,
+    out float continuationPdf,
+    out bool sampledSpecular)
+{
+    continuationDir = float3(0.0, 0.0, 0.0);
+    continuationPdf = 0.0;
+    sampledSpecular = false;
+
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    float diffuseProbability;
+    float specularProbability;
+    CleanGiProducerMixtureProbabilities(surface, diffuseProbability, specularProbability);
+    const bool trySpecular =
+        specularProbability > 0.0 &&
+        (primarySampledSpecular || CleanRestirGiSpecularProducerEnabled != 0u) &&
+        RAB_GetNextRandom(rng) < specularProbability;
+    if (trySpecular)
+    {
+        float specularPdf;
+        if (CleanGiSampleSpecularProducerDirection(surface, rng, continuationDir, specularPdf))
+        {
+            sampledSpecular = true;
+            continuationPdf = CleanGiProducerMixturePdf(surface, continuationDir);
+            return continuationPdf > 1.0e-8;
+        }
+    }
+
+    const float3 normal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 geometryNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), normal);
+    continuationDir = RAB_CosineHemisphereDirection(normal, float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng)));
+    if (dot(geometryNormal, continuationDir) <= 0.0)
+    {
+        return false;
+    }
+
+    continuationPdf = CleanGiProducerMixturePdf(surface, continuationDir);
+    return continuationPdf > 1.0e-8;
+}
+
+float CleanGiContinuationContinueProbability(RAB_Surface surface, bool sampledSpecular)
+{
+    if (CleanRestirGiContinuationRouletteEnabled == 0u)
+    {
+        return 1.0;
+    }
+
+    const float diffuseLuminance = CleanGiLuminance(GetDiffuseAlbedo(surface.material));
+    const float specularLuminance = CleanGiLuminance(GetSpecularF0(surface.material));
+    const float roughness = saturate(GetRoughness(surface.material));
+    const float specularImportance = saturate(specularLuminance * 8.0) * saturate(1.0 - roughness);
+    const float importance = sampledSpecular
+        ? max(specularImportance, diffuseLuminance * 0.25)
+        : diffuseLuminance;
+    return clamp(
+        importance,
+        CleanRestirGiContinuationRouletteMin,
+        CleanRestirGiContinuationRouletteMax);
+}
+
+float3 CleanGiTraceOneContinuationBounce(
+    RAB_Surface secondarySurface,
+    float3 secondaryGeometricNormal,
+    bool primarySampledSpecular,
+    inout RAB_RandomSamplerState rng)
+{
+    if (CleanRestirGiMaxBounces < 2u)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    float3 continuationDir;
+    float continuationPdf;
+    bool sampledSpecular;
+    if (!CleanGiSampleContinuationDirection(
+        secondarySurface,
+        primarySampledSpecular,
+        rng,
+        continuationDir,
+        continuationPdf,
+        sampledSpecular))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float continueProbability = CleanGiContinuationContinueProbability(secondarySurface, sampledSpecular);
+    if (CleanRestirGiContinuationRouletteEnabled != 0u &&
+        RAB_GetNextRandom(rng) >= continueProbability)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    RAB_Surface tertiarySurface;
+    float3 tertiaryGeometricNormal;
+    float3 tertiaryEmissive;
+    float tertiaryHitT;
+    if (!CleanGiTraceMaterialSurfaceRay(
+        RAB_GetSurfaceWorldPos(secondarySurface),
+        secondaryGeometricNormal,
+        continuationDir,
+        secondarySurface.instanceId,
+        secondarySurface.primitiveIndex,
+        secondarySurface.materialIndex,
+        CleanRestirGiContinuationOpaqueTrace != 0u,
+        tertiarySurface,
+        tertiaryGeometricNormal,
+        tertiaryEmissive,
+        tertiaryHitT))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float3 tertiaryOutgoing = CleanGiShadeDirectVertex(
+        tertiarySurface,
+        tertiaryGeometricNormal,
+        tertiaryEmissive,
+        sampledSpecular,
+        false,
+        CleanRestirGiContinuationDirectProbability,
+        rng);
+    if (CleanGiLuminance(tertiaryOutgoing) <= 0.0)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+
+    const float3 reflected = CleanGiEvaluateIndirectLobes(secondarySurface, continuationDir, tertiaryOutgoing) /
+        max(continuationPdf * continueProbability, 1.0e-6);
+    return CleanGiAllFinite3(reflected) ? max(reflected, float3(0.0, 0.0, 0.0)) : float3(0.0, 0.0, 0.0);
+}
+
+float3 CleanGiShadeSecondaryVertex(
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    float3 secondaryEmissive,
+    bool primarySampledSpecular,
+    inout RAB_RandomSamplerState rng)
+{
+    float3 radiance = CleanGiShadeDirectVertex(
+        secondarySurface,
+        hitGeometricNormal,
+        secondaryEmissive,
+        primarySampledSpecular,
+        true,
+        CleanRestirGiSecondaryDirectProbability,
+        rng);
+
+    radiance += CleanGiTraceOneContinuationBounce(
+        secondarySurface,
+        hitGeometricNormal,
+        primarySampledSpecular,
+        rng);
+
+    return CleanGiAllFinite3(radiance) ? max(radiance, float3(0.0, 0.0, 0.0)) : float3(0.0, 0.0, 0.0);
 }
 
 CleanGiProducerResult CleanGiTraceProducerRay(

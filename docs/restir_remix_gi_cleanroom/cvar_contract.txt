@@ -91,6 +91,51 @@ r_pathTracingCleanRestirGiFireflyThreshold
     float, default matches the producer's clamp policy; 0 disables.
     Applied to initial-sample radiance only, never to reused reservoirs.
 
+r_pathTracingCleanRestirGiMaxBounces
+    int, default 1. Producer path depth. 1 is the existing
+    primary-to-secondary producer ray with secondary emissive/direct lighting.
+    2 adds one secondary-to-tertiary continuation ray, shades the tertiary hit
+    with terminal emissive/direct lighting, and folds that through the
+    secondary material BSDF/PDF. Values above 2 are clamped until path-depth
+    state, roulette, and denoising policy exist.
+
+r_pathTracingCleanRestirGiContinuationRoulette
+    int, default 1. Applies Russian roulette only to the
+    secondary-to-tertiary continuation segment when MaxBounces is 2. This is
+    the valid roulette placement for the current two-segment proof; it does
+    not sparsify the first producer ray.
+
+r_pathTracingCleanRestirGiContinuationRouletteMin
+    float, default 0.6. Minimum continuation probability for the
+    secondary-to-tertiary segment.
+
+r_pathTracingCleanRestirGiContinuationRouletteMax
+    float, default 0.9. Maximum continuation probability for the
+    secondary-to-tertiary segment. Lowering this trades performance for
+    variance by terminating more second-bounce paths.
+
+r_pathTracingCleanRestirGiContinuationDirectProbability
+    float, default 0.5. Probability for the terminal direct-light proposal at
+    the tertiary hit when MaxBounces is 2. Accepted direct samples are
+    compensated by 1 / probability. Set to 1 for a full-rate reference, or
+    lower it to reduce second-bounce light/shadow work at the cost of more
+    variance. Terminal emissive contribution remains full-rate.
+
+r_pathTracingCleanRestirGiSecondaryDirectProbability
+    float, default 0.5. Probability for the direct-light proposal at the first
+    secondary hit. Accepted direct samples are compensated by 1 / probability.
+    This reduces the one-bounce shadow-ray cost without sparsifying the
+    primary-to-secondary GI ray itself. Set to 1 for the full-rate reference;
+    set to 0 to measure material-bounce cost without secondary NEE.
+
+r_pathTracingCleanRestirGiContinuationOpaqueTrace
+    int, default 1. When MaxBounces is 2, traces the secondary-to-tertiary
+    continuation ray as opaque so the optional second segment does not force
+    alpha any-hit traversal. The first primary-to-secondary producer ray still
+    uses the full alpha-capable material path. Set to 0 for the full material
+    continuation reference if alpha-cutout geometry needs to affect second
+    bounces.
+
 r_pathTracingCleanRestirGiNeeCacheSeed
     int, default 0 for bring-up. When 1, merges the NEE-cache-seeded
     reservoir at the temporal pass's initial-sample step (Remix

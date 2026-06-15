@@ -1689,6 +1689,48 @@ idCVar r_pathTracingCleanRestirGiFireflyThreshold(
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room ReSTIR GI firefly filtering luminance threshold applied to initial-sample radiance only (never to reused reservoirs); 0 disables" );
 
+idCVar r_pathTracingCleanRestirGiMaxBounces(
+    "r_pathTracingCleanRestirGiMaxBounces",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI producer path depth: 1 keeps the current primary->secondary path, 2 adds one secondary->tertiary continuation bounce" );
+
+idCVar r_pathTracingCleanRestirGiContinuationRoulette(
+    "r_pathTracingCleanRestirGiContinuationRoulette",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI: apply Russian roulette only to the secondary->tertiary continuation segment when max bounces is 2" );
+
+idCVar r_pathTracingCleanRestirGiContinuationRouletteMin(
+    "r_pathTracingCleanRestirGiContinuationRouletteMin",
+    "0.6",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI continuation roulette minimum probability for secondary->tertiary paths" );
+
+idCVar r_pathTracingCleanRestirGiContinuationRouletteMax(
+    "r_pathTracingCleanRestirGiContinuationRouletteMax",
+    "0.9",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI continuation roulette maximum probability for secondary->tertiary paths" );
+
+idCVar r_pathTracingCleanRestirGiContinuationDirectProbability(
+    "r_pathTracingCleanRestirGiContinuationDirectProbability",
+    "0.5",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI probability for terminal direct-light sampling on secondary->tertiary continuation hits; compensated when below 1" );
+
+idCVar r_pathTracingCleanRestirGiSecondaryDirectProbability(
+    "r_pathTracingCleanRestirGiSecondaryDirectProbability",
+    "0.5",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI probability for direct-light sampling at the first secondary hit; compensated when below 1 to reduce one-bounce shadow-ray cost" );
+
+idCVar r_pathTracingCleanRestirGiContinuationOpaqueTrace(
+    "r_pathTracingCleanRestirGiContinuationOpaqueTrace",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI: trace the optional secondary->tertiary continuation as opaque to avoid alpha any-hit cost on second bounces" );
+
 idCVar r_pathTracingCleanRestirGiNeeCacheSeed(
     "r_pathTracingCleanRestirGiNeeCacheSeed",
     "0",

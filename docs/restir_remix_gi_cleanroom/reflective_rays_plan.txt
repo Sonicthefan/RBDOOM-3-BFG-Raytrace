@@ -125,9 +125,18 @@ Acceptance before continuing NEE-cache-assisted reflection work:
       mode 2 in rough/diffuse views while still allowing glossy/specular
       secondary cache reuse. Probability below 1 should trade cache influence
       for cost without introducing rare over-bright hits.
-    - Russian roulette is deferred until a real multi-bounce path exists.
-      Applying it to the first producer ray behaves as a sparsity setting, not
-      Remix-style path-continuation roulette.
+    - Russian roulette is valid only after the first producer segment exists.
+      The current implementation applies it to the secondary-to-tertiary
+      continuation when MaxBounces is 2. Applying it to the first producer ray
+      behaves as a sparsity setting, not Remix-style path-continuation
+      roulette.
+    - Multi-bounce first slice is controlled by
+      r_pathTracingCleanRestirGiMaxBounces. Value 2 adds one
+      secondary-to-tertiary continuation ray and terminal tertiary lighting.
+      The tertiary direct-light proposal is budgeted separately by
+      r_pathTracingCleanRestirGiContinuationDirectProbability so the second
+      bounce can be tested without always paying full terminal NEE cost.
+      Deeper recursion and path-depth reservoir metadata are future work.
 
 
 RGI-RR-01: Specular Initial Candidate
