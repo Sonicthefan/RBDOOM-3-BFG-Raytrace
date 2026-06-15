@@ -2977,6 +2977,68 @@ float3 PathTraceCleanRoomDeferredColor(uint2 pixel, uint view)
 }
 
 #include "pathtrace_clean_rtxdi_di_rr_debug.hlsli"
+
+#if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY) || defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY)
+bool PathTraceCleanRoomInitialRayGenView(uint view)
+{
+    return view == 4u || view == 7u ||
+        (view == 8u && (CleanRtxdiDiTemporalFlags & CLEAN_TEMPORAL_FLAG_ENABLE) == 0u);
+}
+
+bool PathTraceCleanRoomTemporalRayGenView(uint view)
+{
+    return view == 5u || view == 6u || view == 8u ||
+        view == 9u || view == 10u || view == 11u || view == 16u;
+}
+#endif
+
+#if defined(CLEAN_RTXDI_DI_INITIAL_ENTRY)
+[shader("raygeneration")]
+void RayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint view = CleanRtxdiDiView;
+    if (view < 1u || view > 24u)
+    {
+        SmokeOutput[pixel] = float4(1.0, 0.0, 1.0, 1.0);
+        return;
+    }
+
+    if (PathTraceCleanRoomInitialRayGenView(view))
+    {
+        SmokeOutput[pixel] = float4(PathTraceCleanRoomInitialReservoirOutput(pixel, dimensions, view), 1.0);
+        return;
+    }
+
+    if (PathTraceCleanRoomTemporalRayGenView(view))
+    {
+        PathTraceCleanRoomStoreInitialReservoir(pixel, dimensions);
+    }
+}
+#elif defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY)
+[shader("raygeneration")]
+void RayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint view = CleanRtxdiDiView;
+    if (PathTraceCleanRoomTemporalRayGenView(view))
+    {
+        SmokeOutput[pixel] = float4(PathTraceCleanRoomTemporalReservoirOutputFromStoredCurrent(pixel, dimensions, view), 1.0);
+    }
+}
+#else
 [shader("raygeneration")]
 void RayGen()
 {
@@ -3067,6 +3129,7 @@ void RayGen()
     }
     SmokeOutput[pixel] = float4(color, 1.0);
 }
+#endif
 
 [shader("miss")]
 void Miss(inout PathTraceCleanRtxdiPayload payload)

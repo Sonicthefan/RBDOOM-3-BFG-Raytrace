@@ -2338,11 +2338,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             m_smokeNeeCacheState.pendingInvalidationFlags = PATH_TRACE_NEE_CACHE_INVALIDATE_NONE;
             m_smokeNeeCacheState.taskClearPending = false;
         }
-        if (!m_smokeCleanRtxdiDiSentinelShaderTable)
+        if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
+            !m_smokeCleanRtxdiDiInitialShaderTable ||
+            !m_smokeCleanRtxdiDiTemporalShaderTable)
         {
             InitRayTracingSmokeRestirPipeline(15);
         }
-        if (!m_smokeCleanRtxdiDiSentinelShaderTable)
+        if (!m_smokeCleanRtxdiDiSentinelShaderTable ||
+            !m_smokeCleanRtxdiDiInitialShaderTable ||
+            !m_smokeCleanRtxdiDiTemporalShaderTable)
         {
             if (cleanRtxdiDiDumpRequested)
             {
@@ -3867,13 +3871,47 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanArgs.width = m_frameResources.width;
         cleanArgs.height = m_frameResources.height;
         cleanArgs.depth = 1;
+        const bool cleanInitialRaygenView =
+            cleanRtxdiDiResolveView == 4 ||
+            cleanRtxdiDiResolveView == 7 ||
+            (cleanRtxdiDiResolveView == 8 && !cleanRtxdiDiTemporalEnabled);
+        const bool cleanTemporalRaygenView =
+            cleanRtxdiDiResolveView == 5 ||
+            cleanRtxdiDiResolveView == 6 ||
+            cleanRtxdiDiResolveView == 8 ||
+            cleanRtxdiDiResolveView == 9 ||
+            cleanRtxdiDiResolveView == 10 ||
+            cleanRtxdiDiResolveView == 11 ||
+            cleanRtxdiDiResolveView == 16;
+        const bool cleanSplitRaygenView = cleanInitialRaygenView || cleanTemporalRaygenView;
         PathTraceCleanRtxdiDiSentinelConstants dispatchConstants = cleanConstants;
         if (cleanSpatialRoute)
         {
             dispatchConstants.flags |= CLEAN_RTXDI_DI_FLAG_SPATIAL_TEMPORAL_PREPASS;
         }
         commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &dispatchConstants, sizeof(dispatchConstants));
-        commandList->dispatchRays(cleanArgs);
+        if (cleanSplitRaygenView)
+        {
+            cleanState.shaderTable = m_smokeCleanRtxdiDiInitialShaderTable;
+            commandList->setRayTracingState(cleanState);
+            commandList->dispatchRays(cleanArgs);
+            nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
+            nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
+            nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
+
+            if (cleanTemporalRaygenView)
+            {
+                cleanState.shaderTable = m_smokeCleanRtxdiDiTemporalShaderTable;
+                commandList->setRayTracingState(cleanState);
+                commandList->dispatchRays(cleanArgs);
+            }
+        }
+        else
+        {
+            cleanState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
+            commandList->setRayTracingState(cleanState);
+            commandList->dispatchRays(cleanArgs);
+        }
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
@@ -3925,7 +3963,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             commandList->dispatchRays(cleanArgs);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
         }
-        auto dispatchCleanRestirGi = [&]() -> bool
+        auto dispatchCleanRestirGi = [&](bool resolveToRrInputColor) -> bool
         {
             PathTraceCleanRestirGiDispatchInputs giInputs;
             giInputs.device = device;
@@ -3985,6 +4023,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.rrInputColorTexture = m_frameResources.rrInputColorTexture;
             giInputs.rrGuideHitDistanceTexture = m_frameResources.rrGuideHitDistanceTexture;
             giInputs.materialSampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
+            giInputs.resolveToRrInputColor = resolveToRrInputColor;
             return PathTraceCleanRestirGiExecute(m_cleanRestirGiState, giInputs);
         };
         const bool cleanDlssRrEvaluateRequested =
@@ -3995,13 +4034,19 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         const bool cleanGiDispatchRequested =
             r_pathTracingCleanRestirGiEnable.GetInteger() != 0 ||
             r_pathTracingCleanRestirGiDump.GetInteger() != 0;
-        const bool cleanGiRrPreDlssRequested =
+        const bool cleanGiView0ResolveRequested =
+            r_pathTracingCleanRestirGiView.GetInteger() == 0 &&
+            r_pathTracingCleanRestirGiResolve.GetInteger() != 0;
+        const bool cleanGiRrExportRequested =
             cleanGiDispatchRequested &&
-            cleanDlssRrEvaluateRequested &&
             r_pathTracingCleanRestirGiView.GetInteger() == 0 &&
             r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0 &&
             (r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 ||
                 r_pathTracingCleanRestirGiRrSpecularInput.GetInteger() != 0);
+        const bool cleanGiPreDlssRequested =
+            cleanGiDispatchRequested &&
+            cleanDlssRrEvaluateRequested &&
+            (cleanGiView0ResolveRequested || cleanGiRrExportRequested);
         bool cleanGiDispatchedBeforeRr = false;
         if (cleanDlssRrEvaluateRequested)
         {
@@ -4077,9 +4122,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 }
             }
 
-            if (cleanGiRrPreDlssRequested)
+            if (cleanGiPreDlssRequested)
             {
-                dispatchCleanRestirGi();
+                dispatchCleanRestirGi(cleanGiView0ResolveRequested);
                 cleanGiDispatchedBeforeRr = true;
             }
 
@@ -4205,11 +4250,11 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         }
         if (cleanGiDispatchRequested && !cleanGiDispatchedBeforeRr)
         {
-            // Clean-room ReSTIR GI lane (docs/restir_remix_gi_cleanroom). Runs
-            // after the DI lane so GI debug views overwrite the output. View-0
-            // RR export runs before DLSSRR above so those inputs are consumed
-            // by RR instead of being overlaid afterward.
-            dispatchCleanRestirGi();
+            // Clean-room ReSTIR GI lane (docs/restir_remix_gi_cleanroom).
+            // Debug views run late so they overwrite the output. View-0
+            // resolve/RR export runs before DLSSRR above so RR consumes the
+            // combined DI+GI inputs instead of receiving a late overlay.
+            dispatchCleanRestirGi(false);
         }
         if (!m_smokeTestDispatched)
         {

@@ -3730,7 +3730,111 @@ float3 PathTraceCleanRestirGiSentinelColor(uint2 pixel)
 }
 
 [shader("raygeneration")]
-void RayGen()
+void ProducerRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+
+    CleanGiProducerResult producer = (CleanGiProducerResult)0;
+    if (surfaceValid)
+    {
+        RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+        producer = CleanGiRunProducer(pixel, record, rng);
+    }
+
+    CleanRestirGiProducerRadiance[pixel] = float4(producer.radiance, producer.pathLength);
+    CleanRestirGiProducerHitPosition[pixel] = float4(producer.hitPosition, producer.valid != 0u ? 1.0 : 0.0);
+    CleanRestirGiProducerHitNormal[pixel] = float4(producer.hitNormal, 0.0);
+
+    const uint view = CleanRestirGiView;
+    if (view != 1u && view != 2u && view != 9u && view != 10u)
+    {
+        return;
+    }
+
+    float3 color = float3(1.0, 0.0, 1.0);
+    if (view == 1u)
+    {
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (producer.valid == 0u)
+        {
+            color = float3(0.0, 0.0, 0.0);
+        }
+        else if (!CleanGiAllFinite3(producer.radiance))
+        {
+            color = float3(1.0, 1.0, 0.0);
+        }
+        else
+        {
+            color = CleanGiToneMap(producer.radiance);
+        }
+    }
+    else if (view == 2u)
+    {
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (producer.valid == 0u)
+        {
+            color = float3(0.25, 0.0, 0.0);
+        }
+        else
+        {
+            const uint band = ((pixel.x / 64u) + (pixel.y / 64u)) & 1u;
+            color = band != 0u
+                ? saturate(producer.hitNormal * 0.5 + 0.5)
+                : frac(producer.hitPosition / 128.0);
+        }
+    }
+    else if (view == 9u)
+    {
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (producer.valid == 0u)
+        {
+            color = float3(0.25, 0.0, 0.0);
+        }
+        else
+        {
+            color = saturate(producer.materialAlbedo);
+        }
+    }
+    else
+    {
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (producer.valid == 0u)
+        {
+            color = float3(0.25, 0.0, 0.0);
+        }
+        else
+        {
+            const bool hasDiffuseTexture = producer.diffuseTextureIndex != 0xffffffffu;
+            const bool forceDebugAlbedo = (producer.materialFlags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u;
+            color = float3(hasDiffuseTexture ? 0.0 : 1.0, hasDiffuseTexture ? 1.0 : 0.0, forceDebugAlbedo ? 1.0 : 0.0);
+        }
+    }
+
+    SmokeOutput[pixel] = float4(color, 1.0);
+}
+
+[shader("raygeneration")]
+void ReuseRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -3740,6 +3844,10 @@ void RayGen()
     }
 
     const uint view = CleanRestirGiView;
+    if (view == 1u || view == 2u || view == 9u || view == 10u)
+    {
+        return;
+    }
 
     // ---- Phase 1: spatial reuse (separate dispatch; every pixel's
     // TEMPORAL_OUTPUT write from phase 0 has completed) ----
@@ -3821,20 +3929,10 @@ void RayGen()
         return;
     }
 
-    // ---- Producer stage (always runs while the lane is active) ----
+    // ---- Reuse stage: consumes producer textures written by ProducerRayGen ----
     PathTracePrimarySurfaceRecord record;
     const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
-
     CleanGiProducerResult producer = (CleanGiProducerResult)0;
-    if (surfaceValid)
-    {
-        RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-        producer = CleanGiRunProducer(pixel, record, rng);
-    }
-
-    CleanRestirGiProducerRadiance[pixel] = float4(producer.radiance, producer.pathLength);
-    CleanRestirGiProducerHitPosition[pixel] = float4(producer.hitPosition, producer.valid != 0u ? 1.0 : 0.0);
-    CleanRestirGiProducerHitNormal[pixel] = float4(producer.hitNormal, 0.0);
 
     // ---- Initial reservoir seeds (preloaded into the transient INIT page) ----
     RAB_StoreGIReservoir(RTXDI_EmptyGIReservoir(), int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));

@@ -1722,7 +1722,8 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/pathtrace_restir_reflection_producer.rt.bin");
     case 15:
-        return initLibrary(
+    {
+        const bool sentinelOk = initLibrary(
             m_smokeCleanRtxdiDiSentinelShaderLibrary,
             m_smokeCleanRtxdiDiSentinelPipeline,
             m_smokeCleanRtxdiDiSentinelShaderTable,
@@ -1730,6 +1731,24 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
             "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
             "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_sentinel.rt.bin",
             m_smokeCleanRtxdiDiSentinelBindingLayout);
+        const bool initialOk = initLibrary(
+            m_smokeCleanRtxdiDiInitialShaderLibrary,
+            m_smokeCleanRtxdiDiInitialPipeline,
+            m_smokeCleanRtxdiDiInitialShaderTable,
+            "clean-room RTXDI DI initial",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_initial.rt.bin",
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
+        const bool temporalOk = initLibrary(
+            m_smokeCleanRtxdiDiTemporalShaderLibrary,
+            m_smokeCleanRtxdiDiTemporalPipeline,
+            m_smokeCleanRtxdiDiTemporalShaderTable,
+            "clean-room RTXDI DI temporal",
+            "renderprogs2/dxil/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin",
+            "renderprogs2/spirv/builtin/pathtracing/cleanroom_rtxdi/pathtrace_clean_rtxdi_di_temporal.rt.bin",
+            m_smokeCleanRtxdiDiSentinelBindingLayout);
+        return sentinelOk && initialOk && temporalOk;
+    }
     case 20:
         return initLibrary(
             m_smokeCleanRtxdiDiSpatialShaderLibrary,

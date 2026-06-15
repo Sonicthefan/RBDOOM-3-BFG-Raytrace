@@ -178,14 +178,15 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         }
     }
 
-    nvrhi::ShaderHandle rayGen = state.shaderLibrary->getShader("RayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerRayGen = state.shaderLibrary->getShader("ProducerRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle reuseRayGen = state.shaderLibrary->getShader("ReuseRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle miss = state.shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss);
     nvrhi::ShaderHandle shadowMiss = state.shaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss);
     nvrhi::ShaderHandle closestHit = state.shaderLibrary->getShader("ClosestHit", nvrhi::ShaderType::ClosestHit);
     nvrhi::ShaderHandle anyHit = state.shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
     nvrhi::ShaderHandle shadowClosestHit = state.shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
     nvrhi::ShaderHandle shadowAnyHit = state.shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
-    if (!rayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
+    if (!producerRayGen || !reuseRayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
         common->Printf("PathTraceCleanRestirGi: GI shader library is missing required entry points\n");
         return false;
@@ -194,7 +195,8 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     nvrhi::rt::PipelineDesc pipelineDesc;
     pipelineDesc.globalBindingLayouts = { state.bindingLayout, inputs.textureBindlessLayout };
     pipelineDesc.shaders = {
-        { "", rayGen, nullptr },
+        { "", producerRayGen, nullptr },
+        { "", reuseRayGen, nullptr },
         { "", miss, nullptr },
         { "", shadowMiss, nullptr }
     };
@@ -212,18 +214,27 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         common->Printf("PathTraceCleanRestirGi: failed to create GI pipeline\n");
         return false;
     }
-    state.shaderTable = state.pipeline->createShaderTable();
-    if (!state.shaderTable)
+    state.producerShaderTable = state.pipeline->createShaderTable();
+    state.reuseShaderTable = state.pipeline->createShaderTable();
+    if (!state.producerShaderTable || !state.reuseShaderTable)
     {
         common->Printf("PathTraceCleanRestirGi: failed to create GI shader table\n");
         state.pipeline = nullptr;
         return false;
     }
-    state.shaderTable->setRayGenerationShader("RayGen");
-    state.shaderTable->addMissShader("Miss");
-    state.shaderTable->addMissShader("ShadowMiss");
-    state.shaderTable->addHitGroup("HitGroup");
-    state.shaderTable->addHitGroup("ShadowHitGroup");
+    state.producerShaderTable->setRayGenerationShader("ProducerRayGen");
+    state.producerShaderTable->addMissShader("Miss");
+    state.producerShaderTable->addMissShader("ShadowMiss");
+    state.producerShaderTable->addHitGroup("HitGroup");
+    state.producerShaderTable->addHitGroup("ShadowHitGroup");
+
+    state.reuseShaderTable->setRayGenerationShader("ReuseRayGen");
+    state.reuseShaderTable->addMissShader("Miss");
+    state.reuseShaderTable->addMissShader("ShadowMiss");
+    state.reuseShaderTable->addHitGroup("HitGroup");
+    state.reuseShaderTable->addHitGroup("ShadowHitGroup");
+
+    state.shaderTable = state.reuseShaderTable;
     common->Printf("PathTraceCleanRestirGi: GI pipeline initialized\n");
     return true;
 }
@@ -485,6 +496,8 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     shaderLibrary = nullptr;
     pipeline = nullptr;
     shaderTable = nullptr;
+    producerShaderTable = nullptr;
+    reuseShaderTable = nullptr;
     pipelineInitAttempted = false;
 }
 
@@ -799,21 +812,30 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(neeCacheCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
 
-    nvrhi::rt::State giState;
-    giState.shaderTable = state.shaderTable;
-    giState.bindings = { bindingSet, inputs.textureDescriptorTable };
-    commandList->setRayTracingState(giState);
-
     nvrhi::rt::DispatchRaysArguments giArgs;
     giArgs.width = inputs.width;
     giArgs.height = inputs.height;
     giArgs.depth = 1;
+
+    // Remix-shaped split: first produce indirect candidate radiance/hit
+    // geometry, then run GI reuse/final shading as a separate consumer pass.
+    nvrhi::rt::State producerState;
+    producerState.shaderTable = state.producerShaderTable;
+    producerState.bindings = { bindingSet, inputs.textureDescriptorTable };
+    commandList->setRayTracingState(producerState);
     commandList->dispatchRays(giArgs);
 
-    nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
     nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
     nvrhi::utils::TextureUavBarrier(commandList, state.producerHitPositionTexture);
     nvrhi::utils::TextureUavBarrier(commandList, state.producerHitNormalTexture);
+
+    nvrhi::rt::State reuseState;
+    reuseState.shaderTable = state.reuseShaderTable;
+    reuseState.bindings = { bindingSet, inputs.textureDescriptorTable };
+    commandList->setRayTracingState(reuseState);
+    commandList->dispatchRays(giArgs);
+
+    nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
     nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
 
     nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
@@ -833,7 +855,7 @@ bool PathTraceCleanRestirGiExecute(
         tail.phase = 1u;
         std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
         commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
-        commandList->setRayTracingState(giState);
+        commandList->setRayTracingState(reuseState);
         commandList->dispatchRays(giArgs);
         nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
         nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
@@ -872,7 +894,8 @@ bool PathTraceCleanRestirGiExecute(
             filterConstants.height = static_cast<uint32_t>(inputs.height);
             filterConstants.threshold = boilingFilterThreshold;
             filterConstants.resolveEnabled = resolveAddRequested ? 1u : 0u;
-            filterConstants.rrInputResolveEnabled = 0u;
+            filterConstants.rrInputResolveEnabled =
+                resolveAddRequested && inputs.resolveToRrInputColor ? 1u : 0u;
             commandList->writeBuffer(state.boilingFilterConstantsBuffer, &filterConstants, sizeof(filterConstants));
 
             commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::ShaderResource);

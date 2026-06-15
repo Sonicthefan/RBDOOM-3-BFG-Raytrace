@@ -256,6 +256,20 @@ Known debug-view caveats:
     closely than forcing the alpha any-hit path on every continuation ray. The
     first producer ray remains alpha-capable, preserving the alpha-clip support
     validated earlier.
+    The monolithic GI raygen has started moving back toward the Remix pass
+    structure. ProducerRayGen now owns primary-to-secondary indirect candidate
+    tracing and writes producer radiance/hit-geometry textures. ReuseRayGen
+    consumes those textures for initial reservoir construction, temporal reuse,
+    spatial reuse, final shading, and non-producer debug views. This preserves
+    the current RT library while restoring the producer-consumer boundary used
+    by Remix's integrate_indirect -> restir_gi_* pass chain.
+    The same raygen-size pressure likely exists in clean RTXDI DI. Nsight
+    profiling showed a large raygen-dominated frame with low RT-core
+    saturation, so temporal/spatial algorithm tweaks can leave FPS unchanged
+    when the compiled entry point is too broad. The DI proof split now uses
+    separate initial and temporal RT libraries for reservoir/debug views while
+    leaving non-reservoir diagnostics on the legacy sentinel path. This is
+    expected to help occupancy/register pressure, not reduce traced ray count.
     The shared PathTraceNeeCacheMapWorldPositionToCell helper now uses fixed
     world-anchored cells for the non-onion provider. The old snapped-camera
     LOD frame could change a stationary point's cell identity under camera

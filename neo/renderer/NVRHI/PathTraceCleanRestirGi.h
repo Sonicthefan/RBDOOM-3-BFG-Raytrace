@@ -32,6 +32,8 @@ struct PathTraceCleanRestirGiState
     nvrhi::ShaderLibraryHandle shaderLibrary;
     nvrhi::rt::PipelineHandle pipeline;
     nvrhi::rt::ShaderTableHandle shaderTable;
+    nvrhi::rt::ShaderTableHandle producerShaderTable;
+    nvrhi::rt::ShaderTableHandle reuseShaderTable;
     nvrhi::BufferHandle boilingFilterConstantsBuffer;
     nvrhi::ShaderHandle boilingFilterShader;
     nvrhi::BindingLayoutHandle boilingFilterBindingLayout;
@@ -97,6 +99,11 @@ struct PathTraceCleanRestirGiDispatchInputs
     nvrhi::ITexture* rrInputColorTexture = nullptr;
     nvrhi::ITexture* rrGuideHitDistanceTexture = nullptr;
     nvrhi::ISampler* materialSampler = nullptr;
+
+    // Set only when the caller schedules view-0 GI before DLSS-RR evaluation.
+    // In that route the beauty resolve must also update PathTraceRRInputColor
+    // so RR consumes the combined DI+GI signal instead of seeing DI only.
+    bool resolveToRrInputColor = false;
 };
 
 // Runs the GI lane for this frame if its cvars request it. Returns true when

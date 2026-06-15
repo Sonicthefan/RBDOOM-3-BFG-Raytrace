@@ -137,6 +137,12 @@ Acceptance before continuing NEE-cache-assisted reflection work:
       r_pathTracingCleanRestirGiContinuationDirectProbability so the second
       bounce can be tested without always paying full terminal NEE cost.
       Deeper recursion and path-depth reservoir metadata are future work.
+    - Structural parity note: the first Remix-shaped split is now
+      ProducerRayGen -> ReuseRayGen inside the clean GI RT library. Producer
+      writes indirect candidate radiance/hit geometry; reuse consumes that for
+      init/temporal/spatial/final. A later slice should move reuse/final toward
+      dedicated compute passes and optional downscaled resources, matching
+      Remix more closely.
 
 
 RGI-RR-01: Specular Initial Candidate
