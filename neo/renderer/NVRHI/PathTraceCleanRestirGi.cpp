@@ -69,7 +69,7 @@ struct PathTraceCleanRestirGiConstantsTail
     float continuationDirectProbability;
     float secondaryDirectProbability;
     uint32_t continuationOpaqueTrace;
-    uint32_t directProbabilityPadding1;
+    uint32_t secondaryDirectSamples;
     uint32_t directProbabilityPadding2;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
@@ -756,6 +756,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.continuationDirectProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiContinuationDirectProbability.GetFloat());
     tail.secondaryDirectProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiSecondaryDirectProbability.GetFloat());
     tail.continuationOpaqueTrace = r_pathTracingCleanRestirGiContinuationOpaqueTrace.GetInteger() != 0 ? 1u : 0u;
+    tail.secondaryDirectSamples = static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingCleanRestirGiSecondaryDirectSamples.GetInteger()));
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's

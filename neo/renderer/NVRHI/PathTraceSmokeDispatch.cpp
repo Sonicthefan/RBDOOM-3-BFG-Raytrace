@@ -4213,6 +4213,15 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanReservoirBytes);
             m_smokeCleanRtxdiDiPreviousReservoirValid = cleanRtxdiDiTemporalEnabled;
         }
+        if (cleanGiDispatchRequested && !cleanGiDispatchedBeforeRr)
+        {
+            // Clean-room ReSTIR GI lane (docs/restir_remix_gi_cleanroom).
+            // It must run before primary-surface history promotion below:
+            // GI temporal reuse samples the previous-frame surface buffer,
+            // and copying current->previous first turns camera-motion
+            // reprojection into current-frame lookups.
+            dispatchCleanRestirGi(false);
+        }
         if (cleanRtxdiDiView >= 2 && cleanPromoteSubviewSurface)
         {
             commandList->setBufferState(m_frameResources.primarySurfaceHistoryBuffers.current, nvrhi::ResourceStates::CopySource);
@@ -4247,14 +4256,6 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 (m_sceneInputs.geometry.previousTransformAvailable && m_sceneInputs.geometry.rigidRouteInstanceCount > 0);
             m_frameResources.SetPrimarySurfaceHistoryView(currentHistoryView, objectMotionAvailable);
             m_frameResources.primarySurfaceHistoryNeedsClear = false;
-        }
-        if (cleanGiDispatchRequested && !cleanGiDispatchedBeforeRr)
-        {
-            // Clean-room ReSTIR GI lane (docs/restir_remix_gi_cleanroom).
-            // Debug views run late so they overwrite the output. View-0
-            // resolve/RR export runs before DLSSRR above so RR consumes the
-            // combined DI+GI inputs instead of receiving a late overlay.
-            dispatchCleanRestirGi(false);
         }
         if (!m_smokeTestDispatched)
         {

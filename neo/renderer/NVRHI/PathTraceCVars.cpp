@@ -1655,9 +1655,9 @@ idCVar r_pathTracingCleanRestirGiTemporal(
 
 idCVar r_pathTracingCleanRestirGiSpatial(
     "r_pathTracingCleanRestirGiSpatial",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room ReSTIR GI spatial resampling: 0 = spatial input passes through to the spatial output page unchanged. Default 0 until RGI-06 is proven" );
+    "Clean-room ReSTIR GI spatial resampling: 0 = spatial input passes through to the spatial output page unchanged" );
 
 idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection(
     "r_pathTracingCleanRestirGiTemporalBiasCorrection",
@@ -1721,9 +1721,15 @@ idCVar r_pathTracingCleanRestirGiContinuationDirectProbability(
 
 idCVar r_pathTracingCleanRestirGiSecondaryDirectProbability(
     "r_pathTracingCleanRestirGiSecondaryDirectProbability",
-    "0.5",
+    "1",
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room ReSTIR GI probability for direct-light sampling at the first secondary hit; compensated when below 1 to reduce one-bounce shadow-ray cost" );
+
+idCVar r_pathTracingCleanRestirGiSecondaryDirectSamples(
+    "r_pathTracingCleanRestirGiSecondaryDirectSamples",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI direct-light proposal count at the first secondary hit; raise above 1 only for explicit producer-density diagnostics" );
 
 idCVar r_pathTracingCleanRestirGiContinuationOpaqueTrace(
     "r_pathTracingCleanRestirGiContinuationOpaqueTrace",

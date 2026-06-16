@@ -54,7 +54,11 @@ RTXDI_GIReservoir RTXDI_EmptyGIReservoir()
 
 bool RTXDI_IsValidGIReservoir(RTXDI_GIReservoir reservoir)
 {
-    return reservoir.M > 0u && reservoir.weightSum >= 0.0;
+    return reservoir.M > 0u &&
+        reservoir.weightSum > 0.0 &&
+        reservoir.weightSum == reservoir.weightSum &&
+        all(reservoir.radiance == reservoir.radiance) &&
+        all(reservoir.position == reservoir.position);
 }
 
 // Fresh single-sample reservoir. weightSum carries 1/samplePdf so that one

@@ -274,3 +274,53 @@ Known debug-view caveats:
     world-anchored cells for the non-onion provider. The old snapped-camera
     LOD frame could change a stationary point's cell identity under camera
     movement and produced movement-correlated cell strobe.
+    GI temporal reuse depends on the DI-owned primary-surface history buffers
+    retaining a true previous-frame page until the GI dispatch has consumed it.
+    The clean DI route used to promote current->previous before the late GI
+    dispatch, so GI temporal sampled current-frame surfaces as "previous" under
+    camera motion. That made temporal appear enabled while behaving close to a
+    single-frame noisy producer. The normal late GI route now runs before
+    primary-surface history promotion; the pre-DLSSRR view-0 route already ran
+    before that promotion.
+    GI temporal reuse originally experimented with applying the
+    reconnection-shift jacobian as part of the history candidate weight, mirroring
+    spatial reuse. Runtime testing showed that was unsafe for temporal because
+    the temporal output feeds itself on the next frame; J must remain a
+    validation gate until exact Remix gradient/visibility validation exists.
+    The temporal header still uses a spatial/DI-shaped BASIC 1/Z support count.
+    GI black-noise parity note: the clean DI reservoir considers zero-weight
+    reservoirs invalid and still lets temporal reuse recover from a bad current
+    sample by merging valid previous history. The clean GI header used to treat
+    M>0, weightSum==0 as valid and the temporal wrapper skipped history when
+    the current initial reservoir was invalid. That converted no-sample pixels
+    into literal black GI output instead of trying history/spatial recovery.
+    When temporal and spatial are disabled, clean GI producer density is bounded
+    by the primary-to-secondary material ray and the secondary direct-light
+    proposal count. DI defaults to eight initial local-light candidates, but
+    clean GI previously used one secondary light proposal and a 0.5 Bernoulli
+    gate. On scenes with many analytic lights this made most secondary hits
+    choose a zero-target light and produced a black, underfed initial page that
+    reuse could not repair. r_pathTracingCleanRestirGiSecondaryDirectSamples
+    was added as an A/B knob and first-secondary direct probability defaults to
+    1, but the sample-count default remains 1 because using eight secondary
+    light proposals was a blunt density compensation with a large FPS cost. If
+    clean-header random sequencing produces structured holes, fix the sampler
+    before raising this diagnostic count.
+    Clean-header RNG parity note: the replacement sampler used a fixed
+    per-pixel seed plus a stateless dimension hash. GI producer rays expose that
+    sequence directly in the first bounce and secondary NEE decision, where
+    structured patterns survive DLSSRR. To avoid perturbing the working DI
+    shaders, the GI producer/specular/NEE-seed path now uses a local
+    state-advancing white RNG that mixes the pass namespace into the initial
+    seed and each dimension key. Blue noise remains disabled unless
+    RBPT_ENABLE_BLUE_NOISE is explicitly defined.
+    GI temporal motion note: DI's stable temporal path uses one back-projected
+    pixel with strict surface validation. Clean GI had diverged by adding a
+    jittered fallback history pixel and relaxing moving-camera gates to depth
+    0.28 / normal 0.8, while also multiplying temporal history weight by the
+    reconnection jacobian. GI history stores full indirect radiance and feeds
+    itself frame over frame, so those choices produced watercolor-like stale
+    clusters that could survive until maxReservoirAge (~50 frames) and then
+    visibly age out. The temporal path now uses only the exact back-projected
+    pixel, conservative gates, moving-history caps (M<=2, age<=8), and
+    jacobian validation without temporal W multiplication.

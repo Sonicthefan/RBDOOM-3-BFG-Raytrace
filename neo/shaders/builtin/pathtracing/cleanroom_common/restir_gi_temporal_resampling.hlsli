@@ -208,18 +208,17 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         tparams.maxHistoryLength * max(inputReservoir.M, 1u));
 
     const float3 receiverPos = RAB_GetSurfaceWorldPos(surface);
-    const float canonicalM = (float)inputReservoir.M;
-    const float historyM = (float)historyReservoir.M;
     const bool canonicalValid =
         RTXDI_IsValidGIReservoir(inputReservoir) && inputReservoir.weightSum > 0.0;
+    const float canonicalM = canonicalValid ? (float)inputReservoir.M : 0.0;
+    const float historyM = (float)historyReservoir.M;
 
-    // Jacobian VALIDATION only (plan Step 7). The history receiver is the
-    // same reprojected world point, so the true shift jacobian is ~1; values
-    // away from 1 mean the reprojection landed on different geometry and the
-    // sample must be rejected. Using the computed J as a weight multiplier
-    // here would compound through the stored W frame over frame (temporal
-    // output is its own next input) - that feedback was the cause of the
-    // moving black-disc artifact (W -> inf -> NaN) seen under camera motion.
+    // Jacobian validation only. The temporal output feeds itself on the next
+    // frame, so multiplying stored W by J every frame can turn a single bad
+    // shifted sample into a persistent blotchy cluster. Spatial reuse applies
+    // J to one-frame neighbor proposals; temporal history must only reject
+    // inadmissible shifts until exact Remix gradient/visibility validation
+    // exists.
     const float3 historySurfacePos = RAB_GetSurfaceWorldPos(historySurface);
     const float jHistoryToCurrent = RBPT_GITemporalReconnectionJacobian(
         historySurfacePos, receiverPos, historyReservoir);
@@ -269,28 +268,45 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     }
 
     const float mergedM = canonicalM + historyM;
-    float normalizationNumerator = 1.0;
-    float normalizationDenominator = selectedTargetAtCurrent * max(mergedM, 1.0);
+    float normalization = max(mergedM, 1.0);
     if (min(tparams.biasCorrectionMode, uint(RTXDI_BIAS_CORRECTION_BASIC)) >= RTXDI_BIAS_CORRECTION_BASIC)
     {
-        const float selectedTargetAtHistory = RAB_GetGISampleTargetPdfForSurface(
-            selected.position, selected.radiance, historySurface);
-        const float piSum =
-            selectedTargetAtCurrent * canonicalM +
-            selectedTargetAtHistory * historyM;
-
-        normalizationNumerator = selectedHistory
-            ? selectedTargetAtHistory
-            : selectedTargetAtCurrent;
-        normalizationDenominator = piSum * selectedTargetAtCurrent;
-        if (!(normalizationNumerator > 0.0) || !(normalizationDenominator > 0.0))
+        // 1/Z: count each temporal domain that could have generated the
+        // selected sample. The winning source domain is always counted; that
+        // domain already proved it can produce the sample, so a failed
+        // re-evaluation must not inflate W by dropping it from Z.
+        float Z = 0.0;
+        if (selectedHistory)
+        {
+            if (canonicalM > 0.0)
+            {
+                Z += canonicalM;
+            }
+            Z += historyM;
+        }
+        else
+        {
+            Z += canonicalM;
+            const float jSelectedToHistory = RBPT_GITemporalReconnectionJacobian(
+                receiverPos, historySurfacePos, selected);
+            const float selectedTargetAtHistory =
+                RBPT_GITemporalValidateJacobian(jSelectedToHistory)
+                    ? RAB_GetGISampleTargetPdfForSurface(selected.position, selected.radiance, historySurface)
+                    : 0.0;
+            if (selectedTargetAtHistory > 0.0)
+            {
+                Z += historyM;
+            }
+        }
+        if (!(Z > 0.0))
         {
             return inputReservoir;
         }
+        normalization = max(Z, 1.0);
     }
 
     RTXDI_GIReservoir result = selected;
-    result.weightSum = (wSum * normalizationNumerator) / normalizationDenominator;
+    result.weightSum = wSum / (normalization * selectedTargetAtCurrent);
     if (!(result.weightSum > 0.0 && result.weightSum < 1.0e20))
     {
         return inputReservoir;

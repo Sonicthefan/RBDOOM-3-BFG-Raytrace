@@ -64,8 +64,9 @@ r_pathTracingCleanRestirGiTemporal
     (matching Remix's enableReSTIRGITemporalReuse=off behavior).
 
 r_pathTracingCleanRestirGiSpatial
-    int, default 0 until RGI-06 is proven, then 1. When 0, spatial input
-    passes through to the spatial output page unchanged.
+    int, default 1. Enables spatial reuse for the base Remix-shaped GI
+    path. When 0, spatial input passes through to the spatial output page
+    unchanged for A/B testing.
 
 r_pathTracingCleanRestirGiTemporalBiasCorrection
     int, default 1 (BASIC). Clamped to [0, 1] for baseline; values above
@@ -122,11 +123,17 @@ r_pathTracingCleanRestirGiContinuationDirectProbability
     variance. Terminal emissive contribution remains full-rate.
 
 r_pathTracingCleanRestirGiSecondaryDirectProbability
-    float, default 0.5. Probability for the direct-light proposal at the first
+    float, default 1. Probability for the direct-light proposal at the first
     secondary hit. Accepted direct samples are compensated by 1 / probability.
-    This reduces the one-bounce shadow-ray cost without sparsifying the
-    primary-to-secondary GI ray itself. Set to 1 for the full-rate reference;
-    set to 0 to measure material-bounce cost without secondary NEE.
+    Set below 1 to reduce one-bounce shadow-ray cost at the cost of producer
+    sparsity; set to 0 to measure material-bounce cost without secondary NEE.
+
+r_pathTracingCleanRestirGiSecondaryDirectSamples
+    int, default 1. Direct-light proposal count at the first secondary hit.
+    Samples are averaged by 1 / count, so increasing this improves producer
+    coverage without changing expected energy, at direct shadow-ray cost. Raise
+    above 1 only for explicit producer-density diagnostics; the default keeps GI
+    on the normal one-path-per-pixel budget.
 
 r_pathTracingCleanRestirGiContinuationOpaqueTrace
     int, default 1. When MaxBounces is 2, traces the secondary-to-tertiary

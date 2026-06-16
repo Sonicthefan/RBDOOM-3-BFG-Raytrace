@@ -148,7 +148,7 @@ RemixRestirGITemporalReuseResult RemixRestirGIRunTemporalReuseContract(
     RAB_StoreGIReservoir(result.initialReservoir, int2(desc.pixel), int(desc.initSamplePage));
     result.storedInitialReservoir = 1u;
 
-    if (desc.enableTemporalReuse == 0u || !RTXDI_IsValidGIReservoir(result.initialReservoir))
+    if (desc.enableTemporalReuse == 0u)
     {
         result.temporalReservoir = result.initialReservoir;
     }

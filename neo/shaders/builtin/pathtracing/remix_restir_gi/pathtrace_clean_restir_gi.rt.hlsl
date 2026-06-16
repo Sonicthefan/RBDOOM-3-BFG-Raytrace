@@ -319,7 +319,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     float CleanRestirGiContinuationDirectProbability;
     float CleanRestirGiSecondaryDirectProbability;
     uint CleanRestirGiContinuationOpaqueTrace;
-    uint CleanRestirGiDirectProbabilityPadding1;
+    uint CleanRestirGiSecondaryDirectSamples;
     uint CleanRestirGiDirectProbabilityPadding2;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
@@ -768,6 +768,35 @@ static const float CLEAN_RESTIR_GI_FIREFLY_FACTOR = 30.0;
 static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MAX_ROUGHNESS = 0.35;
 static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0 = 0.035;
 static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_METAL_F0 = 0.12;
+
+uint CleanGiHashCombine3(uint a, uint b, uint c)
+{
+    return RBPT_RestirHashCombine(RBPT_RestirHashCombine(a, b), c);
+}
+
+RAB_RandomSamplerState CleanGiInitProducerRandomSampler(uint2 pixel, uint frameIndex, uint passNamespace)
+{
+    const uint seed = CleanGiHashCombine3(
+        RBPT_RestirHashCombine(pixel.x, pixel.y),
+        frameIndex,
+        passNamespace);
+    return RAB_CreateRandomSamplerFromDirectSeed(seed, 0u);
+}
+
+float CleanGiGetNextProducerRandom(inout RAB_RandomSamplerState rng)
+{
+    const uint dimension = rng.index;
+    const uint dimensionKey = RBPT_RestirHashCombine(rng.seed, dimension);
+    rng.seed = RBPT_RestirPcgHash(rng.seed ^ dimensionKey ^ 0xa511e9b3u);
+    const uint value = RBPT_RestirPcgHash(CleanGiHashCombine3(
+        rng.seed,
+        dimensionKey,
+        dimension * 0x9e3779b9u));
+    rng.index += 1u;
+    return RBPT_RestirUintToUnitFloat(value);
+}
+
+#define RAB_GetNextRandom CleanGiGetNextProducerRandom
 
 float3 CleanGiSafeNormalize(float3 value, float3 fallback)
 {
@@ -2672,10 +2701,10 @@ float3 CleanGiShadeDirectVertex(
     bool primarySampledSpecular,
     bool allowNeeCache,
     float directSampleProbability,
+    uint directSampleCount,
     inout RAB_RandomSamplerState rng)
 {
     float3 radiance = secondaryEmissive;
-    float3 directRadiance = float3(0.0, 0.0, 0.0);
     const float directProbability = saturate(directSampleProbability);
     if (directProbability <= 0.0)
     {
@@ -2687,58 +2716,69 @@ float3 CleanGiShadeDirectVertex(
         return radiance;
     }
     const float directWeight = 1.0 / max(directProbability, 1.0e-6);
-
-    if (allowNeeCache &&
-        CleanRestirGiNeeCacheSecondaryEnabled != 0u &&
-        CleanGiAccumulateNeeCacheProviderSample(directRadiance, secondarySurface, hitGeometricNormal, primarySampledSpecular, rng))
-    {
-        return radiance + directRadiance * directWeight;
-    }
+    const uint sampleCount = clamp(directSampleCount, 1u, 32u);
+    const float sampleWeight = directWeight / max((float)sampleCount, 1.0);
 
     const uint analyticCount = CleanRtxdiDiAnalyticLightCount;
     const uint emissiveCount = CleanRtxdiDiCurrentEmissiveTriangleCount;
     const bool hasAnalyticDomain = analyticCount > 0u;
     const bool hasEmissiveDomain = emissiveCount > 0u;
-    if (!hasAnalyticDomain && !hasEmissiveDomain)
-    {
-        return radiance;
-    }
-
     const float analyticDomainProbability = hasAnalyticDomain && hasEmissiveDomain
         ? 0.5
         : (hasAnalyticDomain ? 1.0 : 0.0);
-    const bool chooseAnalytic = hasAnalyticDomain &&
-        (!hasEmissiveDomain || RAB_GetNextRandom(rng) < analyticDomainProbability);
 
-    if (chooseAnalytic)
+    [loop]
+    for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
     {
-        const uint lightIndex = min((uint)(RAB_GetNextRandom(rng) * analyticCount), analyticCount - 1u);
-        const RAB_LightInfo lightInfo = CleanGiBuildAnalyticLightInfo(DoomAnalyticLights[lightIndex], lightIndex);
-        CleanGiAccumulateLightSample(
-            directRadiance,
-            secondarySurface,
-            hitGeometricNormal,
-            lightInfo,
-            analyticDomainProbability / max((float)analyticCount, 1.0),
-            rng);
-        return radiance + directRadiance * directWeight;
+        float3 directRadiance = float3(0.0, 0.0, 0.0);
+        if (allowNeeCache &&
+            CleanRestirGiNeeCacheSecondaryEnabled != 0u &&
+            CleanGiAccumulateNeeCacheProviderSample(directRadiance, secondarySurface, hitGeometricNormal, primarySampledSpecular, rng))
+        {
+            radiance += directRadiance * sampleWeight;
+            continue;
+        }
+
+        if (!hasAnalyticDomain && !hasEmissiveDomain)
+        {
+            continue;
+        }
+
+        const bool chooseAnalytic = hasAnalyticDomain &&
+            (!hasEmissiveDomain || RAB_GetNextRandom(rng) < analyticDomainProbability);
+
+        if (chooseAnalytic)
+        {
+            const uint lightIndex = min((uint)(RAB_GetNextRandom(rng) * analyticCount), analyticCount - 1u);
+            const RAB_LightInfo lightInfo = CleanGiBuildAnalyticLightInfo(DoomAnalyticLights[lightIndex], lightIndex);
+            CleanGiAccumulateLightSample(
+                directRadiance,
+                secondarySurface,
+                hitGeometricNormal,
+                lightInfo,
+                analyticDomainProbability / max((float)analyticCount, 1.0),
+                rng);
+            radiance += directRadiance * sampleWeight;
+            continue;
+        }
+
+        uint emissiveSourceIndex;
+        float emissiveSourcePdf;
+        if (CleanGiSelectEmissiveDistributionSample(rng, emissiveSourceIndex, emissiveSourcePdf))
+        {
+            const RAB_LightInfo emissiveInfo = CleanGiBuildEmissiveLightInfo(emissiveSourceIndex, emissiveSourceIndex);
+            CleanGiAccumulateLightSample(
+                directRadiance,
+                secondarySurface,
+                hitGeometricNormal,
+                emissiveInfo,
+                (1.0 - analyticDomainProbability) * emissiveSourcePdf,
+                rng);
+            radiance += directRadiance * sampleWeight;
+        }
     }
 
-    uint emissiveSourceIndex;
-    float emissiveSourcePdf;
-    if (CleanGiSelectEmissiveDistributionSample(rng, emissiveSourceIndex, emissiveSourcePdf))
-    {
-        const RAB_LightInfo emissiveInfo = CleanGiBuildEmissiveLightInfo(emissiveSourceIndex, emissiveSourceIndex);
-        CleanGiAccumulateLightSample(
-            directRadiance,
-            secondarySurface,
-            hitGeometricNormal,
-            emissiveInfo,
-            (1.0 - analyticDomainProbability) * emissiveSourcePdf,
-            rng);
-    }
-
-    return radiance + directRadiance * directWeight;
+    return radiance;
 }
 
 bool CleanGiSampleContinuationDirection(
@@ -2867,6 +2907,7 @@ float3 CleanGiTraceOneContinuationBounce(
         sampledSpecular,
         false,
         CleanRestirGiContinuationDirectProbability,
+        1u,
         rng);
     if (CleanGiLuminance(tertiaryOutgoing) <= 0.0)
     {
@@ -2892,6 +2933,7 @@ float3 CleanGiShadeSecondaryVertex(
         primarySampledSpecular,
         true,
         CleanRestirGiSecondaryDirectProbability,
+        CleanRestirGiSecondaryDirectSamples,
         rng);
 
     radiance += CleanGiTraceOneContinuationBounce(
@@ -3303,11 +3345,10 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     desc.temporalOutputPage = RemixRAB_GetGITemporalOutputReservoirIndex();
     desc.activeCheckerboardField = 0u;
     desc.enableTemporalReuse = glossyReuseQuarantine ? 0u : CleanRestirGiTemporalEnabled;
-    // Remix-shaped reprojection thresholds: depth scales with view angle,
-    // normal relaxes with roughness. When the receiver is actually moving,
-    // including forward/back motion near the screen-space expansion center,
-    // relax the gates to depth 0.28 / normal 0.8; without that depth-only
-    // activation, view 7 shows a circular low-M hole during dolly movement.
+    // Keep GI history validation conservative. DI temporal can tolerate
+    // broader gates because its sample is a direct-light replay; GI history
+    // stores full indirect radiance at a secondary point, so accepting the
+    // wrong previous receiver paints clustered stale energy into DLSSRR.
     const float viewDotNormal = surfaceValid
         ? abs(dot(CleanGiSafeNormalize(record.viewDirectionAndReserved.xyz, float3(0.0, 0.0, 1.0)),
             CleanGiSafeNormalize(record.geometricNormalAndRoughness.xyz, float3(0.0, 0.0, 1.0))))
@@ -3319,17 +3360,16 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     const bool temporalMotionActive =
         dot(desc.screenSpaceMotion.xy, desc.screenSpaceMotion.xy) > 0.25 ||
         abs(desc.screenSpaceMotion.z) > 0.25;
-    if (temporalMotionActive)
-    {
-        depthThreshold = max(depthThreshold, 0.28);
-        normalThreshold = min(normalThreshold, 0.8);
-    }
     desc.depthThreshold = depthThreshold;
     desc.normalThreshold = normalThreshold;
-    desc.maxHistoryLength = glossyReuseQuarantine ? 1u : CleanRestirGiMaxHistoryLength;
-    desc.enableFallbackSampling = 1u;
+    desc.maxHistoryLength = glossyReuseQuarantine
+        ? 1u
+        : (temporalMotionActive ? min(CleanRestirGiMaxHistoryLength, 2u) : CleanRestirGiMaxHistoryLength);
+    desc.enableFallbackSampling = 0u;
     desc.biasCorrectionMode = CleanRestirGiBiasCorrection;
-    desc.maxReservoirAge = CleanRestirGiMaxReservoirAge;
+    desc.maxReservoirAge = temporalMotionActive
+        ? min(CleanRestirGiMaxReservoirAge, 8u)
+        : CleanRestirGiMaxReservoirAge;
     desc.enablePermutationSampling = 0u;
     desc.uniformRandomNumber = 0u;
     desc.fireflyFilteringLuminanceThreshold = CleanRestirGiFireflyThreshold;
@@ -3388,7 +3428,7 @@ void CleanGiSeedInitPageFromSpecularProducer(uint2 pixel, bool surfaceValid, Pat
         return;
     }
 
-    RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
+    RAB_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
     const CleanGiProducerResult producer = CleanGiRunSpecularProducer(record, rng);
     CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
 }
@@ -3414,7 +3454,7 @@ void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePr
         const uint cellCount = max((uint)max(CleanRtxdiDiNeeCacheInfo1.z, 1.0), 1u);
         if (cell.valid != 0u && cell.cellIndex < cellCount)
         {
-            RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_NEE_SEED_RNG_PASS);
+            RAB_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_NEE_SEED_RNG_PASS);
             uint selectedDenseRluIndex = 0xffffffffu;
             float sourceSelectionPdf = 0.0;
             PathTraceNeeCacheProviderResult cacheProviderResult = (PathTraceNeeCacheProviderResult)0;
@@ -3745,7 +3785,7 @@ void ProducerRayGen()
     CleanGiProducerResult producer = (CleanGiProducerResult)0;
     if (surfaceValid)
     {
-        RAB_RandomSamplerState rng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+        RAB_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
         producer = CleanGiRunProducer(pixel, record, rng);
     }
 
@@ -4227,7 +4267,7 @@ void ReuseRayGen()
         }
         else
         {
-            RAB_RandomSamplerState specDebugRng = RAB_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
+            RAB_RandomSamplerState specDebugRng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
             const CleanGiSpecularProducerDebug specDebug = CleanGiBuildSpecularProducerDebug(record, specDebugRng);
             if (view == 13u)
             {
