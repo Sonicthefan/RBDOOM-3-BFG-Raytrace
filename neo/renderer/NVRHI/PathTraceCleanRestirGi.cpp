@@ -167,6 +167,7 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
@@ -595,6 +596,7 @@ bool PathTraceCleanRestirGiExecute(
         if (!inputs.motionVectorTexture) return "motion-vectors";
         if (!inputs.motionVectorMaskTexture) return "motion-vector-mask";
         if (!inputs.rrInputColorTexture) return "rr-input-color";
+        if (!inputs.rrGuideAlbedoTexture) return "rr-guide-albedo";
         if (!inputs.rrGuideHitDistanceTexture) return "rr-guide-hit-distance";
         if (!inputs.materialSampler) return "material-sampler";
         return nullptr;
@@ -637,7 +639,7 @@ bool PathTraceCleanRestirGiExecute(
         (!inputs.neeCacheProviderResultBuffer && r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0) ||
         !inputs.primarySurfaceCurrentBuffer || !inputs.primarySurfacePreviousBuffer ||
         !inputs.motionVectorTexture || !inputs.motionVectorMaskTexture ||
-        !inputs.rrInputColorTexture || !inputs.rrGuideHitDistanceTexture ||
+        !inputs.rrInputColorTexture || !inputs.rrGuideAlbedoTexture || !inputs.rrGuideHitDistanceTexture ||
         !inputs.materialSampler)
     {
         clearFailureOutput();
@@ -700,6 +702,7 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(84, state.indirectDiffuseTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(85, state.indirectDiffuseLobeTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(86, state.indirectSpecularLobeTexture));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(48, inputs.rrGuideAlbedoTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(51, inputs.rrGuideHitDistanceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(54, inputs.rrInputColorTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Sampler(0, inputs.materialSampler));
@@ -782,6 +785,7 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setTextureState(state.indirectDiffuseTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.indirectDiffuseLobeTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.indirectSpecularLobeTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setTextureState(inputs.rrGuideAlbedoTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     if (tail.rrHitDistanceEnabled != 0u)
     {
         commandList->setTextureState(inputs.rrGuideHitDistanceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);

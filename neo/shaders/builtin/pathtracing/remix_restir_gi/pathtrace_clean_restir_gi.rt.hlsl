@@ -7,11 +7,11 @@
 //         ray), and write the producer textures (views 1 and 2).
 //
 // Radiance factoring contract (remix_gi_contract.txt): the stored producer
-// radiance is L_in / producer sample PDF (diffuse PDF, or diffuse/specular
-// mixture PDF when the specular producer is enabled). It excludes the primary-
-// surface BSDF and primary albedo; the final shading pass applies the
-// receiving BRDF. Alpha channel = indirect path length. Miss = zero radiance +
-// invalid hit-geometry flag. The firefly clamp applies here only.
+// radiance is incoming radiance at the primary surface from the sampled
+// indirect path. It excludes the primary-surface BSDF and primary albedo; the
+// final shading pass applies the receiving BRDF. Alpha channel = indirect path
+// length. Miss = zero radiance + invalid hit-geometry flag. The firefly clamp
+// applies here only.
 //
 // io_whitelist: reads GI-I-01 (current primary surface), GI-I-04 (current
 // light universe, secondary vertex only), GI-I-05 (TLAS rays), GI-I-06
@@ -225,6 +225,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerHitNormal : 
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : register(u84);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuseLobe : register(u85);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe : register(u86);
+VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
 VK_BINDING(0, 1) Texture2D<float4> SmokeDiffuseTextures[] : register(t0, space1);
@@ -435,6 +436,25 @@ RAB_Surface CleanGiMaterialSurfaceFromRecord(PathTracePrimarySurfaceRecord recor
     return surface;
 }
 
+float3 CleanGiReceiverGuideAlbedo(uint2 pixel, float3 fallbackAlbedo)
+{
+    const float3 guideAlbedo = saturate(PathTraceRRGuideAlbedo[pixel].rgb);
+    const bool invalidGuideAlbedo =
+        all(abs(guideAlbedo - float3(1.0, 0.0, 1.0)) < float3(0.001, 0.001, 0.001));
+    const float guideLuminance = dot(guideAlbedo, float3(0.2126, 0.7152, 0.0722));
+    return guideLuminance > 1.0e-5 && !invalidGuideAlbedo ? guideAlbedo : fallbackAlbedo;
+}
+
+RAB_Surface CleanGiMaterialSurfaceFromCurrentRecord(uint2 pixel, PathTracePrimarySurfaceRecord record)
+{
+    RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+    if (RAB_IsSurfaceValid(surface))
+    {
+        surface.material.diffuseAlbedo = CleanGiReceiverGuideAlbedo(pixel, surface.material.diffuseAlbedo);
+    }
+    return surface;
+}
+
 #define REMIX_RAB_SURFACE_BRIDGE_EXTERNAL_CALLBACKS 1
 RAB_Surface RemixRAB_LoadSurface(int2 pixel, bool previousFrame)
 {
@@ -454,7 +474,11 @@ RAB_Surface RemixRAB_LoadSurface(int2 pixel, bool previousFrame)
     {
         record = PrimarySurfaceHistoryCurrent[index];
     }
-    return CleanGiMaterialSurfaceFromRecord(record);
+    if (previousFrame)
+    {
+        return CleanGiMaterialSurfaceFromRecord(record);
+    }
+    return CleanGiMaterialSurfaceFromCurrentRecord(uint2(pixel), record);
 }
 
 // ---------------------------------------------------------------------------
@@ -1859,6 +1883,12 @@ bool CleanGiAnalyticPayloadValid(PathTraceDoomAnalyticLightCandidate light)
         light.doomRadiusAndArea.x < 3.402823e+38;
 }
 
+float CleanGiDoomAnalyticSphereArea(float radius)
+{
+    const float safeRadius = max(radius, 0.01);
+    return max(4.0 * RTXDI_PI * safeRadius * safeRadius, 1.0e-4);
+}
+
 RAB_LightInfo CleanGiBuildAnalyticLightInfo(PathTraceDoomAnalyticLightCandidate light, uint lightIndex)
 {
     RAB_LightInfo lightInfo = RAB_EmptyLightInfo();
@@ -1876,7 +1906,7 @@ RAB_LightInfo CleanGiBuildAnalyticLightInfo(PathTraceDoomAnalyticLightCandidate 
     lightInfo.normal = float3(0.0, 0.0, 1.0);
     lightInfo.radiance = max(light.colorAndIntensity.rgb, float3(0.0, 0.0, 0.0)) * max(CleanRtxdiDiDoomAnalyticLightInfo.z, 0.0);
     lightInfo.influenceRadius = max(light.doomRadiusAndArea.x, lightInfo.radius);
-    lightInfo.area = max(light.doomRadiusAndArea.y, 1.0e-4);
+    lightInfo.area = CleanGiDoomAnalyticSphereArea(lightInfo.radius);
     lightInfo.weight = CleanGiLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
     return lightInfo;
 }
@@ -1901,7 +1931,7 @@ RAB_LightInfo CleanGiBuildRluAnalyticLightInfo(PathTraceUnifiedLightRecord light
     lightInfo.normal = float3(0.0, 0.0, 1.0);
     lightInfo.radiance = max(light.radianceAndLuminance.rgb, float3(0.0, 0.0, 0.0)) * max(CleanRtxdiDiDoomAnalyticLightInfo.z, 0.0);
     lightInfo.influenceRadius = max(light.uvOrDoomParams.x, lightInfo.radius);
-    lightInfo.area = max(light.uvOrDoomParams.y, 1.0e-4);
+    lightInfo.area = light.normalAndArea.w > 1.0e-6 ? max(light.normalAndArea.w, 1.0e-4) : CleanGiDoomAnalyticSphereArea(lightInfo.radius);
     lightInfo.weight = CleanGiLuminance(lightInfo.radiance) * lightInfo.area * lightInfo.influenceRadius;
     return lightInfo;
 }
@@ -2008,6 +2038,22 @@ RAB_LightInfo CleanGiLoadCurrentRluLightInfo(uint denseRluIndex)
     return RAB_EmptyLightInfo();
 }
 
+float CleanGiSecondaryNeeMisWeight(RAB_Surface secondarySurface, RAB_LightSample lightSample, float3 lightDir)
+{
+    if (!RAB_IsReplayableLightSample(lightSample) || lightSample.solidAnglePdf <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float scatterPdf = RAB_GetSurfaceBrdfPdf(secondarySurface, lightDir);
+    if (scatterPdf <= 0.0)
+    {
+        return 1.0;
+    }
+
+    return lightSample.solidAnglePdf / max(lightSample.solidAnglePdf + scatterPdf, 1.0e-6);
+}
+
 bool CleanGiAccumulateLightSample(
     inout float3 radiance,
     RAB_Surface secondarySurface,
@@ -2052,7 +2098,8 @@ bool CleanGiAccumulateLightSample(
         return false;
     }
 
-    radiance += brdf * lightSample.radiance * ndotl * visibility /
+    const float misWeight = CleanGiSecondaryNeeMisWeight(secondarySurface, lightSample, lightDir);
+    radiance += brdf * lightSample.radiance * ndotl * visibility * misWeight /
         max(sourcePdf * lightSample.solidAnglePdf, 1.0e-6);
     return true;
 }
@@ -2085,7 +2132,8 @@ bool CleanGiEvaluateDirectLightSampleTarget(
         return false;
     }
 
-    targetPdf = CleanGiLuminance(brdf * lightSample.radiance * ndotl) /
+    const float misWeight = CleanGiSecondaryNeeMisWeight(secondarySurface, lightSample, lightDir);
+    targetPdf = CleanGiLuminance(brdf * lightSample.radiance * ndotl * misWeight) /
         max(lightSample.solidAnglePdf, 1.0e-6);
     return targetPdf > 1.0e-8 && targetPdf == targetPdf;
 }
@@ -2120,7 +2168,8 @@ bool CleanGiAccumulateSelectedLightSample(
 
     const float ndotl = saturate(dot(RAB_GetSurfaceNormal(secondarySurface), lightDir));
     const float3 brdf = RAB_EvaluateSurfaceBrdf(secondarySurface, lightDir, RAB_GetSurfaceViewDir(secondarySurface));
-    radiance += brdf * lightSample.radiance * ndotl * visibility /
+    const float misWeight = CleanGiSecondaryNeeMisWeight(secondarySurface, lightSample, lightDir);
+    radiance += brdf * lightSample.radiance * ndotl * visibility * misWeight /
         max(sourcePdf * lightSample.solidAnglePdf, 1.0e-6);
     return true;
 }
@@ -2651,7 +2700,7 @@ float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3
 struct CleanGiProducerResult
 {
     uint valid;          // 1 when the bounce ray hit a usable surface
-    float3 radiance;     // L_in / producer sample PDF (excludes primary BSDF/albedo)
+    float3 radiance;     // Incoming radiance at the primary surface (excludes primary BSDF/albedo)
     float pathLength;    // indirect path length (hitT)
     float3 hitPosition;
     float3 hitNormal;
@@ -3214,10 +3263,11 @@ CleanGiProducerResult CleanGiTraceProducerRay(
 
     const float3 outgoing = CleanGiShadeSecondaryVertex(secondarySurface, hitGeometricNormal, hitEmissive, primarySampledSpecular, rng);
 
-    // Producer radiance contract: incoming radiance at the primary surface
-    // divided by the selected bounce proposal PDF; the primary BSDF and
-    // albedo are excluded (applied by final shading).
-    float3 producerRadiance = outgoing / max(samplePdf, 1.0e-6);
+    // Producer radiance contract: incoming radiance at the primary surface.
+    // The first-bounce sample PDF is used to reject invalid proposals, but is
+    // not baked into the payload; the GI reservoir/final shading path owns the
+    // sampling weight separately.
+    float3 producerRadiance = outgoing;
 
     // Firefly clamp (initial samples only). Matches the Remix shape:
     // luminance clamp at threshold * 30.
@@ -3403,23 +3453,23 @@ float CleanGiProducerMixturePdf(RAB_Surface surface, float3 bounceDir)
 
 CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
 {
-    const RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
     const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
 
-    // Cosine-weighted bounce direction around the primary shading normal;
-    // with specular producer enabled, radiance is factored by the shared
-    // diffuse/specular mixture PDF.
+    // Cosine-weighted diffuse bounce direction around the primary shading
+    // normal. This producer must divide by the actual distribution it samples;
+    // the optional specular producer is a separate seed path.
     const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
     const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-    const float mixturePdf = CleanGiProducerMixturePdf(surface, bounceDir);
-    return CleanGiTraceProducerRay(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, mixturePdf, false, rng);
+    const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+    return CleanGiTraceProducerRay(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, false, rng);
 }
 
-CleanGiSpecularProducerDebug CleanGiBuildSpecularProducerDebug(PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
+CleanGiSpecularProducerDebug CleanGiBuildSpecularProducerDebug(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
 {
     CleanGiSpecularProducerDebug debug = (CleanGiSpecularProducerDebug)0;
-    const RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
     float3 bounceDir;
     float solidAnglePdf;
     if (!CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, solidAnglePdf))
@@ -3437,15 +3487,15 @@ CleanGiSpecularProducerDebug CleanGiBuildSpecularProducerDebug(PathTracePrimaryS
         RAB_GetSurfaceWorldPos(surface),
         RAB_GetSurfaceGeoNormal(surface),
         bounceDir,
-        mixturePdf,
+        solidAnglePdf,
         true,
         rng);
     return debug;
 }
 
-CleanGiProducerResult CleanGiRunSpecularProducer(PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
+CleanGiProducerResult CleanGiRunSpecularProducer(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RAB_RandomSamplerState rng)
 {
-    const CleanGiSpecularProducerDebug debug = CleanGiBuildSpecularProducerDebug(record, rng);
+    const CleanGiSpecularProducerDebug debug = CleanGiBuildSpecularProducerDebug(pixel, record, rng);
     return debug.producer;
 }
 
@@ -3463,7 +3513,7 @@ RemixRestirGITemporalReuseResult CleanGiRunTemporalContract(
     RAB_Surface surface = RAB_EmptySurface();
     if (surfaceValid)
     {
-        surface = CleanGiMaterialSurfaceFromRecord(record);
+        surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
     }
     const bool glossyReuseQuarantine = CleanGiSpecularProducerNeedsReuseQuarantine(surface);
 
@@ -3555,14 +3605,14 @@ void CleanGiSeedInitPageFromSpecularProducer(uint2 pixel, bool surfaceValid, Pat
         return;
     }
 
-    const RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
     if (!CleanGiSurfaceSupportsSpecularProducer(surface))
     {
         return;
     }
 
     RAB_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
-    const CleanGiProducerResult producer = CleanGiRunSpecularProducer(record, rng);
+    const CleanGiProducerResult producer = CleanGiRunSpecularProducer(pixel, record, rng);
     CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
 }
 
@@ -3577,7 +3627,7 @@ void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePr
 
     if (surfaceValid && CleanGiNeeCacheProviderReady())
     {
-        RAB_Surface surface = CleanGiMaterialSurfaceFromRecord(record);
+        RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
         const PathTraceNeeCacheCellDebug cell = PathTraceNeeCacheMapWorldPositionToCell(
             RAB_GetSurfaceWorldPos(surface),
             CleanRtxdiDiCameraOriginAndValid.xyz,
@@ -4031,7 +4081,7 @@ void ReuseRayGen()
         RAB_Surface spatialSurface = RAB_EmptySurface();
         if (spatialSurfaceValid)
         {
-            spatialSurface = CleanGiMaterialSurfaceFromRecord(spatialRecord);
+            spatialSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, spatialRecord);
         }
 
         RTXDI_GIReservoir spatialInput = RAB_LoadGIReservoir(
@@ -4128,7 +4178,7 @@ void ReuseRayGen()
         RAB_Surface resolveSurface = RAB_EmptySurface();
         if (surfaceValid)
         {
-            resolveSurface = CleanGiMaterialSurfaceFromRecord(record);
+            resolveSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
         }
         CleanGiFinalShadingAndResolve(pixel, resolveSurface, temporalReservoir);
     }
@@ -4259,7 +4309,7 @@ void ReuseRayGen()
         }
         else
         {
-            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
+            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
             color = CleanGiToneMap(CleanGiFinalShadeIndirect(viewSurface, temporalReservoir));
         }
     }
@@ -4334,7 +4384,7 @@ void ReuseRayGen()
         }
         else
         {
-            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
+            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
             color = CleanGiSpecularProducerEligibilityColor(viewSurface);
         }
     }
@@ -4350,7 +4400,7 @@ void ReuseRayGen()
         }
         else
         {
-            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
+            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
             color = CleanGiSpecularReuseStateColor(viewSurface, temporalReservoir);
         }
     }
@@ -4379,7 +4429,7 @@ void ReuseRayGen()
         }
         else
         {
-            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromRecord(record);
+            RAB_Surface viewSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
             const CleanGiIndirectLobeResult lobes = CleanGiFinalShadeIndirectSplit(viewSurface, temporalReservoir);
             color = view == 11u
                 ? CleanGiToneMap(lobes.diffuse)
@@ -4401,7 +4451,7 @@ void ReuseRayGen()
         else
         {
             RAB_RandomSamplerState specDebugRng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
-            const CleanGiSpecularProducerDebug specDebug = CleanGiBuildSpecularProducerDebug(record, specDebugRng);
+            const CleanGiSpecularProducerDebug specDebug = CleanGiBuildSpecularProducerDebug(pixel, record, specDebugRng);
             if (view == 13u)
             {
                 if (specDebug.producer.valid == 0u)

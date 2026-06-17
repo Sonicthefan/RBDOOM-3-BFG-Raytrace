@@ -1679,9 +1679,9 @@ idCVar r_pathTracingCleanRestirGiMaxHistoryLength(
 
 idCVar r_pathTracingCleanRestirGiMaxReservoirAge(
     "r_pathTracingCleanRestirGiMaxReservoirAge",
-    "50",
+    "12",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI max reservoir age in frames; stale-radiance backstop for the baseline (no gradient validation yet)" );
+    "Clean-room ReSTIR GI max reservoir age in frames; default is conservative until lighting-change validation exists" );
 
 idCVar r_pathTracingCleanRestirGiFireflyThreshold(
     "r_pathTracingCleanRestirGiFireflyThreshold",

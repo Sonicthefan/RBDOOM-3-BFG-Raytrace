@@ -85,8 +85,10 @@ r_pathTracingCleanRestirGiMaxHistoryLength
     history). 0 bypasses previous-reservoir temporal history.
 
 r_pathTracingCleanRestirGiMaxReservoirAge
-    int, default 50. Stale-radiance backstop for the baseline (no
-    gradient validation yet).
+    int, default 12. Stale-radiance backstop for the baseline while exact
+    Remix lighting-change validation is absent. History can still bridge short
+    no-sample gaps, but invalid-current pixels stop reusing history after a
+    small internal cap so transient analytic lights do not persist as GI.
 
 r_pathTracingCleanRestirGiFireflyThreshold
     float, default matches the producer's clamp policy; 0 disables.

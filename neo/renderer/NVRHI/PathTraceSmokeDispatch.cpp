@@ -4021,6 +4021,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.motionVectorTexture = m_frameResources.motionVectorTexture;
             giInputs.motionVectorMaskTexture = m_frameResources.motionVectorMaskTexture;
             giInputs.rrInputColorTexture = m_frameResources.rrInputColorTexture;
+            giInputs.rrGuideAlbedoTexture = m_frameResources.rrGuideAlbedoTexture;
             giInputs.rrGuideHitDistanceTexture = m_frameResources.rrGuideHitDistanceTexture;
             giInputs.materialSampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
             giInputs.resolveToRrInputColor = resolveToRrInputColor;

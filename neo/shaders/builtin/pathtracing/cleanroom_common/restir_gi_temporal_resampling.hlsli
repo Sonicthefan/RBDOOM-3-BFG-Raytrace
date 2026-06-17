@@ -210,6 +210,13 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     const float3 receiverPos = RAB_GetSurfaceWorldPos(surface);
     const bool canonicalValid =
         RTXDI_IsValidGIReservoir(inputReservoir) && inputReservoir.weightSum > 0.0;
+    if (!canonicalValid &&
+        tparams.maxReservoirAge > 0u &&
+        historyReservoir.age >= min(tparams.maxReservoirAge, 4u))
+    {
+        return inputReservoir;
+    }
+
     const float canonicalM = canonicalValid ? (float)inputReservoir.M : 0.0;
     const float historyM = (float)historyReservoir.M;
 

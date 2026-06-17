@@ -335,3 +335,49 @@ Known debug-view caveats:
     stream using CleanRtxdiDiCandidateCount, then traces only the selected
     sample; the raw analytic/emissive path remains a fallback when RLU is
     unavailable.
+    GI dynamic-light history note: Remix enables lighting-change validation
+    for ReSTIR GI, but this clean lane does not yet have the gradient signal
+    needed for that exact check. A transient analytic light could therefore
+    write a bright GI reservoir and keep it alive until maxReservoirAge even
+    after the current producer returned no valid replacement. The temporary
+    backstop is a conservative default max age (12 frames) plus a hard
+    invalid-current reuse cap of four frames; this preserves short no-sample
+    recovery without making muzzle flashes look like stable bounce light.
+    GI analytic-light area note: clean GI had a local analytic replay builder
+    that consumed Doom payload doomRadiusAndArea.y / uvOrDoomParams.y as the
+    sample area. The shared DI/RLU light contract uses physical sphere area
+    (4*pi*r^2), with unified records carrying it in normalAndArea.w. GI now
+    uses the same area contract for raw Doom analytic and RLU analytic lights
+    so analytic RIS weights/PDF-related fields are not biased by legacy payload
+    fields.
+    GI producer PDF note: the normal diffuse producer samples a cosine
+    hemisphere direction. It must divide outgoing secondary radiance by that
+    cosine diffuse PDF, not by the optional diffuse/specular mixture PDF; the
+    separate specular producer likewise divides by its sampled specular PDF.
+    Using the mixture PDF without actually drawing from the mixture under-
+    reported the primary bounce PDF on materials with specular probability and
+    made indirect GI energy too bright before temporal/spatial/combine.
+    GI secondary NEE note: Remix attenuates secondary sampled-light radiance
+    with a light-vs-BSDF MIS weight before feeding indirect GI. Clean GI's
+    secondary direct-light estimator used the raw light-sampled contribution,
+    which over-weighted broad or nearby analytic lights relative to the path
+    tracer convention. The clean GI secondary NEE target and selected
+    contribution now both include lightPdf / (lightPdf + brdfPdf), scoped to GI
+    only; shared clean DI/RAB behavior is unchanged.
+    GI primary receiver albedo note: clean DI resolves through
+    PathTraceRRGuideAlbedo so textured/current-frame diffuse albedo is used
+    after the primary producer has done its material work. Clean GI was still
+    using PathTracePrimarySurfaceRecord.albedoAndAlphaCutoff directly for the
+    primary receiver, which can scale the final indirect lobe differently even
+    with temporal, spatial, NEE cache, and specular producer disabled. GI now
+    binds PathTraceRRGuideAlbedo and applies it only to current-frame primary
+    receiver surfaces; previous-frame temporal validation and secondary-hit
+    BVH materials remain record/BVH based.
+    GI producer radiance contract note: the Remix contract stores incoming
+    radiance from the sampled indirect path in RestirGIRadiance; it does not
+    bake the primary bounce proposal PDF into that radiance payload. Clean GI
+    had drifted to writing secondaryOutgoing / firstBouncePdf, which made view
+    1 and every initial reservoir visibly over-bright before temporal, spatial,
+    NEE cache, or final receiver shading could affect it. The producer now
+    validates first-bounce PDF/direction but stores secondary outgoing radiance
+    directly.
