@@ -2057,6 +2057,133 @@ bool CleanGiAccumulateLightSample(
     return true;
 }
 
+bool CleanGiEvaluateDirectLightSampleTarget(
+    RAB_Surface secondarySurface,
+    RAB_LightSample lightSample,
+    out float targetPdf)
+{
+    targetPdf = 0.0;
+    if (!RAB_IsReplayableLightSample(lightSample) ||
+        lightSample.solidAnglePdf <= 1.0e-8 ||
+        CleanGiLuminance(lightSample.radiance) <= 0.0)
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(secondarySurface, lightSample, lightDir, lightDistance);
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(secondarySurface), lightDir));
+    if (ndotl <= 0.0)
+    {
+        return false;
+    }
+
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(secondarySurface, lightDir, RAB_GetSurfaceViewDir(secondarySurface));
+    if (CleanGiLuminance(brdf) <= 0.0)
+    {
+        return false;
+    }
+
+    targetPdf = CleanGiLuminance(brdf * lightSample.radiance * ndotl) /
+        max(lightSample.solidAnglePdf, 1.0e-6);
+    return targetPdf > 1.0e-8 && targetPdf == targetPdf;
+}
+
+bool CleanGiAccumulateSelectedLightSample(
+    inout float3 radiance,
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    RAB_LightSample lightSample,
+    float sourcePdf)
+{
+    if (sourcePdf <= 1.0e-8)
+    {
+        return false;
+    }
+
+    float targetPdf;
+    if (!CleanGiEvaluateDirectLightSampleTarget(secondarySurface, lightSample, targetPdf))
+    {
+        return false;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(secondarySurface, lightSample, lightDir, lightDistance);
+    const float visibility = CleanGiTraceVisibility(
+        RAB_GetSurfaceWorldPos(secondarySurface), hitGeometricNormal, lightSample.position);
+    if (visibility <= 0.0)
+    {
+        return false;
+    }
+
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(secondarySurface), lightDir));
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(secondarySurface, lightDir, RAB_GetSurfaceViewDir(secondarySurface));
+    radiance += brdf * lightSample.radiance * ndotl * visibility /
+        max(sourcePdf * lightSample.solidAnglePdf, 1.0e-6);
+    return true;
+}
+
+bool CleanGiAccumulateRluRisLightSample(
+    inout float3 radiance,
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    inout RAB_RandomSamplerState rng)
+{
+    const uint lightCount = CleanRtxdiDiRluCurrentLightCount;
+    if (lightCount == 0u)
+    {
+        return false;
+    }
+
+    const uint candidateCount = clamp(CleanRtxdiDiCandidateCount, 1u, 16u);
+    const float invUniformSourcePdf = (float)lightCount;
+    float weightSum = 0.0;
+    float selectedTargetPdf = 0.0;
+    RAB_LightSample selectedSample = RAB_EmptyLightSample();
+
+    [loop]
+    for (uint candidateIndex = 0u; candidateIndex < candidateCount; ++candidateIndex)
+    {
+        const uint denseIndex = min((uint)(RAB_GetNextRandom(rng) * (float)lightCount), lightCount - 1u);
+        const RAB_LightInfo lightInfo = CleanGiLoadCurrentRluLightInfo(denseIndex);
+        if (!RAB_IsLightInfoValid(lightInfo))
+        {
+            continue;
+        }
+
+        const float2 uv = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+        const RAB_LightSample candidateSample = RAB_SamplePolymorphicLight(lightInfo, secondarySurface, uv);
+        float targetPdf;
+        if (!CleanGiEvaluateDirectLightSampleTarget(secondarySurface, candidateSample, targetPdf))
+        {
+            continue;
+        }
+
+        const float risWeight = targetPdf * invUniformSourcePdf;
+        weightSum += risWeight;
+        if (RAB_GetNextRandom(rng) * weightSum <= risWeight)
+        {
+            selectedSample = candidateSample;
+            selectedTargetPdf = targetPdf;
+        }
+    }
+
+    if (selectedTargetPdf <= 1.0e-8 || weightSum <= 1.0e-8)
+    {
+        return false;
+    }
+
+    const float selectedSourcePdf = selectedTargetPdf * (float)candidateCount / max(weightSum, 1.0e-8);
+    return CleanGiAccumulateSelectedLightSample(
+        radiance,
+        secondarySurface,
+        hitGeometricNormal,
+        selectedSample,
+        selectedSourcePdf);
+}
+
 bool CleanGiSelectEmissiveDistributionSample(
     inout RAB_RandomSamplerState rng,
     out uint sourceIndex,
@@ -2734,6 +2861,12 @@ float3 CleanGiShadeDirectVertex(
         if (allowNeeCache &&
             CleanRestirGiNeeCacheSecondaryEnabled != 0u &&
             CleanGiAccumulateNeeCacheProviderSample(directRadiance, secondarySurface, hitGeometricNormal, primarySampledSpecular, rng))
+        {
+            radiance += directRadiance * sampleWeight;
+            continue;
+        }
+
+        if (CleanGiAccumulateRluRisLightSample(directRadiance, secondarySurface, hitGeometricNormal, rng))
         {
             radiance += directRadiance * sampleWeight;
             continue;

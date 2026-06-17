@@ -131,9 +131,11 @@ r_pathTracingCleanRestirGiSecondaryDirectProbability
 r_pathTracingCleanRestirGiSecondaryDirectSamples
     int, default 1. Direct-light proposal count at the first secondary hit.
     Samples are averaged by 1 / count, so increasing this improves producer
-    coverage without changing expected energy, at direct shadow-ray cost. Raise
-    above 1 only for explicit producer-density diagnostics; the default keeps GI
-    on the normal one-path-per-pixel budget.
+    coverage without changing expected energy, at direct shadow-ray cost. The
+    normal default path should stay at 1; each direct sample now uses a small
+    RLU RIS stream keyed by CleanRtxdiDiCandidateCount before tracing the single
+    selected shadow ray, matching the Remix one-selected-NEE-sample shape more
+    closely than raising this count.
 
 r_pathTracingCleanRestirGiContinuationOpaqueTrace
     int, default 1. When MaxBounces is 2, traces the secondary-to-tertiary

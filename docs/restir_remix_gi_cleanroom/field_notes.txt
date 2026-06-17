@@ -324,3 +324,14 @@ Known debug-view caveats:
     visibly age out. The temporal path now uses only the exact back-projected
     pixel, conservative gates, moving-history caps (M<=2, age<=8), and
     jacobian validation without temporal W multiplication.
+    GI producer sparsity note: comparing against Remix with NEE cache disabled
+    showed that the density gap is not explained by first-bounce NEE-cache
+    seeding. The larger mismatch is secondary-light proposal quality: Remix
+    still picks one NEE light after a RIS stream, while clean GI was uniformly
+    choosing one raw analytic/emissive source. That made many well-lit
+    secondary hits choose zero-target lights unless
+    r_pathTracingCleanRestirGiSecondaryDirectSamples was raised, adding extra
+    shadow rays. The GI secondary-direct path now does a small current-RLU RIS
+    stream using CleanRtxdiDiCandidateCount, then traces only the selected
+    sample; the raw analytic/emissive path remains a fallback when RLU is
+    unavailable.
