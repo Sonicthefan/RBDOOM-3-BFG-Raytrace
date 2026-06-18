@@ -1,0 +1,250 @@
+Clean ReSTIR GI Header Rebuild Plan
+===================================
+
+Date: 2026-06-18
+
+Purpose
+-------
+
+Preserve the current diagnosis before context compaction. The clean ReSTIR GI
+lighting/performance regression is now isolated from the producer/material/light
+work and from the repetitive RNG noise pattern.
+
+
+Known Runtime Split
+-------------------
+
+Comparison build:
+
+    Commit: 9644faba561f01af5c68909c162f33452d4ba93b
+    Label:  pre-847c52a3, immediately before "Replace GI reservoir and
+            parameter shader wrappers"
+
+Observed in that build:
+
+    - GI lighting is correct.
+    - GI performance is correct.
+    - GI still has the repetitive/noisy pattern.
+    - GI still has the old temporal bug where occluded areas can glow white
+      under movement.
+
+Observed in current branch after the GI header replacement stack:
+
+    - Repetitive/noisy pattern remains.
+    - The occluded-area temporal glow is mostly fixed.
+    - GI lighting quality regressed: occluded/contact areas are too bright and
+      view 5 does not show convincing shadow structure.
+    - GI performance regressed relative to the pre-847c52a3 build.
+
+Updated field result, 2026-06-18:
+
+    - With spatial disabled, the current temporal/header path is now close to
+      the known-good lighting baseline, though still lacking in a few areas.
+    - The old wide spatial reuse crushed contact shadows and produced
+      edge-screen artifacts.
+    - Spatial became acceptable again after removing the border clamp artifact
+      and adding conservative receiver-to-reservoir visibility validation for
+      neighbor candidates. r_pathTracingCleanRestirGiSpatial is default-on
+      again with that spatial path.
+
+Conclusion:
+
+    - Lighting/performance regression starts in the clean-room GI reservoir /
+      temporal / spatial header replacement stack beginning at 847c52a3.
+    - Repetitive noise predates 847c52a3 and is likely in the clean-room random
+      sampler lane, not the GI header replacement.
+    - The old temporal glow fix should be preserved or ported, but not by
+      keeping the current broken GI header stack wholesale.
+
+
+Do Not Repeat
+-------------
+
+Do not keep chasing this as:
+
+    - analytic light dedicated shadow rays
+    - producer material support
+    - texture/albedo handling
+    - final combine brightness clamp
+    - broad ray-traced visibility support in current headers
+
+Recent ray-traced bias/support tests made some occluded reuse look better but
+increased noise and cost too much. They did not restore the old lighting and
+performance. Treat that path as rejected unless a later exact Remix-compatible
+visibility/final-validation design is available.
+
+
+Relevant Commit Stack
+---------------------
+
+Regression boundary:
+
+    847c52a3 Replace GI reservoir and parameter shader wrappers
+    c4490cbb Replace GI temporal resampling shader wrapper
+
+Temporal follow-up fixes that may contain the anti-glow behavior:
+
+    8ad79be2 Fix GI temporal jacobian feedback artifact
+    59dc8b2d Fix clean ReSTIR GI dolly temporal hole
+    e11ccb55 Fix clean ReSTIR GI temporal basic normalization
+    5583f786 Tighten clean ReSTIR GI temporal reuse
+
+Spatial/header follow-up commits in the same suspect lane:
+
+    3c6cec98 Wire clean-room GI spatial resampling
+    efcc0a29 Fix GI spatial edge sampling
+
+Random sampler suspect, separate lane:
+
+    1efc7739 Replace RTXDI random sampler shader wrapper
+    99d420d5 Fix ReSTIR random sampler dimension base
+
+
+Current Best Plan
+-----------------
+
+1. Keep the current producer/material/light work.
+
+   Do not revert unrelated GI work such as material lobes, specular producer,
+   reflective output routing, multibounce controls, DLSS/RR routing, or the
+   producer radiance fixes. The pre-847c52a3 test says those are not the root of
+   the current lighting/performance regression.
+
+2. Replace the GI header stack, not the producer.
+
+   Build a new clean-room GI header implementation from the known-good
+   behavioral baseline:
+
+       - stable packed GI reservoir ABI
+       - temporal page rotation intact
+       - initial reservoir M=1 behavior intact
+       - producer radiance contract intact
+       - final shading contract intact
+
+   Avoid starting from the current temporal/spatial headers if their structure
+   keeps producing the wrong brightness/performance tradeoff.
+
+3. Rebuild in narrow stages.
+
+   Stage A: reservoir ABI only
+
+       - Ensure pack/unpack round-trip matches current buffer allocation.
+       - Do not change resampling math.
+       - Verify debug reservoir pages still round-trip.
+
+   Stage B: temporal only
+
+       - Restore lighting/performance behavior close to pre-847c52a3 first.
+       - Then port the anti-glow fix from the later temporal commits.
+       - Test with spatial disabled before proceeding.
+
+   Stage C: spatial only
+
+       - Reintroduce spatial reuse after temporal is proven.
+       - Prioritize correct occlusion/contact structure in view 5.
+       - Avoid broad ray-traced visibility as a substitute for broken base
+         resampling. The accepted current default only uses conservative
+         receiver-to-sample visibility for spatial neighbor candidates.
+       - Current symptom: spatial crushes shadows and can show screen-edge
+         artifacts. First fixes to test are tighter candidate support,
+         out-of-view rejection without border duplication, and receiver-domain
+         target/normalization parity.
+       - Current spatial baseline: default-on with conservative receiver-to-
+         sample visibility rays for neighbor candidates. This targets the real
+         contrast-loss cause: unvalidated neighbor samples can cross contact-
+         shadow blockers because final shading does not trace visibility to
+         the reused reservoir point.
+
+   Stage D: optional exact validation
+
+       - Only after base quality/performance match the old path.
+       - If needed, implement Remix-like final visibility/gradient validation
+         as a separate feature, not as a substitute for broken base resampling.
+
+4. Keep acceptance tests explicit.
+
+   Test views:
+
+       - View 1: raw producer radiance/initial GI lighting sanity.
+       - View 3 or 4: temporal behavior depending on current debug routing.
+       - View 5: untextured reservoir/final reuse quality; easiest place to
+         see missing occlusion/contact structure.
+
+   Runtime toggles:
+
+       - temporal on/off
+       - spatial on/off
+       - bias correction default/basic
+       - no NEE cache when isolating base GI
+       - no extra samples when comparing density unless explicitly testing cost
+
+   Known good comparison:
+
+       - C:/tmp/rbdoom-pre-847c52a3 was built from 9644faba.
+       - That build was deployed once to E:/prog/rbdoom-3-BFG-prebuilt for
+         field comparison.
+
+
+Random Sampler Lane
+-------------------
+
+The repetitive pattern is separate from the GI header regression because it is
+present in the pre-847c52a3 build.
+
+Likely target:
+
+    neo/shaders/builtin/pathtracing/cleanroom_common/restir_random_sampler_state.hlsli
+
+Important facts:
+
+    - Blue noise is not enabled unless RBPT_ENABLE_BLUE_NOISE is defined.
+    - Current issue is therefore likely the white RNG seed/index sequence, not
+      unfinished blue-noise texture sampling.
+
+Plan:
+
+    1. Make a small RNG-only branch/test.
+    2. Replace or perturb the white RNG sequence to reduce visible spatial
+       correlation.
+    3. Test DI and GI noise patterns separately.
+    4. Do not mix RNG changes with GI header rebuild changes.
+
+
+Rollback / Worktree Notes
+-------------------------
+
+To recreate the comparison build without switching the main branch:
+
+    git worktree add C:/tmp/rbdoom-pre-847c52a3 9644faba561f01af5c68909c162f33452d4ba93b
+    cd C:/tmp/rbdoom-pre-847c52a3
+    git submodule update --init --recursive
+
+Configure from:
+
+    C:/tmp/rbdoom-pre-847c52a3/neo
+
+Useful configure overrides from the successful test:
+
+    cmake --preset win64-pt-dev ^
+      -DDXC_PATH="C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/dxc.exe" ^
+      -DDXC_SPIRV_PATH="C:/VulkanSDK/1.4.341.1/Bin/dxc.exe" ^
+      -DISPC_EXECUTABLE="E:/prog/rbdoom-3-bfg-rt/tools/ispc/bin/ispc.exe"
+
+Then build:
+
+    cmake --build --preset win64-pt-dev-release --target PathTracingShaders -- /m:1 /nr:false /v:m
+    cmake --build --preset win64-pt-dev-release --target RBDoom3BFG -- /m:1 /nr:false /v:m
+
+Deploy for testing:
+
+    Copy:
+        C:/tmp/rbdoom-pre-847c52a3/build-win64-pt-dev/Release/RBDoom3BFG.exe
+    To:
+        E:/prog/rbdoom-3-BFG-prebuilt/RBDoom3BFG.exe
+
+    Copy contents of:
+        C:/tmp/rbdoom-pre-847c52a3/base/renderprogs2
+    To:
+        E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2
+
+Do not nest renderprogs2 inside renderprogs2.

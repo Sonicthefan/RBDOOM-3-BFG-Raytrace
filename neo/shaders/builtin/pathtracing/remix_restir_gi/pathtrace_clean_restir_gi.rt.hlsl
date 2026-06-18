@@ -727,6 +727,11 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 #define RBPT_GI_SURFACE_LINEAR_DEPTH(surface) RAB_GetSurfaceLinearDepth(surface)
 #define RBPT_GI_TARGET_PDF(surface, reservoir) \
     RemixRAB_GetGISampleTargetPdfForSurface((reservoir).position, (reservoir).radiance, (surface))
+#define RBPT_GI_VALIDATE_REUSE_SAMPLE(surface, reservoir) \
+    (CleanGiTraceVisibility( \
+        RAB_GetSurfaceWorldPos(surface), \
+        RAB_GetSurfaceGeoNormal(surface), \
+        (reservoir).position) > 0.0)
 #include "Rtxdi/GI/SpatialResampling.hlsli"
 
 bool CleanGiSpecularProducerNeedsReuseQuarantine(RAB_Surface surface)
@@ -741,11 +746,10 @@ bool CleanGiSpecularProducerNeedsReuseQuarantine(RAB_Surface surface)
     return roughness < 0.28 && specularLum > 0.04;
 }
 
-// Spatial reuse over the TEMPORAL_OUTPUT page per the Remix policy:
-// 4 neighbor samples while history-starved (M below the history cap), else 1;
-// search radius alternates large/small per frame and pixel block. Relaxed
-// similarity gates (depth 0.28 / normal 0.8) match the moving-camera temporal
-// gates since neighbor reuse inherently crosses surface variation.
+// Spatial reuse over the TEMPORAL_OUTPUT page. Until the full Remix
+// validation/gradient path exists, neighbor candidates are conservatively
+// visibility-tested from the current receiver so spatial reuse cannot blur
+// through contact-shadow blockers.
 RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI_GIReservoir inputReservoir)
 {
     if (!RAB_IsSurfaceValid(surface))
@@ -764,14 +768,12 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
     params.neighborOffsetMask = CLEAN_RESTIR_GI_NEIGHBOR_OFFSET_MASK;
 
     const bool historyStarved = inputReservoir.M < CleanRestirGiMaxHistoryLength;
-    const bool largeRadius = historyStarved ||
-        ((CleanRestirGiFrameIndex + pixel.x / 16u + pixel.y / 8u) & 1u) == 0u;
 
     RTXDI_GISpatialResamplingParameters sparams = (RTXDI_GISpatialResamplingParameters)0;
-    sparams.samplingRadius = largeRadius ? 200.0 : 85.0;
-    sparams.numSamples = historyStarved ? 4u : 1u;
-    sparams.depthThreshold = 0.28;
-    sparams.normalThreshold = 0.8;
+    sparams.samplingRadius = historyStarved ? 96.0 : 48.0;
+    sparams.numSamples = historyStarved ? 2u : 1u;
+    sparams.depthThreshold = 0.14;
+    sparams.normalThreshold = 0.88;
     sparams.biasCorrectionMode = min(CleanRestirGiBiasCorrection, uint(RTXDI_BIAS_CORRECTION_BASIC));
     sparams.jacobianCutoff = 0.0;
 

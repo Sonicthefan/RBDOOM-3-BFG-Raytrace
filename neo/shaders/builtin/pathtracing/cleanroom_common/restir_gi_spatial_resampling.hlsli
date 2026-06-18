@@ -85,6 +85,10 @@
     RBPT_GI_TARGET_LUMINANCE((reservoir).radiance)
 #endif
 
+#ifndef RBPT_GI_VALIDATE_REUSE_SAMPLE
+#define RBPT_GI_VALIDATE_REUSE_SAMPLE(surface, reservoir) true
+#endif
+
 // p-hat of a reservoir sample as seen from `surface`. With the default
 // luminance target the surface argument is unused.
 float RBPT_GITargetPdf(RAB_Surface surface, RTXDI_GIReservoir r)
@@ -418,6 +422,10 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         // the resampling weight, not the target value).
         const float targetAtReceiver = RBPT_GITargetPdf(surface, neighbor);
         if (!(targetAtReceiver > 0.0))
+        {
+            continue;
+        }
+        if (!RBPT_GI_VALIDATE_REUSE_SAMPLE(surface, neighbor))
         {
             continue;
         }
