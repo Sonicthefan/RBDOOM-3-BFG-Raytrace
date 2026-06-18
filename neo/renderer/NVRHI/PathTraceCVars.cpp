@@ -1689,6 +1689,12 @@ idCVar r_pathTracingCleanRestirGiFireflyThreshold(
     CVAR_RENDERER | CVAR_FLOAT,
     "Clean-room ReSTIR GI firefly filtering luminance threshold applied to initial-sample radiance only (never to reused reservoirs); 0 disables" );
 
+idCVar r_pathTracingCleanRestirGiContributionFireflyThreshold(
+    "r_pathTracingCleanRestirGiContributionFireflyThreshold",
+    "2",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI final weighted contribution firefly clamp: clamps luminance(radiance * reservoir W) before final lobe shading; 0 disables" );
+
 idCVar r_pathTracingCleanRestirGiMaxBounces(
     "r_pathTracingCleanRestirGiMaxBounces",
     "1",
@@ -1795,7 +1801,13 @@ idCVar r_pathTracingCleanRestirGiBoilingFilter(
     "r_pathTracingCleanRestirGiBoilingFilter",
     "15",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Clean-room ReSTIR GI boiling filter threshold: clamp shaded indirect diffuse above (group average luminance * threshold) down to the average, Remix final-shading style. 0 disables. Deployed-game reference (HL2 RTX) uses 15" );
+    "Clean-room ReSTIR GI boiling filter min threshold: clamp shaded indirect diffuse/specular above each lobe's group average luminance * threshold, Remix final-shading style. 0 disables. Deployed-game reference (HL2 RTX) uses 15" );
+
+idCVar r_pathTracingCleanRestirGiBoilingFilterMax(
+    "r_pathTracingCleanRestirGiBoilingFilterMax",
+    "20",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI boiling filter max threshold when surface normal faces the view; deployed-game reference (HL2 RTX) uses 20" );
 
 idCVar r_pathTracingCleanRestirGiDump(
     "r_pathTracingCleanRestirGiDump",

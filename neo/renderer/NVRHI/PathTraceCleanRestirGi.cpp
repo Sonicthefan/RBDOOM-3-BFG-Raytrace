@@ -70,7 +70,7 @@ struct PathTraceCleanRestirGiConstantsTail
     float secondaryDirectProbability;
     uint32_t continuationOpaqueTrace;
     uint32_t secondaryDirectSamples;
-    uint32_t directProbabilityPadding2;
+    float contributionFireflyThreshold;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
@@ -244,10 +244,12 @@ struct PathTraceCleanRestirGiBoilingFilterConstants
 {
     uint32_t width;
     uint32_t height;
-    float threshold;
+    float thresholdMin;
+    float thresholdMax;
     uint32_t resolveEnabled;
     uint32_t rrInputResolveEnabled;
-    uint32_t padding0[3];
+    uint32_t rrSpecularInputEnabled;
+    uint32_t padding0;
 };
 static_assert(sizeof(PathTraceCleanRestirGiBoilingFilterConstants) == 32, "GI boiling filter constants size must match HLSL packing");
 
@@ -308,6 +310,8 @@ bool CleanRestirGiEnsureBoilingFilterPipeline(PathTraceCleanRestirGiState& state
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(2));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(3));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(5));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(6));
     state.boilingFilterBindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!state.boilingFilterBindingLayout)
     {
@@ -760,6 +764,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.secondaryDirectProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiSecondaryDirectProbability.GetFloat());
     tail.continuationOpaqueTrace = r_pathTracingCleanRestirGiContinuationOpaqueTrace.GetInteger() != 0 ? 1u : 0u;
     tail.secondaryDirectSamples = static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingCleanRestirGiSecondaryDirectSamples.GetInteger()));
+    tail.contributionFireflyThreshold = Max(0.0f, r_pathTracingCleanRestirGiContributionFireflyThreshold.GetFloat());
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's
@@ -878,11 +883,13 @@ bool PathTraceCleanRestirGiExecute(
     // final-shading diffuse behavior) and performs the resolve add so the
     // combined outputs receive the filtered contribution. Debug views own
     // SmokeOutput, so the resolve add only runs with the views off.
-    const float boilingFilterThreshold = Max(0.0f, r_pathTracingCleanRestirGiBoilingFilter.GetFloat());
+    const float boilingFilterThresholdMin = Max(0.0f, r_pathTracingCleanRestirGiBoilingFilter.GetFloat());
+    const float boilingFilterThresholdMax = Max(boilingFilterThresholdMin, r_pathTracingCleanRestirGiBoilingFilterMax.GetFloat());
     const bool resolveAddRequested = tail.resolveEnabled != 0u && view == 0;
-    const bool filterWorkRequested = view != 0 || resolveAddRequested;
+    const bool rrSpecularExportRequested = tail.rrSpecularInputEnabled != 0u;
+    const bool filterWorkRequested = view != 0 || resolveAddRequested || rrSpecularExportRequested;
     if (filterWorkRequested &&
-        (boilingFilterThreshold > 0.0f || resolveAddRequested) &&
+        (boilingFilterThresholdMin > 0.0f || resolveAddRequested || rrSpecularExportRequested) &&
         CleanRestirGiEnsureBoilingFilterPipeline(state, inputs))
     {
         nvrhi::BindingSetDesc filterSetDesc;
@@ -891,16 +898,20 @@ bool PathTraceCleanRestirGiExecute(
         filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(2, inputs.outputTexture));
         filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(3, inputs.rrInputColorTexture));
         filterSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, inputs.primarySurfaceCurrentBuffer));
+        filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(5, state.indirectDiffuseLobeTexture));
+        filterSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(6, state.indirectSpecularLobeTexture));
         nvrhi::BindingSetHandle filterSet = inputs.device->createBindingSet(filterSetDesc, state.boilingFilterBindingLayout);
         if (filterSet)
         {
             PathTraceCleanRestirGiBoilingFilterConstants filterConstants;
             filterConstants.width = static_cast<uint32_t>(inputs.width);
             filterConstants.height = static_cast<uint32_t>(inputs.height);
-            filterConstants.threshold = boilingFilterThreshold;
+            filterConstants.thresholdMin = boilingFilterThresholdMin;
+            filterConstants.thresholdMax = boilingFilterThresholdMax;
             filterConstants.resolveEnabled = resolveAddRequested ? 1u : 0u;
             filterConstants.rrInputResolveEnabled =
                 resolveAddRequested && inputs.resolveToRrInputColor ? 1u : 0u;
+            filterConstants.rrSpecularInputEnabled = rrSpecularExportRequested ? 1u : 0u;
             commandList->writeBuffer(state.boilingFilterConstantsBuffer, &filterConstants, sizeof(filterConstants));
 
             commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::ShaderResource);
@@ -915,6 +926,8 @@ bool PathTraceCleanRestirGiExecute(
                 static_cast<uint32_t>((inputs.height + 7) / 8),
                 1);
             nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseLobeTexture);
+            nvrhi::utils::TextureUavBarrier(commandList, state.indirectSpecularLobeTexture);
             nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, inputs.rrInputColorTexture);
         }

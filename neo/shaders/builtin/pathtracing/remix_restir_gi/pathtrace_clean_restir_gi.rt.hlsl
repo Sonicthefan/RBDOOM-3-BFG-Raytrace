@@ -321,7 +321,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     float CleanRestirGiSecondaryDirectProbability;
     uint CleanRestirGiContinuationOpaqueTrace;
     uint CleanRestirGiSecondaryDirectSamples;
-    uint CleanRestirGiDirectProbabilityPadding2;
+    float CleanRestirGiContributionFireflyThreshold;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -3731,10 +3731,20 @@ CleanGiIndirectLobeResult CleanGiFinalShadeIndirectSplit(RAB_Surface surface, RT
     {
         return result;
     }
+    float3 weightedRadiance = max(reservoir.radiance, float3(0.0, 0.0, 0.0)) * weight;
+    if (CleanRestirGiContributionFireflyThreshold > 0.0)
+    {
+        const float contributionCap = CleanRestirGiContributionFireflyThreshold;
+        const float weightedLuminance = CleanGiLuminance(weightedRadiance);
+        if (weightedLuminance > contributionCap)
+        {
+            weightedRadiance *= contributionCap / max(weightedLuminance, 1.0e-6);
+        }
+    }
     result = CleanGiEvaluateIndirectLobesSplit(
         surface,
         sampleDir,
-        max(reservoir.radiance, float3(0.0, 0.0, 0.0)) * weight);
+        weightedRadiance);
     result.hitDistance = sqrt(distanceSquared);
     return result;
 }
@@ -3781,10 +3791,6 @@ void CleanGiFinalShadingAndResolve(uint2 pixel, RAB_Surface surface, RTXDI_GIRes
         PathTraceRRGuideHitDistance[pixel] = CleanGiShouldWriteRrHitDistance(surface, lobes)
             ? lobes.hitDistance
             : 0.0;
-    }
-    if (CleanRestirGiRrSpecularInputEnabled != 0u && CleanGiReflectiveOutputEligible(surface, lobes))
-    {
-        PathTraceRRInputColor[pixel] += float4(max(lobes.specular, float3(0.0, 0.0, 0.0)), 0.0);
     }
 }
 

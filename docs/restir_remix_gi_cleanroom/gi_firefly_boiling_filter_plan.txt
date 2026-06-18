@@ -1,0 +1,196 @@
+Clean ReSTIR GI Firefly / Boiling Filter Plan
+=============================================
+
+Date: 2026-06-18
+
+Problem
+-------
+
+With temporal, spatial, and NEE cache disabled, clean GI still produces bright
+single-frame outliers that DLSS-RR cannot remove cleanly. Runtime comparison
+against RTX Remix titles suggests Remix still applies lower-level firefly /
+boiling suppression before denoising and RR consumption.
+
+
+Reference Shape
+---------------
+
+Local reference:
+
+    E:/prog/references/dxvk-remix-git
+
+Relevant reference files:
+
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_temporal_reuse.comp.slang
+    src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_final_shading.comp.slang
+    src/dxvk/rtx_render/rtx_restir_gi_rayquery.h
+    src/dxvk/rtx_render/rtx_context.cpp
+
+Remix uses multiple layers:
+
+    1. Initial-sample firefly filter
+
+       The temporal reuse pass clamps the raw initial GI radiance with:
+
+           fireflyFiltering(initialRadiance,
+               fireflyFilteringLuminanceThreshold * 30)
+
+       rbdoom already has this shape in the producer path through
+       r_pathTracingCleanRestirGiFireflyThreshold.
+
+    2. Final-shading boiling filter
+
+       The final GI shading pass computes local 8x8 nonzero average luminance
+       separately for diffuse and specular output. It clamps diffuse and
+       specular outliers independently.
+
+       The clamp multiplier is view-angle dependent:
+
+           lerp(boilingFilterMinThreshold,
+                boilingFilterMaxThreshold,
+                VdotN)
+
+       Shipped HL2 RTX field values recorded earlier:
+
+           restirGI.boilingFilterMinThreshold = 15
+           restirGI.boilingFilterMaxThreshold = 20
+           restirGI.boilingFilterRemoveReservoirThreshold = 30
+
+    3. Extreme reservoir removal
+
+       Remix can zero the spatial reservoir when a specular outlier is above a
+       higher local-average threshold. This prevents the same bad sample from
+       being reused again.
+
+    4. DLSS-RR compatibility mode
+
+       Remix has a separate DLSS-RR compatibility mode that randomizes temporal
+       reprojection to reduce coherent GI patterns that RR amplifies. This is a
+       later temporal/RR slice, not the first firefly clamp slice.
+
+
+Current rbdoom State
+--------------------
+
+Already present:
+
+    - Initial radiance firefly clamp:
+          r_pathTracingCleanRestirGiFireflyThreshold
+    - Final weighted reservoir contribution clamp:
+          r_pathTracingCleanRestirGiContributionFireflyThreshold
+    - GI boiling filter compute pass:
+          pathtrace_clean_restir_gi_boiling_filter.cs.hlsl
+    - Default threshold:
+          r_pathTracingCleanRestirGiBoilingFilter = 15
+
+Current gaps:
+
+    - The boiling filter clamps combined GI only, not diffuse/specular
+      separately.
+    - It has one threshold, not min/max view-angle thresholds.
+    - It does not remove extreme reservoirs.
+    - The optional RR specular export can add unfiltered specular GI directly
+      from raygen to PathTraceRRInputColor, bypassing the boiling filter.
+
+
+Implementation Steps
+--------------------
+
+Step 1: Split-lobe final boiling filter
+Status: implemented first slice on 2026-06-18; pending runtime validation.
+
+    - Extend the GI boiling filter pass to read/write:
+
+          CleanRestirGiIndirectDiffuse       combined GI
+          CleanRestirGiIndirectDiffuseLobe   diffuse lobe
+          CleanRestirGiIndirectSpecularLobe  specular lobe
+
+    - Compute 8x8 nonzero average luminance separately for diffuse and
+      specular.
+    - Use a view-angle multiplier:
+
+          lerp(minThreshold, maxThreshold, abs(dot(viewDir, geoNormal)))
+
+    - Clamp each lobe toward its own average, then recombine:
+
+          combined = filteredDiffuse + filteredSpecular
+
+    - Keep group-edge behavior conservative and simple: only clamp groups that
+      have valid nonzero averages.
+
+Step 2: RR input consumes filtered GI
+Status: implemented first slice on 2026-06-18; pending runtime validation.
+
+    - Remove the direct raygen add to PathTraceRRInputColor for
+      r_pathTracingCleanRestirGiRrSpecularInput.
+    - Let the boiling filter pass add the already-filtered eligible specular
+      lobe to PathTraceRRInputColor.
+    - Keep the existing explicit cvar gate; do not make RR export implicit.
+
+Step 2.5: Clamp final reservoir contribution
+Status: implemented on 2026-06-18 after runtime testing showed the useful cap
+is 2, not the producer-radiance cap of 20.
+
+    - Keep r_pathTracingCleanRestirGiFireflyThreshold as the producer-side
+      initial radiance clamp.
+    - Add:
+
+          r_pathTracingCleanRestirGiContributionFireflyThreshold
+
+    - Default to 2 and apply it only to luminance(radiance * reservoir W)
+      immediately before final indirect lobe shading.
+    - 0 disables only this final weighted-contribution clamp.
+
+Step 3: Expose Remix-shaped cvars
+Status: min/max threshold cvars implemented; reservoir-removal threshold is
+deferred until Step 4 binds reservoir storage.
+
+    - Keep r_pathTracingCleanRestirGiBoilingFilter as the lower/min threshold
+      for compatibility.
+    - Add:
+
+          r_pathTracingCleanRestirGiBoilingFilterMax
+          r_pathTracingCleanRestirGiBoilingFilterRemoveReservoir
+
+    - Defaults should match shipped HL2 RTX notes: 15 / 20 / 30.
+
+Step 4: Reservoir removal
+
+    - Bind the GI reservoir buffer and reservoir page parameters to the boiling
+      filter pass.
+    - If filtered specular luminance exceeds the remove threshold, clear the
+      spatial reservoir for that pixel.
+    - Keep this separate from Step 1 so any visual change can be isolated.
+
+Step 5: DLSS-RR compatibility mode
+
+    - Audit Remix temporal reprojection randomization.
+    - Add a separate opt-in cvar and debug view after split-lobe boiling is
+      proven.
+    - Do not mix this with firefly/boiling filter work.
+
+
+Validation
+----------
+
+Primary A/B cvars:
+
+    r_pathTracingCleanRestirGiContributionFireflyThreshold 0 / 2
+    r_pathTracingCleanRestirGiBoilingFilter 0 / 15
+    r_pathTracingCleanRestirGiRrSpecularInput 0 / 1
+    r_pathTracingDLSSRR 0 / 1
+
+Views:
+
+    GI view 6: final shaded indirect GI before/after filter routing
+    GI view 11: diffuse lobe
+    GI view 12: specular lobe
+    GI view 19: stored specular output
+    DLSS RR guide/input debug views for RR input HDR preview
+
+Expected result:
+
+    - Fewer bright one-frame GI outliers.
+    - DLSS-RR should see fewer persistent firefly blooms.
+    - Static mean lighting should not visibly darken except for true outliers.
+    - RR specular export should no longer bypass the GI boiling filter.
