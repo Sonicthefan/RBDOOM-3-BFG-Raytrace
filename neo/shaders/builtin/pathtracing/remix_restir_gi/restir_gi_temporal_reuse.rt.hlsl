@@ -154,10 +154,12 @@ RemixRestirGITemporalReuseResult RemixRestirGIRunTemporalReuseContract(
     }
     else
     {
-        RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(
+        RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(
             desc.pixel,
             desc.frameIndex,
-            REMIX_RESTIR_GI_TEMPORAL_RNG_PASS);
+            REMIX_RESTIR_GI_TEMPORAL_RNG_PASS,
+            0u);
+        CleanGiDisableBlueNoise(rng);
 
         result.temporalReservoir = RTXDI_GITemporalResampling(
             desc.pixel,

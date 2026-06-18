@@ -289,6 +289,7 @@ extern idCVar r_pathTracingCleanRestirGiMaxHistoryLength;
 extern idCVar r_pathTracingCleanRestirGiMaxReservoirAge;
 extern idCVar r_pathTracingCleanRestirGiFireflyThreshold;
 extern idCVar r_pathTracingCleanRestirGiContributionFireflyThreshold;
+extern idCVar r_pathTracingCleanRestirGiBlueNoise;
 extern idCVar r_pathTracingCleanRestirGiMaxBounces;
 extern idCVar r_pathTracingCleanRestirGiContinuationRoulette;
 extern idCVar r_pathTracingCleanRestirGiContinuationRouletteMin;

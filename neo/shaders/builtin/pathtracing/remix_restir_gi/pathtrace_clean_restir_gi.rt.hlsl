@@ -322,9 +322,32 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiContinuationOpaqueTrace;
     uint CleanRestirGiSecondaryDirectSamples;
     float CleanRestirGiContributionFireflyThreshold;
+    // Runtime blue-noise toggle (RGI). The shader is statically compiled with
+    // RBPT_ENABLE_BLUE_NOISE, so eligible GI producer/initial sampling RNGs can
+    // pull blue noise; this field masks it on/off per cvar without a second
+    // shader permutation. Three padding scalars keep the following struct
+    // 16-byte aligned (must match PathTraceCleanRestirGi.cpp).
+    uint CleanRestirGiBlueNoiseEnabled;
+    uint CleanRestirGiBlueNoisePadding0;
+    uint CleanRestirGiBlueNoisePadding1;
+    uint CleanRestirGiBlueNoisePadding2;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
+
+void CleanGiApplyBlueNoiseToggle(inout RTXDI_RandomSamplerState rng)
+{
+#ifdef RBPT_ENABLE_BLUE_NOISE
+    rng.useBlueNoise = (CleanRestirGiBlueNoiseEnabled != 0u) ? rng.useBlueNoise : 0u;
+#else
+    rng.useBlueNoise = 0u;
+#endif
+}
+
+void CleanGiDisableBlueNoise(inout RTXDI_RandomSamplerState rng)
+{
+    rng.useBlueNoise = 0u;
+}
 
 static const uint RT_SMOKE_TRIANGLE_CLASS_MASK = 0x0000ffffu;
 static const uint RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL = 0x00010000u;
@@ -579,6 +602,8 @@ RemixRestirGIRawInitialSample RemixRAB_LoadRawGIInitialSample(uint2 pixel)
 // Remix initial-reservoir recipe: single sample with embedded pdf (M=1,
 // avgWeight=1), RIS update with target pdf at the receiving surface, then
 // finalize with M forced to 1 (both inputs are MIS-weighted).
+static const uint CLEAN_RESTIR_GI_INIT_MERGE_RNG_PASS = 0x52525814u;
+
 RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
     uint2 pixel,
     RAB_Surface surface,
@@ -604,7 +629,12 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
         rawSample.radiance,
         1.0);
 
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRestirGiFrameIndex, 2u);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(
+        pixel,
+        CleanRestirGiFrameIndex,
+        CLEAN_RESTIR_GI_INIT_MERGE_RNG_PASS,
+        0u);
+    CleanGiApplyBlueNoiseToggle(rng);
     const float targetPdf = RemixRAB_GetGISampleTargetPdfForSurface(initialSample.position, initialSample.radiance, surface);
     RTXDI_CombineGIReservoirs(reservoir, initialSample, RTXDI_GetNextRandom(rng), targetPdf);
 
@@ -761,7 +791,12 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
         return inputReservoir;
     }
 
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPATIAL_RNG_PASS);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(
+        pixel,
+        CleanRestirGiFrameIndex,
+        CLEAN_RESTIR_GI_SPATIAL_RNG_PASS,
+        0u);
+    CleanGiDisableBlueNoise(rng);
 
     RTXDI_RuntimeParameters params = (RTXDI_RuntimeParameters)0;
     params.activeCheckerboardField = 0u;
@@ -822,9 +857,9 @@ uint CleanGiProducerRandomSeed(uint2 pixel, uint frameIndex, uint passNamespace)
 
 RTXDI_RandomSamplerState CleanGiInitProducerRandomSampler(uint2 pixel, uint frameIndex, uint passNamespace)
 {
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, frameIndex, 0u);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(pixel, frameIndex, passNamespace, 0u);
     rng.seed = CleanGiProducerRandomSeed(pixel, frameIndex, passNamespace);
-    rng.dimensionBase = passNamespace;
+    CleanGiApplyBlueNoiseToggle(rng);
     return rng;
 }
 

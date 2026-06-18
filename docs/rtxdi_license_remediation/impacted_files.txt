@@ -247,6 +247,21 @@ E:/prog/rbdoom-3-BFG-prebuilt/base/renderprogs2/
     the preset build must pass its SPIR-V custom-build steps.
 
 
+Asset license tracking (swap-before-release)
+---------------------------------------------
+
+base/textures/bluenoise/stbn_scalar_128x128x64.raw             SWAP?
+    Spatiotemporal blue-noise mask array (128x128x64, R8, layer-major)
+    consumed by the clean-room RandomSamplerState blue-noise path, bound
+    by the GI lane at t127 and gated by r_pathTracingCleanRestirGiBlueNoise
+    (default 0). Converted from NVIDIA's STBN scalar PNG set
+    (SpatiotemporalBlueNoiseSDK). The shader RNG math is clean-room; only
+    this DATA blob is third-party. If the source set is MIT-licensed it is
+    GPL-compatible and shippable WITH attribution in the third-party notices
+    — confirm the upstream LICENSE. Long-term plan: own void-and-cluster /
+    STBN generator emitting the same blob.
+
+
 Documentation requiring correction
 ----------------------------------
 

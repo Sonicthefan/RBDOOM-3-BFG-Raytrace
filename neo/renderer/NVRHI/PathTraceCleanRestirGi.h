@@ -10,6 +10,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
+#include <vector>
 
 struct PathTraceCleanRestirGiState
 {
@@ -34,6 +35,11 @@ struct PathTraceCleanRestirGiState
     nvrhi::rt::ShaderTableHandle shaderTable;
     nvrhi::rt::ShaderTableHandle producerShaderTable;
     nvrhi::rt::ShaderTableHandle reuseShaderTable;
+    nvrhi::TextureHandle blueNoiseTexture;       // STBN mask array (t127), or unused dummy
+    std::vector<uint8_t> blueNoiseBlob;          // staged mask bytes, uploaded once then cleared
+    bool blueNoiseInitAttempted = false;
+    bool blueNoiseValid = false;                 // true only when the mask loaded and uploaded
+    bool blueNoiseUploaded = false;
     nvrhi::BufferHandle boilingFilterConstantsBuffer;
     nvrhi::ShaderHandle boilingFilterShader;
     nvrhi::BindingLayoutHandle boilingFilterBindingLayout;

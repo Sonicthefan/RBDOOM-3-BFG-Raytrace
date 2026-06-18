@@ -83,6 +83,30 @@ RTXDI_RandomSamplerState RTXDI_InitRandomSampler(uint2 pixel, uint frameIndex, u
     return rng;
 }
 
+// Pass-namespaced initializer for lanes that want low random dimensions to use
+// blue-noise masks while still decorrelating independent sampling passes. The
+// legacy RTXDI_InitRandomSampler contract keeps its third argument as the
+// starting dimension for existing call sites.
+RTXDI_RandomSamplerState RTXDI_InitRandomSamplerForPass(uint2 pixel, uint frameIndex, uint passNamespace, uint startDimension)
+{
+    RTXDI_RandomSamplerState rng;
+    rng.seed = RBPT_RestirHashCombine(
+        RBPT_RestirHashCombine(
+            RBPT_RestirHashCombine(pixel.x, pixel.y),
+            frameIndex),
+        passNamespace);
+    rng.index = startDimension;
+    rng.pixel = pixel;
+    rng.frameIndex = frameIndex;
+    rng.dimensionBase = passNamespace;
+#ifdef RBPT_ENABLE_BLUE_NOISE
+    rng.useBlueNoise = 1u;
+#else
+    rng.useBlueNoise = 0u;
+#endif
+    return rng;
+}
+
 float RBPT_RestirGetNextWhite(inout RTXDI_RandomSamplerState rng)
 {
     const uint value = RBPT_RestirPcgHash(rng.seed ^ RBPT_RestirPcgHash(rng.index ^ 0xa511e9b3u));
