@@ -3065,6 +3065,67 @@ float3 CleanGiShadeDirectVertex(
     return radiance;
 }
 
+float3 CleanGiShadeDirectVertexDefaultOneSample(
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    float3 secondaryEmissive,
+    inout RTXDI_RandomSamplerState rng)
+{
+    float3 radiance = secondaryEmissive;
+    float3 directRadiance = float3(0.0, 0.0, 0.0);
+
+    if (CleanGiAccumulateRluRisLightSample(directRadiance, secondarySurface, hitGeometricNormal, rng))
+    {
+        return radiance + directRadiance;
+    }
+
+    const uint analyticCount = CleanRtxdiDiAnalyticLightCount;
+    const uint emissiveCount = CleanRtxdiDiCurrentEmissiveTriangleCount;
+    const bool hasAnalyticDomain = analyticCount > 0u;
+    const bool hasEmissiveDomain = emissiveCount > 0u;
+    if (!hasAnalyticDomain && !hasEmissiveDomain)
+    {
+        return radiance;
+    }
+
+    const float analyticDomainProbability = hasAnalyticDomain && hasEmissiveDomain
+        ? 0.5
+        : (hasAnalyticDomain ? 1.0 : 0.0);
+    const bool chooseAnalytic = hasAnalyticDomain &&
+        (!hasEmissiveDomain || RAB_GetNextRandom(rng) < analyticDomainProbability);
+
+    if (chooseAnalytic)
+    {
+        const uint lightIndex = min((uint)(RAB_GetNextRandom(rng) * analyticCount), analyticCount - 1u);
+        const RAB_LightInfo lightInfo = CleanGiBuildAnalyticLightInfo(DoomAnalyticLights[lightIndex], lightIndex);
+        CleanGiAccumulateLightSample(
+            directRadiance,
+            secondarySurface,
+            hitGeometricNormal,
+            lightInfo,
+            analyticDomainProbability / max((float)analyticCount, 1.0),
+            rng);
+        return radiance + directRadiance;
+    }
+
+    uint emissiveSourceIndex;
+    float emissiveSourcePdf;
+    if (CleanGiSelectEmissiveDistributionSample(rng, emissiveSourceIndex, emissiveSourcePdf))
+    {
+        const RAB_LightInfo emissiveInfo = CleanGiBuildEmissiveLightInfo(emissiveSourceIndex, emissiveSourceIndex);
+        CleanGiAccumulateLightSample(
+            directRadiance,
+            secondarySurface,
+            hitGeometricNormal,
+            emissiveInfo,
+            (1.0 - analyticDomainProbability) * emissiveSourcePdf,
+            rng);
+        radiance += directRadiance;
+    }
+
+    return radiance;
+}
+
 bool CleanGiSampleContinuationDirection(
     RAB_Surface surface,
     bool primarySampledSpecular,
@@ -3456,6 +3517,28 @@ float3 CleanGiShadeProducerSurface(RAB_Surface secondarySurface, bool primarySam
     }
 
     return producerRadiance;
+}
+
+float3 CleanGiShadeProducerSurfaceDefaultOneSample(RAB_Surface secondarySurface, inout RTXDI_RandomSamplerState rng)
+{
+    float3 producerRadiance = CleanGiShadeDirectVertexDefaultOneSample(
+        secondarySurface,
+        secondarySurface.geometryNormal,
+        secondarySurface.material.emissiveRadiance,
+        rng);
+
+    const float fireflyThreshold = CleanRestirGiFireflyThreshold;
+    if (fireflyThreshold > 0.0)
+    {
+        const float clampLuminance = fireflyThreshold * CLEAN_RESTIR_GI_FIREFLY_FACTOR;
+        const float luminance = CleanGiLuminance(producerRadiance);
+        if (luminance > clampLuminance)
+        {
+            producerRadiance *= clampLuminance / max(luminance, 1.0e-6);
+        }
+    }
+
+    return CleanGiAllFinite3(producerRadiance) ? max(producerRadiance, float3(0.0, 0.0, 0.0)) : float3(0.0, 0.0, 0.0);
 }
 
 CleanGiProducerResult CleanGiTraceProducerRay(
@@ -4334,6 +4417,36 @@ void ProducerShadeRayGen()
     SmokeOutput[pixel] = float4(color, 1.0);
 }
 
+[shader("raygeneration")]
+void ProducerShadeFastRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+
+    CleanGiProducerResult producer = (CleanGiProducerResult)0;
+    if (gbuf.valid != 0u)
+    {
+        RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
+        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+        // Skip the two bounce-direction randoms the trace pass already consumed.
+        RAB_GetNextRandom(rng);
+        RAB_GetNextRandom(rng);
+
+        producer.radiance = CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng);
+        producer.valid = CleanGiAllFinite3(producer.radiance) ? 1u : 0u;
+        producer.pathLength = secondarySurface.linearDepth;
+    }
+
+    CleanRestirGiProducerRadiance[pixel] = float4(producer.radiance, producer.pathLength);
+}
+
 // INIT-page seed pass: clears the transient INIT reservoir page and merges the
 // specular-producer and NEE-cache seeds into it. Extracted from the temporal
 // pass because CleanGiSeedInitPageFromSpecularProducer runs a full specular
@@ -4458,6 +4571,57 @@ void SpecularSeedShadeRayGen()
         producer.hitPosition = secondarySurface.worldPos;
         producer.hitNormal = secondarySurface.shadingNormal;
     }
+    CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
+}
+
+[shader("raygeneration")]
+void SpecularSeedShadeFastRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint view = CleanRestirGiView;
+    if (CleanGiSeedPassSkipsView(view) || CleanRestirGiSpecularProducerEnabled == 0u)
+    {
+        return;
+    }
+
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+    const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+    if (gbuf.valid == 0u)
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+    if (!surfaceValid)
+    {
+        return;
+    }
+
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
+    {
+        return;
+    }
+
+    RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
+    RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
+    // The trace pass consumed the two specular half-vector randoms.
+    RAB_GetNextRandom(rng);
+    RAB_GetNextRandom(rng);
+
+    CleanGiProducerResult producer = (CleanGiProducerResult)0;
+    producer.radiance = CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng);
+    producer.valid = CleanGiAllFinite3(producer.radiance) ? 1u : 0u;
+    producer.pathLength = secondarySurface.linearDepth;
+    producer.hitPosition = secondarySurface.worldPos;
+    producer.hitNormal = secondarySurface.shadingNormal;
     CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
 }
 

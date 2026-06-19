@@ -36,10 +36,12 @@ struct PathTraceCleanRestirGiState
     nvrhi::rt::ShaderTableHandle shaderTable;
     nvrhi::rt::ShaderTableHandle producerShaderTable;   // ProducerTraceRayGen
     nvrhi::rt::ShaderTableHandle shadeShaderTable;      // ProducerShadeRayGen
+    nvrhi::rt::ShaderTableHandle shadeFastShaderTable;  // ProducerShadeFastRayGen
     nvrhi::rt::ShaderTableHandle seedShaderTable;       // SeedRayGen (INIT-page seeds)
     nvrhi::rt::ShaderTableHandle seedNoSpecShaderTable; // SeedNoSpecRayGen (INIT clear + NEE seed)
     nvrhi::rt::ShaderTableHandle specularSeedTraceShaderTable;
     nvrhi::rt::ShaderTableHandle specularSeedShadeShaderTable;
+    nvrhi::rt::ShaderTableHandle specularSeedShadeFastShaderTable;
     nvrhi::rt::ShaderTableHandle reuseShaderTable;
     nvrhi::TextureHandle blueNoiseTexture;       // STBN mask array (t127), or unused dummy
     std::vector<uint8_t> blueNoiseBlob;          // staged mask bytes, uploaded once then cleared
