@@ -654,6 +654,7 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
     {
         reservoir = RAB_LoadGIReservoir(int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
     }
+    const bool seededReservoirValid = RTXDI_IsValidGIReservoir(reservoir);
 
     const RTXDI_GIReservoir initialSample = RTXDI_MakeGIReservoir(
         rawSample.hitPosition,
@@ -668,9 +669,11 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
         0u);
     CleanGiApplyBlueNoiseToggle(rng);
     const float targetPdf = RemixRAB_GetGISampleTargetPdfForSurface(initialSample.position, initialSample.radiance, surface);
-    RTXDI_CombineGIReservoirs(reservoir, initialSample, RTXDI_GetNextRandom(rng), targetPdf);
+    const bool selectedInitial = RTXDI_CombineGIReservoirs(reservoir, initialSample, RTXDI_GetNextRandom(rng), targetPdf);
 
-    const float pNew = RemixRAB_GetGISampleTargetPdfForSurface(reservoir.position, reservoir.radiance, surface);
+    const float pNew = (!seededReservoirValid || selectedInitial)
+        ? targetPdf
+        : RemixRAB_GetGISampleTargetPdfForSurface(reservoir.position, reservoir.radiance, surface);
     reservoir.M = 1;
     RTXDI_FinalizeGIResampling(reservoir, 1.0, pNew * reservoir.M);
     return reservoir;
