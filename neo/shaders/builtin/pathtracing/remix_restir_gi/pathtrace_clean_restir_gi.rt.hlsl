@@ -382,10 +382,11 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     // Runtime blue-noise toggle (RGI). The shader is statically compiled with
     // RBPT_ENABLE_BLUE_NOISE, so eligible GI producer/initial sampling RNGs can
     // pull blue noise; this field masks it on/off per cvar without a second
-    // shader permutation. Three padding scalars keep the following struct
+    // shader permutation. The following uint is a ray-query diagnostic mode;
+    // one remaining padding scalar keeps the following struct
     // 16-byte aligned (must match PathTraceCleanRestirGi.cpp).
     uint CleanRestirGiBlueNoiseEnabled;
-    uint CleanRestirGiBlueNoisePadding0;
+    uint CleanRestirGiProducerRayQueryHitIdMode;
     uint CleanRestirGiBlueNoisePadding1;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
@@ -1058,6 +1059,29 @@ uint CleanGiLoadTriangleClassAndFlags(uint instanceId, uint primitiveIndex)
             : 0u;
     }
     return RT_SMOKE_SURFACE_CLASS_RIGID_ENTITY;
+}
+
+bool CleanGiHitMetadataInRange(uint instanceId, uint primitiveIndex)
+{
+    if (instanceId == 0u)
+    {
+        return primitiveIndex < CleanRtxdiDiStaticTriangleCount;
+    }
+    if (instanceId == 1u)
+    {
+        return primitiveIndex < CleanRtxdiDiDynamicTriangleCount;
+    }
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint routeInstanceCount = (uint)max(CleanRtxdiDiToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= routeInstanceCount)
+    {
+        return false;
+    }
+    const PathTraceRigidRouteInstance route = SmokeRigidRouteInstances[routeInstanceIndex];
+    const uint routedPrimitiveIndex = route.triangleOffset + primitiveIndex;
+    return primitiveIndex < route.triangleCount &&
+        routedPrimitiveIndex >= route.triangleOffset &&
+        routedPrimitiveIndex < CleanRtxdiDiRigidRouteTriangleCount;
 }
 
 uint CleanGiTriangleSurfaceClass(uint triangleClassAndFlags)
@@ -3665,12 +3689,33 @@ bool CleanGiBuildProducerSurfaceRayQuery(
         return false;
     }
 
+    const uint hitPrimitiveIndex = query.CommittedPrimitiveIndex();
+    const uint customInstanceId = query.CommittedInstanceID();
+    const uint instanceIndex = query.CommittedInstanceIndex();
+    uint hitInstanceId = customInstanceId;
+    const uint hitIdMode = CleanRestirGiProducerRayQueryHitIdMode;
+    if (hitIdMode == 1u)
+    {
+        hitInstanceId = instanceIndex;
+    }
+    else if (hitIdMode == 2u &&
+        !CleanGiHitMetadataInRange(hitInstanceId, hitPrimitiveIndex) &&
+        CleanGiHitMetadataInRange(instanceIndex, hitPrimitiveIndex))
+    {
+        hitInstanceId = instanceIndex;
+    }
+
+    if (!CleanGiHitMetadataInRange(hitInstanceId, hitPrimitiveIndex))
+    {
+        return false;
+    }
+
     return CleanGiBuildProducerSurfaceFromHit(
         bounceRay.Origin,
         bounceDir,
         query.CommittedRayT(),
-        query.CommittedInstanceID(),
-        query.CommittedPrimitiveIndex(),
+        hitInstanceId,
+        hitPrimitiveIndex,
         query.CommittedTriangleBarycentrics(),
         secondarySurface);
 }

@@ -73,7 +73,7 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t secondaryDirectSamples;
     float contributionFireflyThreshold;
     uint32_t blueNoiseEnabled;
-    uint32_t blueNoisePadding0;
+    uint32_t producerRayQueryHitIdMode;
     uint32_t blueNoisePadding1;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
@@ -1184,7 +1184,8 @@ bool PathTraceCleanRestirGiExecute(
     tail.secondaryDirectSamples = static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingCleanRestirGiSecondaryDirectSamples.GetInteger()));
     tail.contributionFireflyThreshold = Max(0.0f, r_pathTracingCleanRestirGiContributionFireflyThreshold.GetFloat());
     tail.blueNoiseEnabled = (state.blueNoiseValid && r_pathTracingCleanRestirGiBlueNoise.GetInteger() != 0) ? 1u : 0u;
-    tail.blueNoisePadding0 = 0u;
+    tail.producerRayQueryHitIdMode = static_cast<uint32_t>(
+        idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiProducerRayQueryHitIdMode.GetInteger()));
     tail.blueNoisePadding1 = 0u;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;

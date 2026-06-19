@@ -1767,6 +1767,12 @@ idCVar r_pathTracingCleanRestirGiProducerRayQueryRoughFallback(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI diagnostic: after the inline ray-query producer, retrace rough/non-specular surfaces with the known-good RT producer path" );
 
+idCVar r_pathTracingCleanRestirGiProducerRayQueryHitIdMode(
+    "r_pathTracingCleanRestirGiProducerRayQueryHitIdMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI diagnostic: inline ray-query hit instance source, 0=InstanceID/custom index, 1=InstanceIndex, 2=InstanceID with out-of-range InstanceIndex fallback" );
+
 idCVar r_pathTracingCleanRestirGiNeeCacheSeed(
     "r_pathTracingCleanRestirGiNeeCacheSeed",
     "0",
