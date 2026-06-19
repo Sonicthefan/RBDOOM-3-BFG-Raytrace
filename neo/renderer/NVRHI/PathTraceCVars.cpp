@@ -1761,6 +1761,12 @@ idCVar r_pathTracingCleanRestirGiProducerRayQuery(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI diagnostic: dispatch CleanGI.0a producer trace as inline ray-query compute when r_pathTracingCleanRestirGiProducerOpaqueTrace is enabled" );
 
+idCVar r_pathTracingCleanRestirGiProducerRayQueryRoughFallback(
+    "r_pathTracingCleanRestirGiProducerRayQueryRoughFallback",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI diagnostic: after the inline ray-query producer, retrace rough/non-specular surfaces with the known-good RT producer path" );
+
 idCVar r_pathTracingCleanRestirGiNeeCacheSeed(
     "r_pathTracingCleanRestirGiNeeCacheSeed",
     "0",

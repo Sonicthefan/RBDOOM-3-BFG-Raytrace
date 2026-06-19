@@ -1203,6 +1203,7 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setTextureState(state.producerRadianceTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.producerHitPositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.producerHitNormalTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setAccelStructState(inputs.tlas, nvrhi::ResourceStates::AccelStructRead);
     commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(state.producerSurfaceBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::UnorderedAccess);
@@ -1301,13 +1302,16 @@ bool PathTraceCleanRestirGiExecute(
             1);
         if (nsightGpuMarkers) { commandList->endMarker(); }
 
-        nvrhi::rt::State roughFallbackState;
-        roughFallbackState.shaderTable = state.producerRoughFallbackShaderTable;
-        roughFallbackState.bindings = { bindingSet, inputs.textureDescriptorTable };
-        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a2 IndirectProducerTraceRoughFallback DispatchRays"); }
-        commandList->setRayTracingState(roughFallbackState);
-        commandList->dispatchRays(giArgs);
-        if (nsightGpuMarkers) { commandList->endMarker(); }
+        if (r_pathTracingCleanRestirGiProducerRayQueryRoughFallback.GetInteger() != 0)
+        {
+            nvrhi::rt::State roughFallbackState;
+            roughFallbackState.shaderTable = state.producerRoughFallbackShaderTable;
+            roughFallbackState.bindings = { bindingSet, inputs.textureDescriptorTable };
+            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a2 IndirectProducerTraceRoughFallback DispatchRays"); }
+            commandList->setRayTracingState(roughFallbackState);
+            commandList->dispatchRays(giArgs);
+            if (nsightGpuMarkers) { commandList->endMarker(); }
+        }
     }
     else
     {
