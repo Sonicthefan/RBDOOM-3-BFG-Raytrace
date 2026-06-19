@@ -29,6 +29,7 @@ struct PathTraceCleanRestirGiState
     nvrhi::TextureHandle indirectDiffuseTexture;
     nvrhi::TextureHandle indirectDiffuseLobeTexture;
     nvrhi::TextureHandle indirectSpecularLobeTexture;
+    nvrhi::BufferHandle specularSeedReceiverBuffer; // packed primary receiver for specular seed shade
     nvrhi::BufferHandle placeholderSrvBuffer;
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::ShaderLibraryHandle shaderLibrary;

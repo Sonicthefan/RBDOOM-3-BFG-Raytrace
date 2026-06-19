@@ -257,6 +257,23 @@ struct CleanGiProducerSurface
     uint pad0;
 };
 RWStructuredBuffer<CleanGiProducerSurface> CleanGiProducerSurfaceBuffer : register(u92);
+
+struct CleanGiSpecularSeedReceiverSurface
+{
+    float3 worldPos;
+    uint valid;
+    float3 geometryNormal;
+    float roughness;
+    float3 shadingNormal;
+    uint surfaceClass;
+    float3 viewDir;
+    float opacity;
+    float3 diffuseAlbedo;
+    uint pad0;
+    float3 specularF0;
+    uint pad1;
+};
+RWStructuredBuffer<CleanGiSpecularSeedReceiverSurface> CleanGiSpecularSeedReceiverBuffer : register(u93);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
@@ -444,6 +461,7 @@ static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 
 float3 CleanGiSafeNormalize(float3 value, float3 fallback);
 float CleanGiLuminance(float3 value);
+bool CleanGiAllFinite3(float3 value);
 float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3 toPosition);
 bool CleanGiToyFakePBRSpecularEnabled();
 float3 CleanGiEvaluateIndirectLobes(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance);
@@ -3358,6 +3376,85 @@ RAB_Surface CleanGiUnpackProducerSurface(CleanGiProducerSurface g)
     return s;
 }
 
+CleanGiSpecularSeedReceiverSurface CleanGiPackSpecularSeedReceiverSurface(RAB_Surface s)
+{
+    CleanGiSpecularSeedReceiverSurface g = (CleanGiSpecularSeedReceiverSurface)0;
+    g.worldPos = s.worldPos;
+    g.valid = s.valid;
+    g.geometryNormal = s.geometryNormal;
+    g.roughness = s.material.roughness;
+    g.shadingNormal = s.shadingNormal;
+    g.surfaceClass = s.surfaceClass;
+    g.viewDir = s.viewDir;
+    g.opacity = s.material.opacity;
+    g.diffuseAlbedo = s.material.diffuseAlbedo;
+    g.specularF0 = s.material.specularF0;
+    return g;
+}
+
+float CleanGiSpecularSeedReceiverTargetPdf(
+    CleanGiSpecularSeedReceiverSurface receiver,
+    float3 samplePosition,
+    float3 sampleRadiance)
+{
+    if (receiver.valid == 0u || receiver.surfaceClass == 3u || receiver.opacity <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float3 toSample = samplePosition - receiver.worldPos;
+    const float distanceSquared = dot(toSample, toSample);
+    if (distanceSquared <= 1.0e-6)
+    {
+        return 0.0;
+    }
+
+    const float3 sampleDir = toSample * rsqrt(distanceSquared);
+    const float3 normal = CleanGiSafeNormalize(receiver.shadingNormal, receiver.geometryNormal);
+    const float3 geometryNormal = CleanGiSafeNormalize(receiver.geometryNormal, normal);
+    const float3 viewDir = CleanGiSafeNormalize(receiver.viewDir, -normal);
+    if (dot(sampleDir, geometryNormal) <= 0.0 || dot(sampleDir, normal) <= 0.0)
+    {
+        return 0.0;
+    }
+
+    const float ndotl = saturate(dot(normal, sampleDir));
+    const float3 safeRadiance = max(sampleRadiance, float3(0.0, 0.0, 0.0));
+    float3 reflected = receiver.diffuseAlbedo * safeRadiance * (ndotl / RTXDI_PI);
+
+    const float3 specularF0 = max(receiver.specularF0, float3(0.0, 0.0, 0.0));
+    if (max(max(specularF0.r, specularF0.g), specularF0.b) > 0.0 &&
+        dot(geometryNormal, viewDir) > 0.0)
+    {
+        const float ndotv = saturate(dot(normal, viewDir));
+        if (ndotv > 0.0)
+        {
+            const float3 halfVector = CleanGiSafeNormalize(sampleDir + viewDir, normal);
+            const float ndoth = saturate(dot(normal, halfVector));
+            const float ldotH = saturate(dot(sampleDir, halfVector));
+            if (ndoth > 0.0 && ldotH > 0.0)
+            {
+                if (CleanGiToyFakePBRSpecularEnabled())
+                {
+                    const float roughness = max(saturate(receiver.roughness), 0.04);
+                    const float rr = roughness * roughness;
+                    const float rrrr = max(rr * rr, 1.0e-4);
+                    const float D = max((ndoth * ndoth) * (rrrr - 1.0) + 1.0, 1.0e-4);
+                    const float VFapprox = max((ldotH * ldotH) * (roughness + 0.5), 1.0e-4);
+                    const float specularTerm = (rrrr / (4.0 * D * D * VFapprox)) * ndotl;
+                    reflected += specularF0 * safeRadiance * specularTerm;
+                }
+                else
+                {
+                    reflected += specularF0 * safeRadiance * pow(ndoth, 32.0);
+                }
+            }
+        }
+    }
+
+    return CleanGiAllFinite3(reflected) ? clamp(CleanGiLuminance(reflected), 0.0, 1.0e4) : 0.0;
+}
+
 bool CleanGiBuildProducerSurface(
     float3 primaryPosition,
     float3 primaryGeometricNormal,
@@ -3868,6 +3965,33 @@ void CleanGiMergeProducerSeedIntoInitPage(
         max(producer.radiance, float3(0.0, 0.0, 0.0)),
         1.0);
     const float targetPdf = RemixRAB_GetGISampleTargetPdfForSurface(sample.position, sample.radiance, surface);
+    if (targetPdf <= 0.0)
+    {
+        return;
+    }
+
+    RTXDI_GIReservoir seeded = RAB_LoadGIReservoir(int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+    RTXDI_CombineGIReservoirs(seeded, sample, randomValue, targetPdf);
+    RAB_StoreGIReservoir(seeded, int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+}
+
+void CleanGiMergePackedSpecularSeedIntoInitPage(
+    uint2 pixel,
+    CleanGiSpecularSeedReceiverSurface receiver,
+    CleanGiProducerResult producer,
+    float randomValue)
+{
+    if (producer.valid == 0u || receiver.valid == 0u || !CleanGiAllFinite3(producer.radiance))
+    {
+        return;
+    }
+
+    const RTXDI_GIReservoir sample = RTXDI_MakeGIReservoir(
+        producer.hitPosition,
+        CleanGiSafeNormalize(producer.hitNormal, float3(0.0, 0.0, 1.0)),
+        max(producer.radiance, float3(0.0, 0.0, 0.0)),
+        1.0);
+    const float targetPdf = CleanGiSpecularSeedReceiverTargetPdf(receiver, sample.position, sample.radiance);
     if (targetPdf <= 0.0)
     {
         return;
@@ -4489,6 +4613,7 @@ void SpecularSeedTraceRayGen()
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
 
     CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
+    CleanGiSpecularSeedReceiverSurface receiver = (CleanGiSpecularSeedReceiverSurface)0;
     const uint view = CleanRestirGiView;
     if (!CleanGiSeedPassSkipsView(view) && CleanRestirGiSpecularProducerEnabled != 0u)
     {
@@ -4511,12 +4636,14 @@ void SpecularSeedTraceRayGen()
                     secondarySurface))
                 {
                     gbuf = CleanGiPackProducerSurface(secondarySurface, true);
+                    receiver = CleanGiPackSpecularSeedReceiverSurface(surface);
                 }
             }
         }
     }
 
     CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
+    CleanGiSpecularSeedReceiverBuffer[flatIndex] = receiver;
 }
 
 [shader("raygeneration")]
@@ -4542,15 +4669,8 @@ void SpecularSeedShadeRayGen()
         return;
     }
 
-    PathTracePrimarySurfaceRecord record;
-    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
-    if (!surfaceValid)
-    {
-        return;
-    }
-
-    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
-    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
+    const CleanGiSpecularSeedReceiverSurface receiver = CleanGiSpecularSeedReceiverBuffer[flatIndex];
+    if (receiver.valid == 0u)
     {
         return;
     }
@@ -4571,7 +4691,7 @@ void SpecularSeedShadeRayGen()
         producer.hitPosition = secondarySurface.worldPos;
         producer.hitNormal = secondarySurface.shadingNormal;
     }
-    CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
+    CleanGiMergePackedSpecularSeedIntoInitPage(pixel, receiver, producer, RAB_GetNextRandom(rng));
 }
 
 [shader("raygeneration")]
@@ -4597,15 +4717,8 @@ void SpecularSeedShadeFastRayGen()
         return;
     }
 
-    PathTracePrimarySurfaceRecord record;
-    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
-    if (!surfaceValid)
-    {
-        return;
-    }
-
-    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
-    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
+    const CleanGiSpecularSeedReceiverSurface receiver = CleanGiSpecularSeedReceiverBuffer[flatIndex];
+    if (receiver.valid == 0u)
     {
         return;
     }
@@ -4622,7 +4735,7 @@ void SpecularSeedShadeFastRayGen()
     producer.pathLength = secondarySurface.linearDepth;
     producer.hitPosition = secondarySurface.worldPos;
     producer.hitNormal = secondarySurface.shadingNormal;
-    CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
+    CleanGiMergePackedSpecularSeedIntoInitPage(pixel, receiver, producer, RAB_GetNextRandom(rng));
 }
 
 [shader("raygeneration")]
