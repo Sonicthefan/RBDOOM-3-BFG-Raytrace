@@ -3644,7 +3644,19 @@ RAB_Surface CleanGiUnpackProducerSurface(CleanGiProducerSurface g)
     s.linearDepth = g.linearDepth;
     s.geometryNormal = g.geometryNormal;
     s.shadingNormal = g.shadingNormal;
-    s.viewDir = g.viewDir;
+    const float3 unpackedGeoNormal = CleanGiSafeNormalize(g.geometryNormal, float3(0.0, 0.0, 1.0));
+    const float3 unpackedShadeNormal = CleanGiSafeNormalize(g.shadingNormal, unpackedGeoNormal);
+    const float3 unpackedViewDir = CleanGiSafeNormalize(g.viewDir, unpackedGeoNormal);
+    const float3 flippedViewDir = -unpackedViewDir;
+    const bool viewDirFacesSurface =
+        dot(unpackedViewDir, unpackedGeoNormal) > 0.0 &&
+        dot(unpackedViewDir, unpackedShadeNormal) > 0.0;
+    const bool flippedViewDirFacesSurface =
+        dot(flippedViewDir, unpackedGeoNormal) > 0.0 &&
+        dot(flippedViewDir, unpackedShadeNormal) > 0.0;
+    s.viewDir = viewDirFacesSurface
+        ? unpackedViewDir
+        : (flippedViewDirFacesSurface ? flippedViewDir : unpackedGeoNormal);
     s.materialId = g.materialId;
     s.materialIndex = g.materialIndex;
     s.instanceId = g.instanceId;
