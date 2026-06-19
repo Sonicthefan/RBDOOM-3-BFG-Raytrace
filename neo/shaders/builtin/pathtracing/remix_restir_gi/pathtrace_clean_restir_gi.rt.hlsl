@@ -39,6 +39,14 @@ struct PathTraceCleanRestirGiPayload
     float2 hitBarycentrics;
 };
 
+#if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
+void CleanGiTraceRayUnusedForProducerRayQueryCs(inout PathTraceCleanRestirGiPayload payload)
+{
+    payload.value = 0u;
+}
+#define TraceRay(Accel, Flags, Mask, RayContributionToHitGroupIndex, MultiplierForGeometryContributionToHitGroupIndex, MissShaderIndex, Ray, Payload) CleanGiTraceRayUnusedForProducerRayQueryCs(Payload)
+#endif
+
 struct PathTraceRigidRouteInstance
 {
     uint vertexOffset;
@@ -3460,44 +3468,28 @@ float CleanGiSpecularSeedReceiverTargetPdf(
     return CleanGiAllFinite3(reflected) ? clamp(CleanGiLuminance(reflected), 0.0, 1.0e4) : 0.0;
 }
 
-bool CleanGiBuildProducerSurface(
-    float3 primaryPosition,
-    float3 primaryGeometricNormal,
+bool CleanGiBuildProducerSurfaceFromHit(
+    float3 rayOrigin,
     float3 bounceDir,
-    float samplePdf,
+    float hitT,
+    uint hitInstanceId,
+    uint hitPrimitiveIndex,
+    float2 hitBarycentrics,
     out RAB_Surface secondarySurface)
 {
     secondarySurface = RAB_EmptySurface();
 
-    if (samplePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
+    if (hitT <= 0.0)
     {
         return false;
     }
 
-    RayDesc bounceRay;
-    bounceRay.Origin = primaryPosition + primaryGeometricNormal * 0.5 + bounceDir * 0.25;
-    bounceRay.Direction = bounceDir;
-    bounceRay.TMin = 0.01;
-    bounceRay.TMax = 100000.0;
-
-    PathTraceCleanRestirGiPayload payload = (PathTraceCleanRestirGiPayload)0;
-    payload.rayMode = 1u;
-    payload.ignoreInstanceId = 0xffffffffu;
-    payload.ignorePrimitiveIndex = 0xffffffffu;
-    payload.ignoreMaterialIndex = 0xffffffffu;
-    const uint rayFlags = CleanRestirGiProducerOpaqueTrace != 0u ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
-    TraceRay(SmokeScene, rayFlags, 0xff, 0, 1, 0, bounceRay, payload);
-    if (payload.value == 0u)
-    {
-        return false; // miss: zero radiance, invalid hit geometry
-    }
-
-    const float3 hitPosition = bounceRay.Origin + bounceDir * payload.hitT;
+    const float3 hitPosition = rayOrigin + bounceDir * hitT;
 
     // Load hit material / class+flags once; both the normal-map decode (inside
     // the geometry block below) and the surface build reuse these.
-    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(hitInstanceId, hitPrimitiveIndex);
+    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(hitInstanceId, hitPrimitiveIndex);
     const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
 
     float3 p0, p1, p2;
@@ -3510,8 +3502,8 @@ bool CleanGiBuildProducerSurface(
     float2 hitTexCoord = float2(0.0, 0.0);
     float4 hitVertexColor = float4(1.0, 1.0, 1.0, 1.0);
     if (CleanGiLoadTriangleGeometryFull(
-        payload.hitInstanceId,
-        payload.hitPrimitiveIndex,
+        hitInstanceId,
+        hitPrimitiveIndex,
         p0, p1, p2,
         n0, n1, n2,
         uv0, uv1, uv2,
@@ -3524,8 +3516,8 @@ bool CleanGiBuildProducerSurface(
         {
             hitGeometricNormal = -hitGeometricNormal;
         }
-        const float b1 = saturate(payload.hitBarycentrics.x);
-        const float b2 = saturate(payload.hitBarycentrics.y);
+        const float b1 = saturate(hitBarycentrics.x);
+        const float b2 = saturate(hitBarycentrics.y);
         const float b0 = saturate(1.0 - b1 - b2);
         hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
         hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
@@ -3565,7 +3557,7 @@ bool CleanGiBuildProducerSurface(
             hitGeometricNormal);
     }
 
-    const uint hitMaterialId = CleanGiLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitMaterialId = CleanGiLoadTriangleMaterialId(hitInstanceId, hitPrimitiveIndex);
     const uint hitSurfaceClass = CleanGiTriangleSurfaceClass(hitTriangleClassAndFlags);
     const uint hitTranslucentSubtype = CleanGiTriangleTranslucentSubtype(hitTriangleClassAndFlags);
     const RAB_Material hitRabMaterial = CleanGiBuildMaterialFromHit(
@@ -3580,19 +3572,104 @@ bool CleanGiBuildProducerSurface(
 
     secondarySurface.valid = 1u;
     secondarySurface.worldPos = hitPosition;
-    secondarySurface.linearDepth = payload.hitT;
+    secondarySurface.linearDepth = hitT;
     secondarySurface.geometryNormal = hitGeometricNormal;
     secondarySurface.shadingNormal = hitShadingNormal;
     secondarySurface.viewDir = -bounceDir;
     secondarySurface.materialId = hitMaterialId;
     secondarySurface.materialIndex = hitMaterialIndex;
-    secondarySurface.instanceId = payload.hitInstanceId;
-    secondarySurface.primitiveIndex = payload.hitPrimitiveIndex;
+    secondarySurface.instanceId = hitInstanceId;
+    secondarySurface.primitiveIndex = hitPrimitiveIndex;
     secondarySurface.surfaceClass = hitSurfaceClass;
     secondarySurface.flags = hitTriangleClassAndFlags;
     secondarySurface.material = hitRabMaterial;
     return true;
 }
+
+bool CleanGiBuildProducerSurface(
+    float3 primaryPosition,
+    float3 primaryGeometricNormal,
+    float3 bounceDir,
+    float samplePdf,
+    out RAB_Surface secondarySurface)
+{
+    secondarySurface = RAB_EmptySurface();
+
+    if (samplePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
+    {
+        return false;
+    }
+
+    RayDesc bounceRay;
+    bounceRay.Origin = primaryPosition + primaryGeometricNormal * 0.5 + bounceDir * 0.25;
+    bounceRay.Direction = bounceDir;
+    bounceRay.TMin = 0.01;
+    bounceRay.TMax = 100000.0;
+
+    PathTraceCleanRestirGiPayload payload = (PathTraceCleanRestirGiPayload)0;
+    payload.rayMode = 1u;
+    payload.ignoreInstanceId = 0xffffffffu;
+    payload.ignorePrimitiveIndex = 0xffffffffu;
+    payload.ignoreMaterialIndex = 0xffffffffu;
+    const uint rayFlags = CleanRestirGiProducerOpaqueTrace != 0u ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
+    TraceRay(SmokeScene, rayFlags, 0xff, 0, 1, 0, bounceRay, payload);
+    if (payload.value == 0u)
+    {
+        return false; // miss: zero radiance, invalid hit geometry
+    }
+
+    return CleanGiBuildProducerSurfaceFromHit(
+        bounceRay.Origin,
+        bounceDir,
+        payload.hitT,
+        payload.hitInstanceId,
+        payload.hitPrimitiveIndex,
+        payload.hitBarycentrics,
+        secondarySurface);
+}
+
+#if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
+bool CleanGiBuildProducerSurfaceRayQuery(
+    float3 primaryPosition,
+    float3 primaryGeometricNormal,
+    float3 bounceDir,
+    float samplePdf,
+    out RAB_Surface secondarySurface)
+{
+    secondarySurface = RAB_EmptySurface();
+
+    if (samplePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
+    {
+        return false;
+    }
+
+    RayDesc bounceRay;
+    bounceRay.Origin = primaryPosition + primaryGeometricNormal * 0.5 + bounceDir * 0.25;
+    bounceRay.Direction = bounceDir;
+    bounceRay.TMin = 0.01;
+    bounceRay.TMax = 100000.0;
+
+    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
+    query.TraceRayInline(SmokeScene, RAY_FLAG_FORCE_OPAQUE, 0xff, bounceRay);
+    while (query.Proceed())
+    {
+    }
+
+    if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+    {
+        return false;
+    }
+
+    return CleanGiBuildProducerSurfaceFromHit(
+        bounceRay.Origin,
+        bounceDir,
+        query.CommittedRayT(),
+        query.CommittedInstanceID(),
+        query.CommittedPrimitiveIndex(),
+        query.CommittedTriangleBarycentrics(),
+        secondarySurface);
+}
+#endif
 
 float3 CleanGiShadeProducerSurface(RAB_Surface secondarySurface, bool primarySampledSpecular, inout RTXDI_RandomSamplerState rng)
 {
@@ -4372,6 +4449,49 @@ bool CleanGiSeedPassSkipsView(uint view)
 {
     return view == 1u || view == 2u || view == 9u || view == 10u;
 }
+
+#if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
+[numthreads(16, 8, 1)]
+void main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    const uint2 pixel = dispatchThreadId.xy;
+    const uint2 dimensions = uint2(CleanRtxdiDiWidth, CleanRtxdiDiHeight);
+    if (dimensions.x == 0u || dimensions.y == 0u || pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+
+    CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
+    float3 hitPosition = float3(0.0, 0.0, 0.0);
+    float3 hitNormal = float3(0.0, 0.0, 0.0);
+    if (surfaceValid && CleanRestirGiProducerOpaqueTrace != 0u)
+    {
+        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+        const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+        const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+        const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
+        const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+        const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
+        const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+
+        RAB_Surface secondarySurface;
+        if (CleanGiBuildProducerSurfaceRayQuery(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+        {
+            gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+            hitPosition = secondarySurface.worldPos;
+            hitNormal = secondarySurface.shadingNormal;
+        }
+    }
+
+    CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
+    CleanRestirGiProducerHitPosition[pixel] = float4(hitPosition, gbuf.valid != 0u ? 1.0 : 0.0);
+    CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, 0.0);
+}
+#else
 
 // Pass A of the producer trace/shade split: trace the indirect bounce, rebuild
 // the secondary surface, and stash it in CleanGiProducerSurfaceBuffer. No
@@ -5258,3 +5378,5 @@ void ShadowClosestHit(inout PathTraceCleanRestirGiPayload payload, BuiltInTriang
 {
     payload.value = 1u;
 }
+
+#endif // CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS

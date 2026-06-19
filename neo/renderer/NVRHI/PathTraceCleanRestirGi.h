@@ -48,6 +48,10 @@ struct PathTraceCleanRestirGiState
     bool blueNoiseInitAttempted = false;
     bool blueNoiseValid = false;                 // true only when the mask loaded and uploaded
     bool blueNoiseUploaded = false;
+    nvrhi::ShaderHandle producerRayQueryComputeShader;
+    nvrhi::BindingLayoutHandle producerRayQueryComputeBindingLayout;
+    nvrhi::ComputePipelineHandle producerRayQueryComputePipeline;
+    bool producerRayQueryComputeInitAttempted = false;
     nvrhi::ShaderHandle temporalComputeShader;
     nvrhi::BindingLayoutHandle temporalComputeBindingLayout;
     nvrhi::ComputePipelineHandle temporalComputePipeline;

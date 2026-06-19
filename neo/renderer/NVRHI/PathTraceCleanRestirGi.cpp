@@ -314,6 +314,54 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     return true;
 }
 
+void CleanRestirGiAddCommonComputeBindingLayoutItems(nvrhi::BindingLayoutDesc& layoutDesc)
+{
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(7));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(8));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(9));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(10));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(11));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(12));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(13));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(14));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(92));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(127));
+    layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
+}
+
 bool CleanRestirGiEnsureTemporalComputePipeline(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
 {
     if (state.temporalComputePipeline)
@@ -367,50 +415,7 @@ bool CleanRestirGiEnsureTemporalComputePipeline(PathTraceCleanRestirGiState& sta
         .setShaderResourceOffset(0)
         .setConstantBufferOffset(0)
         .setUnorderedAccessViewOffset(0);
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(0));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(1));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(2));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(7));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(8));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(9));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(10));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(11));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(12));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(13));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(14));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(16));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(22));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(23));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(24));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(25));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(26));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(27));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(46));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(66));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(74));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(75));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(77));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(30));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(31));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(92));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(84));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(85));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(86));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(48));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(51));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(54));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(127));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::Sampler(0));
+    CleanRestirGiAddCommonComputeBindingLayoutItems(layoutDesc);
     state.temporalComputeBindingLayout = inputs.device->createBindingLayout(layoutDesc);
     if (!state.temporalComputeBindingLayout)
     {
@@ -432,6 +437,90 @@ bool CleanRestirGiEnsureTemporalComputePipeline(PathTraceCleanRestirGiState& sta
     }
 
     common->Printf("PathTraceCleanRestirGi: GI temporal compute pipeline initialized\n");
+    return true;
+}
+
+bool CleanRestirGiEnsureProducerRayQueryComputePipeline(PathTraceCleanRestirGiState& state, const PathTraceCleanRestirGiDispatchInputs& inputs)
+{
+    if (state.producerRayQueryComputePipeline)
+    {
+        return true;
+    }
+    if (state.producerRayQueryComputeInitAttempted)
+    {
+        return false;
+    }
+    state.producerRayQueryComputeInitAttempted = true;
+
+    if (!inputs.device->queryFeatureSupport(nvrhi::Feature::RayQuery))
+    {
+        common->Printf("PathTraceCleanRestirGi: ray-query producer requested but RayQuery is not supported\n");
+        return false;
+    }
+
+    const char* shaderPath = nullptr;
+    if (inputs.isD3D12)
+    {
+        shaderPath = "renderprogs2/dxil/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_producer_rayquery.cs.bin";
+    }
+    else if (inputs.isVulkan)
+    {
+        shaderPath = "renderprogs2/spirv/builtin/pathtracing/remix_restir_gi/pathtrace_clean_restir_gi_producer_rayquery.cs.bin";
+    }
+    else
+    {
+        return false;
+    }
+
+    void* shaderData = nullptr;
+    ID_TIME_T shaderTimestamp = 0;
+    const int shaderSize = fileSystem->ReadFile(shaderPath, &shaderData, &shaderTimestamp);
+    if (shaderSize <= 0 || !shaderData)
+    {
+        common->Printf("PathTraceCleanRestirGi: couldn't read GI producer ray-query compute shader %s\n", shaderPath);
+        return false;
+    }
+
+    nvrhi::ShaderDesc csDesc;
+    csDesc.shaderType = nvrhi::ShaderType::Compute;
+    csDesc.entryName = "main";
+    csDesc.debugName = "PathTraceCleanRestirGiProducerRayQueryCS";
+    state.producerRayQueryComputeShader = inputs.device->createShader(csDesc, shaderData, shaderSize);
+    Mem_Free(shaderData);
+    if (!state.producerRayQueryComputeShader)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI producer ray-query compute shader\n");
+        return false;
+    }
+
+    nvrhi::BindingLayoutDesc layoutDesc;
+    layoutDesc.visibility = nvrhi::ShaderType::Compute;
+    layoutDesc.bindingOffsets = nvrhi::VulkanBindingOffsets()
+        .setShaderResourceOffset(0)
+        .setConstantBufferOffset(0)
+        .setUnorderedAccessViewOffset(0);
+    CleanRestirGiAddCommonComputeBindingLayoutItems(layoutDesc);
+    state.producerRayQueryComputeBindingLayout = inputs.device->createBindingLayout(layoutDesc);
+    if (!state.producerRayQueryComputeBindingLayout)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI producer ray-query compute binding layout\n");
+        state.producerRayQueryComputeShader = nullptr;
+        return false;
+    }
+
+    nvrhi::ComputePipelineDesc pipelineDesc;
+    pipelineDesc.CS = state.producerRayQueryComputeShader;
+    pipelineDesc.bindingLayouts = { state.producerRayQueryComputeBindingLayout, inputs.textureBindlessLayout };
+    state.producerRayQueryComputePipeline = inputs.device->createComputePipeline(pipelineDesc);
+    if (!state.producerRayQueryComputePipeline)
+    {
+        common->Printf("PathTraceCleanRestirGi: failed to create GI producer ray-query compute pipeline\n");
+        state.producerRayQueryComputeBindingLayout = nullptr;
+        state.producerRayQueryComputeShader = nullptr;
+        return false;
+    }
+
+    common->Printf("PathTraceCleanRestirGi: GI producer ray-query compute pipeline initialized\n");
     return true;
 }
 
@@ -763,6 +852,10 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     blueNoiseValid = false;
     blueNoiseUploaded = false;
     placeholderSrvBuffer = nullptr;
+    producerRayQueryComputeShader = nullptr;
+    producerRayQueryComputeBindingLayout = nullptr;
+    producerRayQueryComputePipeline = nullptr;
+    producerRayQueryComputeInitAttempted = false;
     temporalComputeShader = nullptr;
     temporalComputeBindingLayout = nullptr;
     temporalComputePipeline = nullptr;
@@ -1141,6 +1234,20 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setBufferState(neeCacheCandidateBuffer, nvrhi::ResourceStates::ShaderResource);
     commandList->commitBarriers();
 
+    nvrhi::BindingSetHandle producerRayQueryComputeBindingSet;
+    const bool producerRayQueryComputeRequested =
+        tail.producerOpaqueTrace != 0u &&
+        r_pathTracingCleanRestirGiProducerRayQuery.GetInteger() != 0;
+    if (producerRayQueryComputeRequested && CleanRestirGiEnsureProducerRayQueryComputePipeline(state, inputs))
+    {
+        producerRayQueryComputeBindingSet = inputs.device->createBindingSet(bindingSetDesc, state.producerRayQueryComputeBindingLayout);
+        if (!producerRayQueryComputeBindingSet)
+        {
+            common->Printf("PathTraceCleanRestirGi: failed to create GI producer ray-query compute binding set; falling back to trace-rays\n");
+        }
+    }
+    const bool producerRayQueryComputeActive = producerRayQueryComputeBindingSet != nullptr;
+
     nvrhi::BindingSetHandle temporalComputeBindingSet;
     const bool temporalComputeRequested = view == 0 && tail.spatialEnabled != 0u;
     if (temporalComputeRequested && CleanRestirGiEnsureTemporalComputePipeline(state, inputs))
@@ -1170,13 +1277,29 @@ bool PathTraceCleanRestirGiExecute(
     // surface G-buffer) and a shade pass (divergent direct-NEE) so each raygen
     // entry point is small enough to schedule at higher occupancy than the old
     // combined producer megakernel.
-    nvrhi::rt::State producerTraceState;
-    producerTraceState.shaderTable = state.producerShaderTable;
-    producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
-    if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerTrace DispatchRays"); }
-    commandList->setRayTracingState(producerTraceState);
-    commandList->dispatchRays(giArgs);
-    if (nsightGpuMarkers) { commandList->endMarker(); }
+    if (producerRayQueryComputeActive)
+    {
+        nvrhi::ComputeState producerTraceState;
+        producerTraceState.pipeline = state.producerRayQueryComputePipeline;
+        producerTraceState.bindings = { producerRayQueryComputeBindingSet, inputs.textureDescriptorTable };
+        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerTraceRayQuery Dispatch"); }
+        commandList->setComputeState(producerTraceState);
+        commandList->dispatch(
+            static_cast<uint32_t>((inputs.width + 15) / 16),
+            static_cast<uint32_t>((inputs.height + 7) / 8),
+            1);
+        if (nsightGpuMarkers) { commandList->endMarker(); }
+    }
+    else
+    {
+        nvrhi::rt::State producerTraceState;
+        producerTraceState.shaderTable = state.producerShaderTable;
+        producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
+        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerTrace DispatchRays"); }
+        commandList->setRayTracingState(producerTraceState);
+        commandList->dispatchRays(giArgs);
+        if (nsightGpuMarkers) { commandList->endMarker(); }
+    }
 
     // Trace outputs consumed by the shade pass: the surface G-buffer + hit
     // geometry textures.
