@@ -3255,7 +3255,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanReGIRBuildArgs.width = m_frameResources.width;
                 cleanReGIRBuildArgs.height = m_frameResources.height;
                 cleanReGIRBuildArgs.depth = 1;
-                commandList->dispatchRays(cleanReGIRBuildArgs);
+                {
+                    PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.P0 ReGIRBuild DispatchRays", nsightGpuMarkers);
+                    commandList->dispatchRays(cleanReGIRBuildArgs);
+                }
                 nvrhi::utils::BufferUavBarrier(commandList, m_smokeReGIRState.candidateCacheBuffer);
                 commandList->setBufferState(m_smokeReGIRState.candidateCacheBuffer, nvrhi::ResourceStates::ShaderResource);
                 commandList->commitBarriers();
@@ -3272,7 +3275,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             pdfNeePrepassArgs.width = m_frameResources.width;
             pdfNeePrepassArgs.height = m_frameResources.height;
             pdfNeePrepassArgs.depth = 1;
-            commandList->dispatchRays(pdfNeePrepassArgs);
+            {
+                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.P1 PdfNeeCurrent DispatchRays", nsightGpuMarkers);
+                commandList->dispatchRays(pdfNeePrepassArgs);
+            }
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
             nvrhi::utils::BufferUavBarrier(commandList, m_frameResources.primarySurfaceHistoryBuffers.current);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
@@ -3894,7 +3900,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         {
             cleanState.shaderTable = m_smokeCleanRtxdiDiInitialShaderTable;
             commandList->setRayTracingState(cleanState);
-            commandList->dispatchRays(cleanArgs);
+            {
+                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.0 Initial DispatchRays", nsightGpuMarkers);
+                commandList->dispatchRays(cleanArgs);
+            }
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
@@ -3903,14 +3912,20 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             {
                 cleanState.shaderTable = m_smokeCleanRtxdiDiTemporalShaderTable;
                 commandList->setRayTracingState(cleanState);
-                commandList->dispatchRays(cleanArgs);
+                {
+                    PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.1 Temporal DispatchRays", nsightGpuMarkers);
+                    commandList->dispatchRays(cleanArgs);
+                }
             }
         }
         else
         {
             cleanState.shaderTable = m_smokeCleanRtxdiDiSentinelShaderTable;
             commandList->setRayTracingState(cleanState);
-            commandList->dispatchRays(cleanArgs);
+            {
+                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.0 Sentinel DispatchRays", nsightGpuMarkers);
+                commandList->dispatchRays(cleanArgs);
+            }
         }
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiCurrentReservoirBuffer);
         nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiTemporalReservoirBuffer);
@@ -3935,7 +3950,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             cleanSpatialState.shaderTable = m_smokeCleanRtxdiDiSpatialShaderTable;
             commandList->setRayTracingState(cleanSpatialState);
             commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanConstants, sizeof(cleanConstants));
-            commandList->dispatchRays(cleanArgs);
+            {
+                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.2 Spatial DispatchRays", nsightGpuMarkers);
+                commandList->dispatchRays(cleanArgs);
+            }
             nvrhi::utils::BufferUavBarrier(commandList, m_smokeCleanRtxdiDiSpatialReservoirBuffer);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
@@ -3960,7 +3978,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             PathTraceCleanRtxdiDiSentinelConstants mosaicConstants = cleanConstants;
             mosaicConstants.view = static_cast<uint32_t>(cleanRtxdiDiView);
             commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &mosaicConstants, sizeof(mosaicConstants));
-            commandList->dispatchRays(cleanArgs);
+            {
+                PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.3 RrGuideMosaic DispatchRays", nsightGpuMarkers);
+                commandList->dispatchRays(cleanArgs);
+            }
             nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.outputTexture);
         }
         auto dispatchCleanRestirGi = [&](bool resolveToRrInputColor) -> bool
@@ -4114,10 +4135,13 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                     cleanDiBoilingFilterState.pipeline = m_smokeCleanRtxdiDiBoilingFilterPipeline;
                     cleanDiBoilingFilterState.bindings = { m_smokeCleanRtxdiDiBoilingFilterBindingSet };
                     commandList->setComputeState(cleanDiBoilingFilterState);
-                    commandList->dispatch(
-                        static_cast<uint32_t>((m_frameResources.width + 7) / 8),
-                        static_cast<uint32_t>((m_frameResources.height + 7) / 8),
-                        1);
+                    {
+                        PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.4 BoilingFilter Dispatch", nsightGpuMarkers);
+                        commandList->dispatch(
+                            static_cast<uint32_t>((m_frameResources.width + 7) / 8),
+                            static_cast<uint32_t>((m_frameResources.height + 7) / 8),
+                            1);
+                    }
 
                     nvrhi::utils::TextureUavBarrier(commandList, m_frameResources.rrInputColorTexture);
                 }
