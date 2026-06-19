@@ -263,6 +263,79 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
     return result;
 }
 
+#if defined(CLEAN_RTXDI_DI_TEMPORAL_ENTRY)
+bool PathTraceCleanRoomTemporalDiagnosticsNeeded(uint view)
+{
+    if (CleanRtxdiDiTemporalAudit != 0u)
+    {
+        return true;
+    }
+
+    return view != 12u && view != 16u;
+}
+
+RTXDI_DIReservoir PathTraceCleanRoomRunTemporalProducerFast(uint2 pixel, uint2 dimensions, RTXDI_DIReservoir currentReservoir, PathTracePrimarySurfaceRecord currentSurface)
+{
+    if (currentReservoir.M <= 0.0 || !PathTraceCleanRoomTemporalReuseEnabled())
+    {
+        return currentReservoir;
+    }
+
+    const bool rigidEmissiveTemporalBypass = PathTraceCleanRoomTemporalRigidEmissiveBypassEnabled();
+    if (rigidEmissiveTemporalBypass &&
+        PathTraceCleanRoomCurrentReservoirSelectsTemporalUnsafeEmissive(currentReservoir))
+    {
+        return currentReservoir;
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(currentSurface);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return currentReservoir;
+    }
+
+    float3 screenSpaceMotion;
+    bool cameraReprojected = false;
+    if (!PathTraceCleanRoomLoadMotion(pixel, currentSurface, dimensions, screenSpaceMotion, cameraReprojected))
+    {
+        return currentReservoir;
+    }
+
+    RTXDI_RuntimeParameters runtimeParams = (RTXDI_RuntimeParameters)0;
+    runtimeParams.activeCheckerboardField = 0u;
+    runtimeParams.frameIndex = CleanRtxdiDiFrameIndex;
+
+    RTXDI_DITemporalResamplingParameters temporalParams = (RTXDI_DITemporalResamplingParameters)0;
+    temporalParams.maxHistoryLength = (uint)clamp(CleanRtxdiDiRestirPTSurfaceInfo.y, 0.0, 64.0);
+    temporalParams.biasCorrectionMode = (uint)clamp(
+        CleanRtxdiDiRestirPTSurfaceInfo.w,
+        0.0,
+        (float)RTXDI_BIAS_CORRECTION_RAY_TRACED);
+    temporalParams.depthThreshold = 0.10;
+    temporalParams.normalThreshold = 0.35;
+    temporalParams.enableVisibilityShortcut = 0u;
+    temporalParams.enablePermutationSampling = 0u;
+    temporalParams.uniformRandomNumber = PathTraceCleanRoomHash(CleanRtxdiDiFrameIndex ^ 0x711ad151u);
+    temporalParams.permutationSamplingThreshold = 0.0;
+
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x52525805u);
+    int2 temporalSamplePixel = int2(-1, -1);
+    RAB_LightSample selectedLightSample = RAB_EmptyLightSample();
+    return RTXDI_DITemporalResampling(
+        pixel,
+        surface,
+        currentReservoir,
+        rng,
+        runtimeParams,
+        PathTraceCleanRoomReservoirParams(dimensions),
+        screenSpaceMotion,
+        0u,
+        temporalParams,
+        temporalSamplePixel,
+        selectedLightSample);
+}
+#endif
+
 float3 PathTraceCleanRoomTemporalGateColor(uint flags, uint flag)
 {
     return (flags & flag) == flag ? float3(0.0, 0.90, 0.20) : float3(0.95, 0.04, 0.10);
@@ -949,6 +1022,41 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomLoadStoredInitialReservoir(
     result.visibility = PathTraceCleanRoomSelectedSampleVisibility(result.surface, result.reservoir, selectedSample);
     return result;
 }
+
+PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomLoadStoredInitialReservoirFast(uint2 pixel, uint2 dimensions)
+{
+    PathTraceCleanRtxdiDiInitialResult result = (PathTraceCleanRtxdiDiInitialResult)0;
+    result.reservoir = RTXDI_EmptyDIReservoir();
+    result.selectedLightIndex = 0xffffffffu;
+    result.status = CLEAN_INITIAL_STATUS_VALID;
+
+    if (!PathTraceCleanRoomLoadSurfaceRecord(pixel, dimensions, result.surface))
+    {
+        result.status = CLEAN_INITIAL_STATUS_INVALID_SURFACE;
+        return result;
+    }
+
+    const uint reservoirIndex = PathTraceCleanRoomReservoirIndex(pixel, dimensions);
+    if (reservoirIndex >= CleanRtxdiDiReservoirCount)
+    {
+        result.status = CLEAN_INITIAL_STATUS_EXTERNAL_CURRENT_EMPTY;
+        return result;
+    }
+
+    result.reservoir = RTXDI_UnpackDIReservoir(CleanRtxdiDiCurrentReservoirs[reservoirIndex]);
+    if (!RTXDI_IsValidDIReservoir(result.reservoir) || result.reservoir.M <= 0.0)
+    {
+        result.reservoir = RTXDI_EmptyDIReservoir();
+        result.status = CLEAN_INITIAL_STATUS_ZERO_TARGET_PDF;
+        return result;
+    }
+
+    result.selectedLightIndex = RTXDI_GetDIReservoirLightIndex(result.reservoir);
+    result.sampleUv = RTXDI_GetDIReservoirSampleUV(result.reservoir);
+    result.targetPdf = result.reservoir.targetPdf;
+    result.invSourcePdf = RTXDI_GetDIReservoirInvPdf(result.reservoir);
+    return result;
+}
 #endif
 
 float3 PathTraceCleanRoomInitialReservoirOutput(uint2 pixel, uint2 dimensions, uint view)
@@ -1022,8 +1130,16 @@ float3 PathTraceCleanRoomTemporalReservoirOutputForInitial(uint2 pixel, uint2 di
     temporal.temporalSamplePixel = int2(-1, -1);
     if (temporalAllowed)
     {
-        temporal = PathTraceCleanRoomRunTemporalProducer(pixel, dimensions, initial.reservoir, initial.surface);
-        temporalReservoir = temporal.reservoir;
+        if (PathTraceCleanRoomTemporalDiagnosticsNeeded(view))
+        {
+            temporal = PathTraceCleanRoomRunTemporalProducer(pixel, dimensions, initial.reservoir, initial.surface);
+            temporalReservoir = temporal.reservoir;
+        }
+        else
+        {
+            temporalReservoir = PathTraceCleanRoomRunTemporalProducerFast(pixel, dimensions, initial.reservoir, initial.surface);
+            temporal.reservoir = temporalReservoir;
+        }
     }
 
     if (reservoirIndex < CleanRtxdiDiReservoirCount)
@@ -1100,7 +1216,15 @@ float3 PathTraceCleanRoomTemporalReservoirOutputForInitial(uint2 pixel, uint2 di
 
 float3 PathTraceCleanRoomTemporalReservoirOutputFromStoredCurrent(uint2 pixel, uint2 dimensions, uint view)
 {
-    PathTraceCleanRtxdiDiInitialResult initial = PathTraceCleanRoomLoadStoredInitialReservoir(pixel, dimensions);
+    PathTraceCleanRtxdiDiInitialResult initial = (PathTraceCleanRtxdiDiInitialResult)0;
+    if (PathTraceCleanRoomTemporalDiagnosticsNeeded(view))
+    {
+        initial = PathTraceCleanRoomLoadStoredInitialReservoir(pixel, dimensions);
+    }
+    else
+    {
+        initial = PathTraceCleanRoomLoadStoredInitialReservoirFast(pixel, dimensions);
+    }
     return PathTraceCleanRoomTemporalReservoirOutputForInitial(pixel, dimensions, view, initial);
 }
 #elif !defined(CLEAN_RTXDI_DI_INITIAL_ENTRY)
