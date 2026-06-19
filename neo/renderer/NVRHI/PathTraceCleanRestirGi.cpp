@@ -166,7 +166,6 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(92)); // producer trace/shade G-buffer
-        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(93)); // specular seed receiver G-buffer
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
@@ -401,7 +400,6 @@ bool CleanRestirGiEnsureTemporalComputePipeline(PathTraceCleanRestirGiState& sta
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(92));
-    layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(93));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
     layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
@@ -621,7 +619,6 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         state.producerHitPositionTexture &&
         state.producerHitNormalTexture &&
         state.producerSurfaceBuffer &&
-        state.specularSeedReceiverBuffer &&
         state.indirectDiffuseTexture &&
         state.indirectDiffuseLobeTexture &&
         state.indirectSpecularLobeTexture &&
@@ -673,21 +670,8 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         surfaceBufferDesc.debugName = "PathTraceCleanRestirGiProducerSurface";
         state.producerSurfaceBuffer = inputs.device->createBuffer(surfaceBufferDesc);
 
-        // Specular seed trace caches the primary receiver surface subset that
-        // shade needs for target PDF, avoiding a second primary-history load.
-        // structStride MUST match sizeof(CleanGiSpecularSeedReceiverSurface)
-        // in pathtrace_clean_restir_gi.rt.hlsl (96 bytes).
-        nvrhi::BufferDesc specularReceiverDesc;
-        specularReceiverDesc.byteSize = uint64_t(width) * uint64_t(height) * 96ull;
-        specularReceiverDesc.structStride = 96;
-        specularReceiverDesc.canHaveUAVs = true;
-        specularReceiverDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
-        specularReceiverDesc.keepInitialState = true;
-        specularReceiverDesc.debugName = "PathTraceCleanRestirGiSpecularSeedReceiver";
-        state.specularSeedReceiverBuffer = inputs.device->createBuffer(specularReceiverDesc);
-
         if (!state.producerRadianceTexture || !state.producerHitPositionTexture || !state.producerHitNormalTexture ||
-            !state.producerSurfaceBuffer || !state.specularSeedReceiverBuffer ||
+            !state.producerSurfaceBuffer ||
             !state.indirectDiffuseTexture || !state.indirectDiffuseLobeTexture || !state.indirectSpecularLobeTexture)
         {
             common->Printf("PathTraceCleanRestirGi: failed to create GI producer textures (%ux%u)\n", width, height);
@@ -773,7 +757,6 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     indirectDiffuseTexture = nullptr;
     indirectDiffuseLobeTexture = nullptr;
     indirectSpecularLobeTexture = nullptr;
-    specularSeedReceiverBuffer = nullptr;
     blueNoiseTexture = nullptr;
     blueNoiseBlob.clear();
     blueNoiseInitAttempted = false;
@@ -1007,7 +990,6 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, inputs.motionVectorMaskTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(80, state.reservoirBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(92, state.producerSurfaceBuffer));
-    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(93, state.specularSeedReceiverBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(81, state.producerRadianceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(82, state.producerHitPositionTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(83, state.producerHitNormalTexture));
@@ -1119,7 +1101,6 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setTextureState(state.producerHitNormalTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(state.producerSurfaceBuffer, nvrhi::ResourceStates::UnorderedAccess);
-    commandList->setBufferState(state.specularSeedReceiverBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfacePreviousBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(inputs.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
@@ -1241,7 +1222,6 @@ bool PathTraceCleanRestirGiExecute(
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
         nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
-        nvrhi::utils::BufferUavBarrier(commandList, state.specularSeedReceiverBuffer);
 
         nvrhi::rt::State specularSeedShadeState;
         specularSeedShadeState.shaderTable = defaultOneSampleShade ? state.specularSeedShadeFastShaderTable : state.specularSeedShadeShaderTable;

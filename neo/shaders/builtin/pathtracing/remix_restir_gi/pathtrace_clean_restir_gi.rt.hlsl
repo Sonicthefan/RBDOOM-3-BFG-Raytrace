@@ -273,7 +273,6 @@ struct CleanGiSpecularSeedReceiverSurface
     float3 specularF0;
     uint pad1;
 };
-RWStructuredBuffer<CleanGiSpecularSeedReceiverSurface> CleanGiSpecularSeedReceiverBuffer : register(u93);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
@@ -3376,20 +3375,26 @@ RAB_Surface CleanGiUnpackProducerSurface(CleanGiProducerSurface g)
     return s;
 }
 
-CleanGiSpecularSeedReceiverSurface CleanGiPackSpecularSeedReceiverSurface(RAB_Surface s)
+CleanGiSpecularSeedReceiverSurface CleanGiBuildSpecularSeedReceiverSurface(uint2 pixel, PathTracePrimarySurfaceRecord record)
 {
-    CleanGiSpecularSeedReceiverSurface g = (CleanGiSpecularSeedReceiverSurface)0;
-    g.worldPos = s.worldPos;
-    g.valid = s.valid;
-    g.geometryNormal = s.geometryNormal;
-    g.roughness = s.material.roughness;
-    g.shadingNormal = s.shadingNormal;
-    g.surfaceClass = s.surfaceClass;
-    g.viewDir = s.viewDir;
-    g.opacity = s.material.opacity;
-    g.diffuseAlbedo = s.material.diffuseAlbedo;
-    g.specularF0 = s.material.specularF0;
-    return g;
+    CleanGiSpecularSeedReceiverSurface receiver = (CleanGiSpecularSeedReceiverSurface)0;
+    if (record.header.x != RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_VERSION ||
+        (record.header.y & RT_PRIMARY_SURFACE_VALID) == 0u)
+    {
+        return receiver;
+    }
+
+    receiver.worldPos = record.worldPositionAndViewDepth.xyz;
+    receiver.valid = 1u;
+    receiver.geometryNormal = CleanGiSafeNormalize(record.geometricNormalAndRoughness.xyz, float3(0.0, 0.0, 1.0));
+    receiver.roughness = saturate(record.geometricNormalAndRoughness.w);
+    receiver.shadingNormal = CleanGiSafeNormalize(record.shadingNormalAndOpacity.xyz, receiver.geometryNormal);
+    receiver.surfaceClass = record.materialAndSurface.w & 0xffu;
+    receiver.viewDir = CleanGiSafeNormalize(record.viewDirectionAndReserved.xyz, -receiver.shadingNormal);
+    receiver.opacity = saturate(record.shadingNormalAndOpacity.w);
+    receiver.diffuseAlbedo = CleanGiReceiverGuideAlbedo(pixel, saturate(record.albedoAndAlphaCutoff.xyz));
+    receiver.specularF0 = max(record.specularF0AndReserved.xyz, float3(0.0, 0.0, 0.0));
+    return receiver;
 }
 
 float CleanGiSpecularSeedReceiverTargetPdf(
@@ -4613,7 +4618,6 @@ void SpecularSeedTraceRayGen()
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
 
     CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
-    CleanGiSpecularSeedReceiverSurface receiver = (CleanGiSpecularSeedReceiverSurface)0;
     const uint view = CleanRestirGiView;
     if (!CleanGiSeedPassSkipsView(view) && CleanRestirGiSpecularProducerEnabled != 0u)
     {
@@ -4636,14 +4640,12 @@ void SpecularSeedTraceRayGen()
                     secondarySurface))
                 {
                     gbuf = CleanGiPackProducerSurface(secondarySurface, true);
-                    receiver = CleanGiPackSpecularSeedReceiverSurface(surface);
                 }
             }
         }
     }
 
     CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
-    CleanGiSpecularSeedReceiverBuffer[flatIndex] = receiver;
 }
 
 [shader("raygeneration")]
@@ -4669,7 +4671,14 @@ void SpecularSeedShadeRayGen()
         return;
     }
 
-    const CleanGiSpecularSeedReceiverSurface receiver = CleanGiSpecularSeedReceiverBuffer[flatIndex];
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+    if (!surfaceValid)
+    {
+        return;
+    }
+
+    const CleanGiSpecularSeedReceiverSurface receiver = CleanGiBuildSpecularSeedReceiverSurface(pixel, record);
     if (receiver.valid == 0u)
     {
         return;
@@ -4717,7 +4726,14 @@ void SpecularSeedShadeFastRayGen()
         return;
     }
 
-    const CleanGiSpecularSeedReceiverSurface receiver = CleanGiSpecularSeedReceiverBuffer[flatIndex];
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+    if (!surfaceValid)
+    {
+        return;
+    }
+
+    const CleanGiSpecularSeedReceiverSurface receiver = CleanGiBuildSpecularSeedReceiverSurface(pixel, record);
     if (receiver.valid == 0u)
     {
         return;
