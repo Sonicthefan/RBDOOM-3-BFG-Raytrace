@@ -3180,6 +3180,195 @@ float3 CleanGiShadeDirectVertexDefaultOneSample(
     return radiance;
 }
 
+uint CleanGiDiagnoseDirectLightSampleGate(
+    RAB_Surface secondarySurface,
+    float3 hitGeometricNormal,
+    RAB_LightInfo lightInfo,
+    float sourcePdf,
+    inout RTXDI_RandomSamplerState rng,
+    out float3 acceptedRadiance)
+{
+    acceptedRadiance = float3(0.0, 0.0, 0.0);
+    if (!RAB_IsLightInfoValid(lightInfo) || sourcePdf <= 1.0e-8)
+    {
+        return 1u;
+    }
+
+    const float2 uv = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+    const RAB_LightSample lightSample = RAB_SamplePolymorphicLight(lightInfo, secondarySurface, uv);
+    if (!RAB_IsReplayableLightSample(lightSample) || lightSample.solidAnglePdf <= 1.0e-8)
+    {
+        return 2u;
+    }
+    if (CleanGiLuminance(lightSample.radiance) <= 0.0)
+    {
+        return 3u;
+    }
+
+    float3 lightDir;
+    float lightDistance;
+    RAB_GetLightDirDistance(secondarySurface, lightSample, lightDir, lightDistance);
+    const float ndotl = saturate(dot(RAB_GetSurfaceNormal(secondarySurface), lightDir));
+    if (ndotl <= 0.0)
+    {
+        return 4u;
+    }
+
+    const float3 brdf = RAB_EvaluateSurfaceBrdf(secondarySurface, lightDir, RAB_GetSurfaceViewDir(secondarySurface));
+    if (CleanGiLuminance(brdf) <= 0.0)
+    {
+        return 5u;
+    }
+
+    const float visibility = CleanGiTraceVisibility(
+        RAB_GetSurfaceWorldPos(secondarySurface), hitGeometricNormal, lightSample.position);
+    if (visibility <= 0.0)
+    {
+        return 6u;
+    }
+
+    const float misWeight = CleanGiSecondaryNeeMisWeight(secondarySurface, lightSample, lightDir);
+    acceptedRadiance = brdf * lightSample.radiance * ndotl * visibility * misWeight /
+        max(sourcePdf * lightSample.solidAnglePdf, 1.0e-6);
+    return 0u;
+}
+
+float3 CleanGiProducerShadeGateColor(uint gate, float3 acceptedRadiance)
+{
+    if (gate == 0u)
+    {
+        const float3 safeRadiance = max(acceptedRadiance, float3(0.0, 0.0, 0.0));
+        return saturate(safeRadiance / (safeRadiance + float3(1.0, 1.0, 1.0)));
+    }
+    if (gate == 1u)
+    {
+        return float3(0.0, 0.0, 0.85);
+    }
+    if (gate == 2u)
+    {
+        return float3(1.0, 0.45, 0.0);
+    }
+    if (gate == 3u)
+    {
+        return float3(1.0, 1.0, 0.0);
+    }
+    if (gate == 4u)
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+    if (gate == 5u)
+    {
+        return float3(0.0, 0.85, 1.0);
+    }
+    if (gate == 6u)
+    {
+        return float3(1.0, 0.0, 0.0);
+    }
+    if (gate == 7u)
+    {
+        return float3(0.25, 0.25, 0.25);
+    }
+    if (gate == 8u)
+    {
+        return float3(0.15, 0.15, 0.75);
+    }
+    return float3(0.75, 0.0, 0.75);
+}
+
+float3 CleanGiProducerShadeGateDebugColor(
+    RAB_Surface secondarySurface,
+    bool primarySampledSpecular,
+    inout RTXDI_RandomSamplerState rng)
+{
+    const float directProbability = saturate(CleanRestirGiSecondaryDirectProbability);
+    if (directProbability <= 0.0)
+    {
+        return CleanGiLuminance(secondarySurface.material.emissiveRadiance) > 0.0
+            ? float3(0.0, 0.85, 0.85)
+            : CleanGiProducerShadeGateColor(8u, float3(0.0, 0.0, 0.0));
+    }
+    if (directProbability < 1.0 && RAB_GetNextRandom(rng) >= directProbability)
+    {
+        return CleanGiProducerShadeGateColor(7u, float3(0.0, 0.0, 0.0));
+    }
+
+    if (CleanRestirGiNeeCacheSecondaryEnabled != 0u)
+    {
+        float3 neeCacheRadiance = float3(0.0, 0.0, 0.0);
+        if (CleanGiAccumulateNeeCacheProviderSample(
+            neeCacheRadiance,
+            secondarySurface,
+            secondarySurface.geometryNormal,
+            primarySampledSpecular,
+            rng))
+        {
+            const float3 safeRadiance = max(neeCacheRadiance, float3(0.0, 0.0, 0.0));
+            return saturate(safeRadiance / (safeRadiance + float3(1.0, 1.0, 1.0)));
+        }
+    }
+
+    float3 acceptedRadiance = float3(0.0, 0.0, 0.0);
+    const uint rluLightCount = CleanRtxdiDiRluCurrentLightCount;
+    if (rluLightCount > 0u)
+    {
+        const uint denseIndex = min((uint)(RAB_GetNextRandom(rng) * (float)rluLightCount), rluLightCount - 1u);
+        const RAB_LightInfo lightInfo = CleanGiLoadCurrentRluLightInfo(denseIndex);
+        const uint gate = CleanGiDiagnoseDirectLightSampleGate(
+            secondarySurface,
+            secondarySurface.geometryNormal,
+            lightInfo,
+            1.0 / max((float)rluLightCount, 1.0),
+            rng,
+            acceptedRadiance);
+        return CleanGiProducerShadeGateColor(gate, acceptedRadiance);
+    }
+
+    const uint analyticCount = CleanRtxdiDiAnalyticLightCount;
+    const uint emissiveCount = CleanRtxdiDiCurrentEmissiveTriangleCount;
+    const bool hasAnalyticDomain = analyticCount > 0u;
+    const bool hasEmissiveDomain = emissiveCount > 0u;
+    if (!hasAnalyticDomain && !hasEmissiveDomain)
+    {
+        return CleanGiProducerShadeGateColor(8u, acceptedRadiance);
+    }
+
+    const float analyticDomainProbability = hasAnalyticDomain && hasEmissiveDomain
+        ? 0.5
+        : (hasAnalyticDomain ? 1.0 : 0.0);
+    const bool chooseAnalytic = hasAnalyticDomain &&
+        (!hasEmissiveDomain || RAB_GetNextRandom(rng) < analyticDomainProbability);
+    if (chooseAnalytic)
+    {
+        const uint lightIndex = min((uint)(RAB_GetNextRandom(rng) * analyticCount), analyticCount - 1u);
+        const RAB_LightInfo lightInfo = CleanGiBuildAnalyticLightInfo(DoomAnalyticLights[lightIndex], lightIndex);
+        const uint gate = CleanGiDiagnoseDirectLightSampleGate(
+            secondarySurface,
+            secondarySurface.geometryNormal,
+            lightInfo,
+            analyticDomainProbability / max((float)analyticCount, 1.0),
+            rng,
+            acceptedRadiance);
+        return CleanGiProducerShadeGateColor(gate, acceptedRadiance);
+    }
+
+    uint emissiveSourceIndex;
+    float emissiveSourcePdf;
+    if (!CleanGiSelectEmissiveDistributionSample(rng, emissiveSourceIndex, emissiveSourcePdf))
+    {
+        return CleanGiProducerShadeGateColor(1u, acceptedRadiance);
+    }
+
+    const RAB_LightInfo emissiveInfo = CleanGiBuildEmissiveLightInfo(emissiveSourceIndex, emissiveSourceIndex);
+    const uint gate = CleanGiDiagnoseDirectLightSampleGate(
+        secondarySurface,
+        secondarySurface.geometryNormal,
+        emissiveInfo,
+        (1.0 - analyticDomainProbability) * emissiveSourcePdf,
+        rng,
+        acceptedRadiance);
+    return CleanGiProducerShadeGateColor(gate, acceptedRadiance);
+}
+
 bool CleanGiSampleContinuationDirection(
     RAB_Surface surface,
     bool primarySampledSpecular,
@@ -4497,7 +4686,7 @@ float3 PathTraceCleanRestirGiSentinelColor(uint2 pixel)
 
 bool CleanGiSeedPassSkipsView(uint view)
 {
-    return view == 1u || view == 2u || view == 9u || view == 10u;
+    return view == 1u || view == 2u || view == 9u || view == 10u || view == 21u;
 }
 
 #if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
@@ -4687,7 +4876,7 @@ void ProducerShadeRayGen()
     CleanRestirGiProducerRadiance[pixel] = float4(producer.radiance, producer.pathLength);
 
     const uint view = CleanRestirGiView;
-    if (view != 1u && view != 2u && view != 9u && view != 10u)
+    if (view != 1u && view != 2u && view != 9u && view != 10u && view != 21u)
     {
         return;
     }
@@ -4748,7 +4937,7 @@ void ProducerShadeRayGen()
             color = saturate(producer.materialAlbedo);
         }
     }
-    else
+    else if (view == 10u)
     {
         if (!surfaceValid)
         {
@@ -4766,6 +4955,31 @@ void ProducerShadeRayGen()
             const bool hasDiffuseTexture = sm.diffuseTextureIndex != 0xffffffffu;
             const bool forceDebugAlbedo = (sm.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u;
             color = float3(hasDiffuseTexture ? 0.0 : 1.0, hasDiffuseTexture ? 1.0 : 0.0, forceDebugAlbedo ? 1.0 : 0.0);
+        }
+    }
+    else
+    {
+        if (!surfaceValid)
+        {
+            color = float3(0.08, 0.08, 0.08);
+        }
+        else if (gbuf.valid == 0u)
+        {
+            color = float3(0.25, 0.0, 0.0);
+        }
+        else
+        {
+            RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
+            RTXDI_RandomSamplerState debugRng = CleanGiInitProducerRandomSampler(
+                pixel,
+                CleanRestirGiFrameIndex,
+                CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+            RAB_GetNextRandom(debugRng);
+            RAB_GetNextRandom(debugRng);
+            color = CleanGiProducerShadeGateDebugColor(
+                secondarySurface,
+                gbuf.primarySampledSpecular != 0u,
+                debugRng);
         }
     }
 
@@ -5015,7 +5229,7 @@ void ReuseRayGen()
     }
 
     const uint view = CleanRestirGiView;
-    if (view == 1u || view == 2u || view == 9u || view == 10u)
+    if (view == 1u || view == 2u || view == 9u || view == 10u || view == 21u)
     {
         return;
     }
