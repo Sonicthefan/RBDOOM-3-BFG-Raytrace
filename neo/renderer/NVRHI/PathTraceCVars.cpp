@@ -1749,6 +1749,12 @@ idCVar r_pathTracingCleanRestirGiContinuationOpaqueTrace(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI: trace the optional secondary->tertiary continuation as opaque to avoid alpha any-hit cost on second bounces" );
 
+idCVar r_pathTracingCleanRestirGiProducerOpaqueTrace(
+    "r_pathTracingCleanRestirGiProducerOpaqueTrace",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI diagnostic: trace producer bounce rays as opaque to bypass any-hit alpha/material rejection. Off preserves alpha-aware GI producer behavior" );
+
 idCVar r_pathTracingCleanRestirGiNeeCacheSeed(
     "r_pathTracingCleanRestirGiNeeCacheSeed",
     "0",

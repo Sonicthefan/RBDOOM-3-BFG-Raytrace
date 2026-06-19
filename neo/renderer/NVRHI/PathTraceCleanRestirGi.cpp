@@ -69,12 +69,12 @@ struct PathTraceCleanRestirGiConstantsTail
     float continuationDirectProbability;
     float secondaryDirectProbability;
     uint32_t continuationOpaqueTrace;
+    uint32_t producerOpaqueTrace;
     uint32_t secondaryDirectSamples;
     float contributionFireflyThreshold;
     uint32_t blueNoiseEnabled;
     uint32_t blueNoisePadding0;
     uint32_t blueNoisePadding1;
-    uint32_t blueNoisePadding2;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
@@ -1076,12 +1076,12 @@ bool PathTraceCleanRestirGiExecute(
     tail.continuationDirectProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiContinuationDirectProbability.GetFloat());
     tail.secondaryDirectProbability = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiSecondaryDirectProbability.GetFloat());
     tail.continuationOpaqueTrace = r_pathTracingCleanRestirGiContinuationOpaqueTrace.GetInteger() != 0 ? 1u : 0u;
+    tail.producerOpaqueTrace = r_pathTracingCleanRestirGiProducerOpaqueTrace.GetInteger() != 0 ? 1u : 0u;
     tail.secondaryDirectSamples = static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingCleanRestirGiSecondaryDirectSamples.GetInteger()));
     tail.contributionFireflyThreshold = Max(0.0f, r_pathTracingCleanRestirGiContributionFireflyThreshold.GetFloat());
     tail.blueNoiseEnabled = (state.blueNoiseValid && r_pathTracingCleanRestirGiBlueNoise.GetInteger() != 0) ? 1u : 0u;
     tail.blueNoisePadding0 = 0u;
     tail.blueNoisePadding1 = 0u;
-    tail.blueNoisePadding2 = 0u;
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's

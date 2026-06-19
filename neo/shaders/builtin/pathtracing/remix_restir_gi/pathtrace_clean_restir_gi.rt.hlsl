@@ -368,6 +368,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     float CleanRestirGiContinuationDirectProbability;
     float CleanRestirGiSecondaryDirectProbability;
     uint CleanRestirGiContinuationOpaqueTrace;
+    uint CleanRestirGiProducerOpaqueTrace;
     uint CleanRestirGiSecondaryDirectSamples;
     float CleanRestirGiContributionFireflyThreshold;
     // Runtime blue-noise toggle (RGI). The shader is statically compiled with
@@ -378,7 +379,6 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiBlueNoiseEnabled;
     uint CleanRestirGiBlueNoisePadding0;
     uint CleanRestirGiBlueNoisePadding1;
-    uint CleanRestirGiBlueNoisePadding2;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -3485,7 +3485,8 @@ bool CleanGiBuildProducerSurface(
     payload.ignoreInstanceId = 0xffffffffu;
     payload.ignorePrimitiveIndex = 0xffffffffu;
     payload.ignoreMaterialIndex = 0xffffffffu;
-    TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 1, 0, bounceRay, payload);
+    const uint rayFlags = CleanRestirGiProducerOpaqueTrace != 0u ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
+    TraceRay(SmokeScene, rayFlags, 0xff, 0, 1, 0, bounceRay, payload);
     if (payload.value == 0u)
     {
         return false; // miss: zero radiance, invalid hit geometry
