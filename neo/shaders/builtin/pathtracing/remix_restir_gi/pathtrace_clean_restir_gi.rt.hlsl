@@ -4550,6 +4550,58 @@ void ProducerTraceRayGen()
     CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, 0.0);
 }
 
+// Correctness fallback for the inline ray-query producer experiment: the
+// ray-query path currently covers glossy/specular-eligible surfaces correctly,
+// but rough diffuse surfaces need the known-good trace path until the pure
+// query producer is fixed.
+[shader("raygeneration")]
+void ProducerTraceRoughFallbackRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+    if (!surfaceValid)
+    {
+        return;
+    }
+
+    RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+    if (CleanGiSurfaceSupportsSpecularProducer(surface))
+    {
+        return;
+    }
+
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+    CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
+    float3 hitPosition = float3(0.0, 0.0, 0.0);
+    float3 hitNormal = float3(0.0, 0.0, 0.0);
+
+    const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+    const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
+    const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+    const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
+    const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+
+    RAB_Surface secondarySurface;
+    if (CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+    {
+        gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+        hitPosition = secondarySurface.worldPos;
+        hitNormal = secondarySurface.shadingNormal;
+    }
+
+    CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
+    CleanRestirGiProducerHitPosition[pixel] = float4(hitPosition, gbuf.valid != 0u ? 1.0 : 0.0);
+    CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, 0.0);
+}
+
 // Pass B of the producer trace/shade split: load the surface produced by the
 // trace pass and run the divergent direct-NEE (the 4-way light sampling +
 // shadow rays). Isolated from the bounce-trace/geometry machinery.
