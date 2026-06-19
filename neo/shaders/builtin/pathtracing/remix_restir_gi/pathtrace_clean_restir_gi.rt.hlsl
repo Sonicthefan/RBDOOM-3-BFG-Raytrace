@@ -4155,6 +4155,11 @@ float3 PathTraceCleanRestirGiSentinelColor(uint2 pixel)
     return roundTripOk ? float3(0.05, pulse, 0.25) : float3(1.0, 0.0, 0.0);
 }
 
+bool CleanGiSeedPassSkipsView(uint view)
+{
+    return view == 1u || view == 2u || view == 9u || view == 10u;
+}
+
 // Pass A of the producer trace/shade split: trace the indirect bounce, rebuild
 // the secondary surface, and stash it in CleanGiProducerSurfaceBuffer. No
 // direct lighting / shadow rays here, so this entry point stays narrow.
@@ -4337,6 +4342,126 @@ void ProducerShadeRayGen()
 // clear the temporal contract depends on); the expensive seeds self-gate on
 // their cvars. Runs after the diffuse producer, before the temporal contract.
 [shader("raygeneration")]
+void SeedNoSpecRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint view = CleanRestirGiView;
+    if (CleanGiSeedPassSkipsView(view))
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+
+    RAB_StoreGIReservoir(RTXDI_EmptyGIReservoir(), int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+    CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
+}
+
+[shader("raygeneration")]
+void SpecularSeedTraceRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
+    const uint view = CleanRestirGiView;
+    if (!CleanGiSeedPassSkipsView(view) && CleanRestirGiSpecularProducerEnabled != 0u)
+    {
+        PathTracePrimarySurfaceRecord record;
+        const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+        if (surfaceValid)
+        {
+            RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
+            const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+            float3 bounceDir;
+            float solidAnglePdf;
+            if (CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, solidAnglePdf))
+            {
+                RAB_Surface secondarySurface;
+                if (CleanGiBuildProducerSurface(
+                    RAB_GetSurfaceWorldPos(surface),
+                    RAB_GetSurfaceGeoNormal(surface),
+                    bounceDir,
+                    solidAnglePdf,
+                    secondarySurface))
+                {
+                    gbuf = CleanGiPackProducerSurface(secondarySurface, true);
+                }
+            }
+        }
+    }
+
+    CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
+}
+
+[shader("raygeneration")]
+void SpecularSeedShadeRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint view = CleanRestirGiView;
+    if (CleanGiSeedPassSkipsView(view) || CleanRestirGiSpecularProducerEnabled == 0u)
+    {
+        return;
+    }
+
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+    const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+    if (gbuf.valid == 0u)
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+    if (!surfaceValid)
+    {
+        return;
+    }
+
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
+    {
+        return;
+    }
+
+    RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
+    RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
+    // The trace pass consumed the two specular half-vector randoms.
+    RAB_GetNextRandom(rng);
+    RAB_GetNextRandom(rng);
+
+    const float3 radiance = CleanGiShadeProducerSurface(secondarySurface, true, rng);
+    CleanGiProducerResult producer = (CleanGiProducerResult)0;
+    if (CleanGiAllFinite3(radiance))
+    {
+        producer.valid = 1u;
+        producer.radiance = max(radiance, float3(0.0, 0.0, 0.0));
+        producer.pathLength = secondarySurface.linearDepth;
+        producer.hitPosition = secondarySurface.worldPos;
+        producer.hitNormal = secondarySurface.shadingNormal;
+    }
+    CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
+}
+
+[shader("raygeneration")]
 void SeedRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
@@ -4347,7 +4472,7 @@ void SeedRayGen()
     }
 
     const uint view = CleanRestirGiView;
-    if (view == 1u || view == 2u || view == 9u || view == 10u)
+    if (CleanGiSeedPassSkipsView(view))
     {
         return;
     }
