@@ -43,6 +43,10 @@ struct PathTraceCleanRestirGiState
     bool blueNoiseInitAttempted = false;
     bool blueNoiseValid = false;                 // true only when the mask loaded and uploaded
     bool blueNoiseUploaded = false;
+    nvrhi::ShaderHandle temporalComputeShader;
+    nvrhi::BindingLayoutHandle temporalComputeBindingLayout;
+    nvrhi::ComputePipelineHandle temporalComputePipeline;
+    bool temporalComputeInitAttempted = false;
     nvrhi::BufferHandle boilingFilterConstantsBuffer;
     nvrhi::ShaderHandle boilingFilterShader;
     nvrhi::BindingLayoutHandle boilingFilterBindingLayout;
