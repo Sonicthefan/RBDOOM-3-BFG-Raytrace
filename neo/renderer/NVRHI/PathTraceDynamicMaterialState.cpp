@@ -32,8 +32,10 @@ struct RtSmokeMaterialTableCache
 RtSmokeMaterialTableCache g_smokeMaterialTableCache;
 RtSmokeMaterialTableBuildStats g_smokeMaterialTableBuildStats;
 std::unordered_set<uint32_t> g_smokeZeroRoughnessMaterialOverrides;
+std::unordered_set<uint32_t> g_smokeFullMetalMaterialOverrides;
 uint32_t g_smokeMaterialOverrideGeneration = 1u;
 bool g_smokeCrosshairZeroRoughnessToggleRequested = false;
+bool g_smokeCrosshairFullMetalToggleRequested = false;
 
 uint64 HashSmokeMaterialCacheValue(uint64 hash, uint64 value)
 {
@@ -168,6 +170,57 @@ int SmokeMaterialZeroRoughnessOverrideCount()
     return static_cast<int>(g_smokeZeroRoughnessMaterialOverrides.size());
 }
 
+void ArmSmokeCrosshairFullMetalToggle()
+{
+    g_smokeCrosshairFullMetalToggleRequested = true;
+}
+
+bool ConsumeSmokeCrosshairFullMetalToggleRequest()
+{
+    const bool requested = g_smokeCrosshairFullMetalToggleRequested;
+    g_smokeCrosshairFullMetalToggleRequested = false;
+    return requested;
+}
+
+bool ToggleSmokeMaterialFullMetalOverride(uint32_t materialId, const char* materialName)
+{
+    if (materialId == 0u)
+    {
+        common->Printf("PathTracePrimaryPass: full-metal material toggle ignored invalid material id 0\n");
+        return false;
+    }
+
+    const auto existing = g_smokeFullMetalMaterialOverrides.find(materialId);
+    const bool enabled = existing == g_smokeFullMetalMaterialOverrides.end();
+    if (enabled)
+    {
+        g_smokeFullMetalMaterialOverrides.insert(materialId);
+    }
+    else
+    {
+        g_smokeFullMetalMaterialOverrides.erase(existing);
+    }
+
+    ++g_smokeMaterialOverrideGeneration;
+    common->Printf("PathTracePrimaryPass: full-metal material override %s material='%s' id=%u activeOverrides=%d generation=%u\n",
+        enabled ? "enabled" : "disabled",
+        materialName && materialName[0] ? materialName : "<unknown>",
+        materialId,
+        static_cast<int>(g_smokeFullMetalMaterialOverrides.size()),
+        g_smokeMaterialOverrideGeneration);
+    return enabled;
+}
+
+bool SmokeMaterialHasFullMetalOverride(uint32_t materialId)
+{
+    return g_smokeFullMetalMaterialOverrides.find(materialId) != g_smokeFullMetalMaterialOverrides.end();
+}
+
+int SmokeMaterialFullMetalOverrideCount()
+{
+    return static_cast<int>(g_smokeFullMetalMaterialOverrides.size());
+}
+
 uint32_t SmokeMaterialOverrideGeneration()
 {
     return g_smokeMaterialOverrideGeneration;
@@ -206,6 +259,10 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
     if (SmokeMaterialHasZeroRoughnessOverride(materialId))
     {
         material.padding0 |= RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS;
+    }
+    if (SmokeMaterialHasFullMetalOverride(materialId))
+    {
+        material.padding0 |= RT_SMOKE_MATERIAL_OVERRIDE_FULL_METAL;
     }
     if (r_pathTracingMatClassEnable.GetInteger() != 0)
     {

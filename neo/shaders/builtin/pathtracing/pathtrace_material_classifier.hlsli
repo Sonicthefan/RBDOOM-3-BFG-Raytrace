@@ -15,6 +15,7 @@ static const uint RT_MATCLASS_SURFACE_CLASS_METAL = 1u;
 static const uint RT_MATCLASS_SURFACE_CLASS_RICOCHET = 9u;
 static const uint RT_MATCLASS_SURFACE_CLASS_SPECIAL = 10u;
 static const uint RT_MATCLASS_EMISSIVE_INTENT = 0x02000000u;
+static const uint RT_SMOKE_MATERIAL_OVERRIDE_FULL_METAL = 0x00001000u;
 static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DRIVE_LEGACY_SPEC = 0x00000002u;
 static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS = 0x00000004u;
 static const uint RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR = 0x00000008u;
@@ -94,6 +95,22 @@ uint SmokeMatClassDynamicFlags(PathTraceSmokeMaterial material)
 bool SmokeMatClassNeedsDynamicInstance(PathTraceSmokeMaterial material)
 {
     return SmokeMatClassDynamicFlags(material) != 0u;
+}
+
+bool SmokeMaterialHasFullMetalOverride(PathTraceSmokeMaterial material)
+{
+    return (material.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_FULL_METAL) != 0u;
+}
+
+void SmokeApplyFullMetalOverride(PathTraceSmokeMaterial material, inout float3 albedo, inout float3 specularF0)
+{
+    if (!SmokeMaterialHasFullMetalOverride(material))
+    {
+        return;
+    }
+
+    specularF0 = saturate(albedo);
+    albedo = float3(0.0, 0.0, 0.0);
 }
 
 float3 SmokeMatClassDynamicDebugColor(PathTraceSmokeMaterial material)

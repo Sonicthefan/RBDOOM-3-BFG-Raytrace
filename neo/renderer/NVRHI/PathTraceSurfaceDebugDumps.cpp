@@ -56,6 +56,50 @@ void ProcessSmokeCrosshairZeroRoughnessToggle(const viewDef_t* viewDef)
         materialId);
 }
 
+void ProcessSmokeCrosshairFullMetalToggle(const viewDef_t* viewDef)
+{
+    if (!ConsumeSmokeCrosshairFullMetalToggleRequest())
+    {
+        return;
+    }
+
+    idVec3 hitPoint = vec3_origin;
+    int surfaceIndex = -1;
+    int triangleIndex = -1;
+    if (!FindCenterCameraRayAnchor(viewDef, hitPoint, surfaceIndex, triangleIndex))
+    {
+        common->Printf("PathTracePrimaryPass: crosshair full-metal toggle found no center-ray hit\n");
+        return;
+    }
+
+    if (!viewDef || surfaceIndex < 0 || surfaceIndex >= viewDef->numDrawSurfs)
+    {
+        common->Printf("PathTracePrimaryPass: crosshair full-metal toggle invalid hit surface=%d triangle=%d\n", surfaceIndex, triangleIndex);
+        return;
+    }
+
+    const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+    const srfTriangles_t* tri = nullptr;
+    if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, nullptr) || !drawSurf || !drawSurf->material || !tri)
+    {
+        common->Printf("PathTracePrimaryPass: crosshair full-metal toggle failed validation surface=%d triangle=%d\n", surfaceIndex, triangleIndex);
+        return;
+    }
+
+    const idMaterial* material = drawSurf->material;
+    const uint32_t materialId = SmokeMaterialId(material);
+    const bool enabled = ToggleSmokeMaterialFullMetalOverride(materialId, material->GetName());
+    common->Printf("PathTracePrimaryPass: crosshair full-metal toggle %s surface=%d triangle=%d point=(%.2f %.2f %.2f) material='%s' id=%u\n",
+        enabled ? "enabled" : "disabled",
+        surfaceIndex,
+        triangleIndex,
+        hitPoint.x,
+        hitPoint.y,
+        hitPoint.z,
+        material->GetName(),
+        materialId);
+}
+
 
 void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table)
 {
@@ -190,13 +234,14 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
     if (tableIndex >= 0 && tableIndex < static_cast<int>(table.materials.size()))
     {
         const PathTraceSmokeMaterial& rtMaterial = table.materials[tableIndex];
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair RT material debugAlbedo=(%.2f %.2f %.2f %.2f) flags=0x%08x overrideZeroRoughness=%d materialPadding0=0x%08x diffuseSlot=%d alphaSlot=%d normalSlot=%d specSlot=%d emissiveSlot=%d alphaCutoff=%.3f\n",
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair RT material debugAlbedo=(%.2f %.2f %.2f %.2f) flags=0x%08x overrideZeroRoughness=%d overrideFullMetal=%d materialPadding0=0x%08x diffuseSlot=%d alphaSlot=%d normalSlot=%d specSlot=%d emissiveSlot=%d alphaCutoff=%.3f\n",
             rtMaterial.debugAlbedo[0],
             rtMaterial.debugAlbedo[1],
             rtMaterial.debugAlbedo[2],
             rtMaterial.debugAlbedo[3],
             rtMaterial.flags,
             SmokeMaterialHasZeroRoughnessOverride(materialId) ? 1 : 0,
+            SmokeMaterialHasFullMetalOverride(materialId) ? 1 : 0,
             rtMaterial.padding0,
             rtMaterial.diffuseTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.diffuseTextureIndex),
             rtMaterial.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.alphaTextureIndex),

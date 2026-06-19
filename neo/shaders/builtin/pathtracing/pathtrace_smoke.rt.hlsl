@@ -1181,7 +1181,7 @@ float4 EvaluateSmokeMaterialClassifierDebug(PathTraceSmokePayload payload, uint2
 
     return float4(
         0.0,
-        SmokeMatClassMetallic(material),
+        SmokeMaterialHasFullMetalOverride(material) ? 1.0 : SmokeMatClassMetallic(material),
         SmokeMatClassTransmission(material),
         1.0);
 }
@@ -1280,10 +1280,15 @@ bool BuildSmokeReflectionBounce(
     BuildSmokeSpecularLobe(specularColor, F0, roughness);
     float3 albedo = SampleSmokeSurfaceAlbedo(material, payload.texCoord, payload.surfaceClass, payload.translucentSubtype, payload.vertexColor, payload.vertexColorAdd).rgb;
     SmokeApplyMaterialClassifierBsdfWithSpecularTexel(material, albedo, saturate(specularColor), F0, roughness);
+    const bool fullMetalOverride = SmokeMaterialHasFullMetalOverride(material);
+    SmokeApplyFullMetalOverride(material, albedo, F0);
     if ((material.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;
-        F0 = max(F0, float3(0.85, 0.85, 0.85));
+        if (!fullMetalOverride)
+        {
+            F0 = max(F0, float3(0.85, 0.85, 0.85));
+        }
     }
     const float f0Max = max(max(F0.r, F0.g), F0.b);
     const float roughnessLimit = PathTraceIntegratorReflectionMode() >= 2u ? 0.72 : 0.36;

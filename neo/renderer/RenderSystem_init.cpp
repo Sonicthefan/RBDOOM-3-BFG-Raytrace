@@ -1686,6 +1686,12 @@ static void R_PathTraceToggleCrosshairZeroRoughness_f( const idCmdArgs& args )
 	common->Printf( "PathTracePrimaryPass: armed crosshair zero-roughness material toggle for the next RT smoke frame\n" );
 }
 
+static void R_PathTraceToggleCrosshairFullMetal_f( const idCmdArgs& args )
+{
+	ArmSmokeCrosshairFullMetalToggle();
+	common->Printf( "PathTracePrimaryPass: armed crosshair full-metal material toggle for the next RT smoke frame\n" );
+}
+
 
 /*
 =================
@@ -1710,6 +1716,8 @@ void R_InitCommands()
 	cmdSystem->AddCommand( "reportSurfaceAreas", R_ReportSurfaceAreas_f, CMD_FL_RENDERER, "lists all used materials sorted by surface area" );
 	cmdSystem->AddCommand( "pathTraceToggleCrosshairZeroRoughness", R_PathTraceToggleCrosshairZeroRoughness_f, CMD_FL_RENDERER, "toggles PT zero-roughness override for the material under the crosshair on the next path-traced frame" );
 	cmdSystem->AddCommand( "pathtracetogglecrosshairzeroroughness", R_PathTraceToggleCrosshairZeroRoughness_f, CMD_FL_RENDERER, "toggles PT zero-roughness override for the material under the crosshair on the next path-traced frame" );
+	cmdSystem->AddCommand( "pathTraceToggleCrosshairFullMetal", R_PathTraceToggleCrosshairFullMetal_f, CMD_FL_RENDERER, "toggles PT full-metal override for the material under the crosshair on the next path-traced frame" );
+	cmdSystem->AddCommand( "pathtracetogglecrosshairfullmetal", R_PathTraceToggleCrosshairFullMetal_f, CMD_FL_RENDERER, "toggles PT full-metal override for the material under the crosshair on the next path-traced frame" );
 	cmdSystem->AddCommand( "showInteractionMemory", R_ShowInteractionMemory_f, CMD_FL_RENDERER, "shows memory used by interactions" );
 	cmdSystem->AddCommand( "vid_restart", R_VidRestart_f, CMD_FL_RENDERER, "restarts renderSystem" );
 	cmdSystem->AddCommand( "listRenderEntityDefs", R_ListRenderEntityDefs_f, CMD_FL_RENDERER, "lists the entity defs" );

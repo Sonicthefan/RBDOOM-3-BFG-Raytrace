@@ -760,10 +760,15 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
         SmokePBRFromSpecmap(saturate(specularColor), specularF0, roughness);
     }
     SmokeApplyMaterialClassifierBsdfWithSpecularTexel(smokeMaterial, materialAlbedo, saturate(specularColor), specularF0, roughness);
+    const bool fullMetalOverride = SmokeMaterialHasFullMetalOverride(smokeMaterial);
+    SmokeApplyFullMetalOverride(smokeMaterial, materialAlbedo, specularF0);
     if ((smokeMaterial.padding0 & RT_SMOKE_MATERIAL_OVERRIDE_ZERO_ROUGHNESS) != 0u)
     {
         roughness = 0.0;
-        specularF0 = max(specularF0, float3(0.85, 0.85, 0.85));
+        if (!fullMetalOverride)
+        {
+            specularF0 = max(specularF0, float3(0.85, 0.85, 0.85));
+        }
     }
     const bool activeEmissiveStage = (payload.triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) == 0u;
 

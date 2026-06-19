@@ -3020,6 +3020,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     ProcessSmokeCrosshairZeroRoughnessToggle(viewDef);
+    ProcessSmokeCrosshairFullMetalToggle(viewDef);
 
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
