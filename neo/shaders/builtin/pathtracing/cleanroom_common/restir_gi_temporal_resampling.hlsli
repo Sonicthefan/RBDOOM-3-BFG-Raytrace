@@ -114,10 +114,12 @@ bool RBPT_GITemporalFindHistory(
     RTXDI_GITemporalResamplingParameters tparams,
     inout RTXDI_RandomSamplerState rng,
     out RTXDI_GIReservoir historyReservoir,
-    out RAB_Surface historySurface)
+    out float3 historySurfacePos,
+    out int2 historyPixel)
 {
     historyReservoir = RTXDI_EmptyGIReservoir();
-    historySurface = RAB_EmptySurface();
+    historySurfacePos = float3(0.0, 0.0, 0.0);
+    historyPixel = int2(0, 0);
 
     int2 basePixel = int2(round(float2(pixelPosition) + screenSpaceMotion.xy));
     if (tparams.enablePermutationSampling != 0u)
@@ -162,7 +164,8 @@ bool RBPT_GITemporalFindHistory(
         }
 
         historyReservoir = candidate;
-        historySurface = previousSurface;
+        historySurfacePos = RAB_GetSurfaceWorldPos(previousSurface);
+        historyPixel = candidatePixel;
         return true;
     }
     return false;
@@ -185,7 +188,8 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     }
 
     RTXDI_GIReservoir historyReservoir;
-    RAB_Surface historySurface;
+    float3 historySurfacePos;
+    int2 historyPixel;
     if (!RBPT_GITemporalFindHistory(
         pixelPosition,
         surface,
@@ -196,7 +200,8 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
         tparams,
         rng,
         historyReservoir,
-        historySurface))
+        historySurfacePos,
+        historyPixel))
     {
         return inputReservoir;
     }
@@ -226,7 +231,6 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
     // J to one-frame neighbor proposals; temporal history must only reject
     // inadmissible shifts until exact Remix gradient/visibility validation
     // exists.
-    const float3 historySurfacePos = RAB_GetSurfaceWorldPos(historySurface);
     const float jHistoryToCurrent = RBPT_GITemporalReconnectionJacobian(
         historySurfacePos, receiverPos, historyReservoir);
     const bool historyJacobianValid = RBPT_GITemporalValidateJacobian(jHistoryToCurrent);
@@ -296,10 +300,14 @@ RTXDI_GIReservoir RTXDI_GITemporalResampling(
             Z += canonicalM;
             const float jSelectedToHistory = RBPT_GITemporalReconnectionJacobian(
                 receiverPos, historySurfacePos, selected);
-            const float selectedTargetAtHistory =
-                RBPT_GITemporalValidateJacobian(jSelectedToHistory)
+            float selectedTargetAtHistory = 0.0;
+            if (RBPT_GITemporalValidateJacobian(jSelectedToHistory))
+            {
+                const RAB_Surface historySurface = RAB_GetGBufferSurface(historyPixel, true);
+                selectedTargetAtHistory = RAB_IsSurfaceValid(historySurface)
                     ? RAB_GetGISampleTargetPdfForSurface(selected.position, selected.radiance, historySurface)
                     : 0.0;
+            }
             if (selectedTargetAtHistory > 0.0)
             {
                 Z += historyM;
