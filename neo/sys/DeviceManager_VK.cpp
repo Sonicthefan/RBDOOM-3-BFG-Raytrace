@@ -249,7 +249,12 @@ private:
 			VK_EXT_LAYER_SETTINGS_EXTENSION_NAME,
 #endif
 			VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME,
-			VK_EXT_DEBUG_REPORT_EXTENSION_NAME
+			VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
+			// RB: VK_EXT_debug_utils lets NVRHI emit named command-buffer regions
+			// (idRenderLog markers) and object names (resource debugNames) so GPU
+			// profilers like Nsight Graphics can label passes and resources.
+			// Negligible overhead when no profiler is attached; auto-enabled if supported.
+			VK_EXT_DEBUG_UTILS_EXTENSION_NAME
 		},
 		// layers
 		{ },

@@ -165,6 +165,7 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(39));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(40));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(80));
+        layoutDesc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(92)); // producer trace/shade G-buffer
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(81));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(82));
         layoutDesc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(83));
@@ -184,7 +185,9 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         }
     }
 
-    nvrhi::ShaderHandle producerRayGen = state.shaderLibrary->getShader("ProducerRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerTraceRayGen = state.shaderLibrary->getShader("ProducerTraceRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerShadeRayGen = state.shaderLibrary->getShader("ProducerShadeRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle seedRayGen = state.shaderLibrary->getShader("SeedRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle reuseRayGen = state.shaderLibrary->getShader("ReuseRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle miss = state.shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss);
     nvrhi::ShaderHandle shadowMiss = state.shaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss);
@@ -192,7 +195,7 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     nvrhi::ShaderHandle anyHit = state.shaderLibrary->getShader("AnyHit", nvrhi::ShaderType::AnyHit);
     nvrhi::ShaderHandle shadowClosestHit = state.shaderLibrary->getShader("ShadowClosestHit", nvrhi::ShaderType::ClosestHit);
     nvrhi::ShaderHandle shadowAnyHit = state.shaderLibrary->getShader("ShadowAnyHit", nvrhi::ShaderType::AnyHit);
-    if (!producerRayGen || !reuseRayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
+    if (!producerTraceRayGen || !producerShadeRayGen || !seedRayGen || !reuseRayGen || !miss || !shadowMiss || !closestHit || !anyHit || !shadowClosestHit || !shadowAnyHit)
     {
         common->Printf("PathTraceCleanRestirGi: GI shader library is missing required entry points\n");
         return false;
@@ -201,7 +204,9 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     nvrhi::rt::PipelineDesc pipelineDesc;
     pipelineDesc.globalBindingLayouts = { state.bindingLayout, inputs.textureBindlessLayout };
     pipelineDesc.shaders = {
-        { "", producerRayGen, nullptr },
+        { "", producerTraceRayGen, nullptr },
+        { "", producerShadeRayGen, nullptr },
+        { "", seedRayGen, nullptr },
         { "", reuseRayGen, nullptr },
         { "", miss, nullptr },
         { "", shadowMiss, nullptr }
@@ -221,18 +226,32 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         return false;
     }
     state.producerShaderTable = state.pipeline->createShaderTable();
+    state.shadeShaderTable = state.pipeline->createShaderTable();
+    state.seedShaderTable = state.pipeline->createShaderTable();
     state.reuseShaderTable = state.pipeline->createShaderTable();
-    if (!state.producerShaderTable || !state.reuseShaderTable)
+    if (!state.producerShaderTable || !state.shadeShaderTable || !state.seedShaderTable || !state.reuseShaderTable)
     {
         common->Printf("PathTraceCleanRestirGi: failed to create GI shader table\n");
         state.pipeline = nullptr;
         return false;
     }
-    state.producerShaderTable->setRayGenerationShader("ProducerRayGen");
+    state.producerShaderTable->setRayGenerationShader("ProducerTraceRayGen");
     state.producerShaderTable->addMissShader("Miss");
     state.producerShaderTable->addMissShader("ShadowMiss");
     state.producerShaderTable->addHitGroup("HitGroup");
     state.producerShaderTable->addHitGroup("ShadowHitGroup");
+
+    state.shadeShaderTable->setRayGenerationShader("ProducerShadeRayGen");
+    state.shadeShaderTable->addMissShader("Miss");
+    state.shadeShaderTable->addMissShader("ShadowMiss");
+    state.shadeShaderTable->addHitGroup("HitGroup");
+    state.shadeShaderTable->addHitGroup("ShadowHitGroup");
+
+    state.seedShaderTable->setRayGenerationShader("SeedRayGen");
+    state.seedShaderTable->addMissShader("Miss");
+    state.seedShaderTable->addMissShader("ShadowMiss");
+    state.seedShaderTable->addHitGroup("HitGroup");
+    state.seedShaderTable->addHitGroup("ShadowHitGroup");
 
     state.reuseShaderTable->setRayGenerationShader("ReuseRayGen");
     state.reuseShaderTable->addMissShader("Miss");
@@ -428,6 +447,7 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         state.producerRadianceTexture &&
         state.producerHitPositionTexture &&
         state.producerHitNormalTexture &&
+        state.producerSurfaceBuffer &&
         state.indirectDiffuseTexture &&
         state.indirectDiffuseLobeTexture &&
         state.indirectSpecularLobeTexture &&
@@ -467,7 +487,20 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         producerDesc.debugName = "PathTraceCleanRestirGiIndirectSpecularLobe";
         state.indirectSpecularLobeTexture = inputs.device->createTexture(producerDesc);
 
+        // Trace->shade G-buffer: one packed CleanGiProducerSurface per pixel.
+        // structStride MUST match sizeof(CleanGiProducerSurface) in
+        // pathtrace_clean_restir_gi.rt.hlsl (144 bytes).
+        nvrhi::BufferDesc surfaceBufferDesc;
+        surfaceBufferDesc.byteSize = uint64_t(width) * uint64_t(height) * 144ull;
+        surfaceBufferDesc.structStride = 144;
+        surfaceBufferDesc.canHaveUAVs = true;
+        surfaceBufferDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
+        surfaceBufferDesc.keepInitialState = true;
+        surfaceBufferDesc.debugName = "PathTraceCleanRestirGiProducerSurface";
+        state.producerSurfaceBuffer = inputs.device->createBuffer(surfaceBufferDesc);
+
         if (!state.producerRadianceTexture || !state.producerHitPositionTexture || !state.producerHitNormalTexture ||
+            !state.producerSurfaceBuffer ||
             !state.indirectDiffuseTexture || !state.indirectDiffuseLobeTexture || !state.indirectSpecularLobeTexture)
         {
             common->Printf("PathTraceCleanRestirGi: failed to create GI producer textures (%ux%u)\n", width, height);
@@ -549,6 +582,7 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     producerRadianceTexture = nullptr;
     producerHitPositionTexture = nullptr;
     producerHitNormalTexture = nullptr;
+    producerSurfaceBuffer = nullptr;
     indirectDiffuseTexture = nullptr;
     indirectDiffuseLobeTexture = nullptr;
     indirectSpecularLobeTexture = nullptr;
@@ -568,6 +602,8 @@ void PathTraceCleanRestirGiState::ReleaseResources()
     pipeline = nullptr;
     shaderTable = nullptr;
     producerShaderTable = nullptr;
+    shadeShaderTable = nullptr;
+    seedShaderTable = nullptr;
     reuseShaderTable = nullptr;
     pipelineInitAttempted = false;
 }
@@ -773,6 +809,7 @@ bool PathTraceCleanRestirGiExecute(
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(39, inputs.motionVectorTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(40, inputs.motionVectorMaskTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(80, state.reservoirBuffer));
+    bindingSetDesc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(92, state.producerSurfaceBuffer));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(81, state.producerRadianceTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(82, state.producerHitPositionTexture));
     bindingSetDesc.addItem(nvrhi::BindingSetItem::Texture_UAV(83, state.producerHitNormalTexture));
@@ -793,6 +830,10 @@ bool PathTraceCleanRestirGiExecute(
     }
 
     nvrhi::ICommandList* commandList = inputs.commandList;
+    // GPU profiler markers: split the GI raygen dispatches so Nsight resolves
+    // producer/temporal/spatial individually instead of one merged "raygen" bar.
+    // No-op unless VK_EXT_debug_utils is enabled and the cvar is set.
+    const bool nsightGpuMarkers = r_pathTracingNsightGpuMarkers.GetInteger() != 0;
     if (state.blueNoiseValid && !state.blueNoiseUploaded && !state.blueNoiseBlob.empty())
     {
         const uint32_t size = CLEAN_RESTIR_GI_BLUE_NOISE_SIZE;
@@ -879,6 +920,7 @@ bool PathTraceCleanRestirGiExecute(
     commandList->setTextureState(state.producerHitPositionTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(state.producerHitNormalTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(state.reservoirBuffer, nvrhi::ResourceStates::UnorderedAccess);
+    commandList->setBufferState(state.producerSurfaceBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfaceCurrentBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setBufferState(inputs.primarySurfacePreviousBuffer, nvrhi::ResourceStates::UnorderedAccess);
     commandList->setTextureState(inputs.motionVectorTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
@@ -926,21 +968,53 @@ bool PathTraceCleanRestirGiExecute(
 
     // Remix-shaped split: first produce indirect candidate radiance/hit
     // geometry, then run GI reuse/final shading as a separate consumer pass.
-    nvrhi::rt::State producerState;
-    producerState.shaderTable = state.producerShaderTable;
-    producerState.bindings = { bindingSet, inputs.textureDescriptorTable };
-    commandList->setRayTracingState(producerState);
+    // The producer itself is further split into a narrow trace pass (bounce +
+    // surface G-buffer) and a shade pass (divergent direct-NEE) so each raygen
+    // entry point is small enough to schedule at higher occupancy than the old
+    // combined producer megakernel.
+    nvrhi::rt::State producerTraceState;
+    producerTraceState.shaderTable = state.producerShaderTable;
+    producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
+    if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerTrace DispatchRays"); }
+    commandList->setRayTracingState(producerTraceState);
     commandList->dispatchRays(giArgs);
+    if (nsightGpuMarkers) { commandList->endMarker(); }
 
-    nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
+    // Trace outputs consumed by the shade pass: the surface G-buffer + hit
+    // geometry textures.
+    nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
     nvrhi::utils::TextureUavBarrier(commandList, state.producerHitPositionTexture);
     nvrhi::utils::TextureUavBarrier(commandList, state.producerHitNormalTexture);
+
+    nvrhi::rt::State producerShadeState;
+    producerShadeState.shaderTable = state.shadeShaderTable;
+    producerShadeState.bindings = { bindingSet, inputs.textureDescriptorTable };
+    if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0b IndirectProducerShade DispatchRays"); }
+    commandList->setRayTracingState(producerShadeState);
+    commandList->dispatchRays(giArgs);
+    if (nsightGpuMarkers) { commandList->endMarker(); }
+
+    nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
+
+    // INIT-page seed pass: clears + merges the specular/NEE producer seeds before
+    // the temporal contract reads the INIT page. Holds the heavy specular
+    // producer trace+shade out of the (previously dominant) temporal entry point.
+    nvrhi::rt::State seedState;
+    seedState.shaderTable = state.seedShaderTable;
+    seedState.bindings = { bindingSet, inputs.textureDescriptorTable };
+    if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0c InitSeed DispatchRays"); }
+    commandList->setRayTracingState(seedState);
+    commandList->dispatchRays(giArgs);
+    if (nsightGpuMarkers) { commandList->endMarker(); }
+    nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
 
     nvrhi::rt::State reuseState;
     reuseState.shaderTable = state.reuseShaderTable;
     reuseState.bindings = { bindingSet, inputs.textureDescriptorTable };
+    if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.1 TemporalReuse DispatchRays"); }
     commandList->setRayTracingState(reuseState);
     commandList->dispatchRays(giArgs);
+    if (nsightGpuMarkers) { commandList->endMarker(); }
 
     nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
     nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
@@ -962,8 +1036,10 @@ bool PathTraceCleanRestirGiExecute(
         tail.phase = 1u;
         std::memcpy(constants + CLEAN_RESTIR_GI_DI_BLOB_SIZE, &tail, sizeof(tail));
         commandList->writeBuffer(state.constantsBuffer, constants, sizeof(constants));
+        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.2 SpatialReuse DispatchRays"); }
         commandList->setRayTracingState(reuseState);
         commandList->dispatchRays(giArgs);
+        if (nsightGpuMarkers) { commandList->endMarker(); }
         nvrhi::utils::TextureUavBarrier(commandList, inputs.outputTexture);
         nvrhi::utils::BufferUavBarrier(commandList, state.reservoirBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
@@ -1017,11 +1093,13 @@ bool PathTraceCleanRestirGiExecute(
             nvrhi::ComputeState filterState;
             filterState.pipeline = state.boilingFilterPipeline;
             filterState.bindings = { filterSet };
+            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.3 BoilingFilter Dispatch"); }
             commandList->setComputeState(filterState);
             commandList->dispatch(
                 static_cast<uint32_t>((inputs.width + 7) / 8),
                 static_cast<uint32_t>((inputs.height + 7) / 8),
                 1);
+            if (nsightGpuMarkers) { commandList->endMarker(); }
             nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseTexture);
             nvrhi::utils::TextureUavBarrier(commandList, state.indirectDiffuseLobeTexture);
             nvrhi::utils::TextureUavBarrier(commandList, state.indirectSpecularLobeTexture);

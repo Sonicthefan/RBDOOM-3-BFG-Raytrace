@@ -225,6 +225,38 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiProducerHitNormal : 
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : register(u84);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuseLobe : register(u85);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe : register(u86);
+
+// Deferred-shading G-buffer for the producer trace/shade split.
+// ProducerTraceRayGen reconstructs the secondary-hit surface and stores it here;
+// ProducerShadeRayGen reads it back to run the divergent direct-NEE without
+// re-deriving geometry/material, keeping each raygen entry point narrow.
+// Mirrors RAB_Surface (+ RAB_Material) exactly so reconstruction is lossless.
+struct CleanGiProducerSurface
+{
+    float3 worldPos;
+    uint valid;
+    float3 geometryNormal;
+    float linearDepth;
+    float3 shadingNormal;
+    uint materialId;
+    float3 viewDir;
+    uint materialIndex;
+    float3 diffuseAlbedo;
+    float roughness;
+    float3 specularF0;
+    float opacity;
+    float3 emissiveRadiance;
+    float alphaCutoff;
+    uint instanceId;
+    uint primitiveIndex;
+    uint surfaceClass;
+    uint surfaceFlags;
+    uint materialFlags;
+    uint emissiveTextureIndex;
+    uint primarySampledSpecular;
+    uint pad0;
+};
+RWStructuredBuffer<CleanGiProducerSurface> CleanGiProducerSurfaceBuffer : register(u92);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> PathTraceRRGuideAlbedo : register(u48);
 VK_IMAGE_FORMAT("r32f") RWTexture2D<float> PathTraceRRGuideHitDistance : register(u51);
 VK_IMAGE_FORMAT("rgba32f") RWTexture2D<float4> PathTraceRRInputColor : register(u54);
@@ -2827,6 +2859,12 @@ bool CleanGiTraceMaterialSurfaceRay(
 
     const float3 hitPosition = ray.Origin + rayDirection * payload.hitT;
 
+    // Load hit material / class+flags once and reuse for the normal-map decode
+    // and shading (previously loaded twice per hit).
+    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
+
     float3 p0, p1, p2;
     float3 n0, n1, n2;
     float2 uv0, uv1, uv2;
@@ -2857,8 +2895,7 @@ bool CleanGiTraceMaterialSurfaceRay(
         hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
         hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
 
-        const uint hitTriangleClassAndFlagsForNormal = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
-        const bool forceGeometricNormal = (hitTriangleClassAndFlagsForNormal & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
+        const bool forceGeometricNormal = (hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
         float3 interpolatedNormal = CleanGiSafeNormalize(n0 * b0 + n1 * b1 + n2 * b2, localGeometricNormal);
         if (dot(interpolatedNormal, localGeometricNormal) < 0.0)
         {
@@ -2888,19 +2925,14 @@ bool CleanGiTraceMaterialSurfaceRay(
             }
         }
 
-        const uint hitMaterialIndexForNormal = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
-        const PathTraceSmokeMaterial hitMaterialForNormal = CleanGiLoadSmokeMaterial(hitMaterialIndexForNormal);
         hitShadingNormal = CleanGiConstrainShadingNormal(
-            CleanGiDecodeNormalTexture(hitMaterialForNormal, hitTexCoord, hitShadingNormal, hitTangent, hitBitangent),
+            CleanGiDecodeNormalTexture(hitMaterial, hitTexCoord, hitShadingNormal, hitTangent, hitBitangent),
             localGeometricNormal);
     }
 
-    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
     const uint hitMaterialId = CleanGiLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
     const uint hitSurfaceClass = CleanGiTriangleSurfaceClass(hitTriangleClassAndFlags);
     const uint hitTranslucentSubtype = CleanGiTriangleTranslucentSubtype(hitTriangleClassAndFlags);
-    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
     const RAB_Material hitRabMaterial = CleanGiBuildMaterialFromHit(
         hitMaterialId,
         hitMaterialIndex,
@@ -3194,19 +3226,86 @@ float3 CleanGiShadeSecondaryVertex(
     return CleanGiAllFinite3(radiance) ? max(radiance, float3(0.0, 0.0, 0.0)) : float3(0.0, 0.0, 0.0);
 }
 
-CleanGiProducerResult CleanGiTraceProducerRay(
+// --- Producer trace/shade split -------------------------------------------
+// CleanGiBuildProducerSurface does the bounce trace + geometry/material
+// reconstruction and returns the secondary RAB_Surface WITHOUT any direct
+// lighting. The expensive, divergent NEE shading lives in
+// CleanGiShadeProducerSurface. Keeping them as distinct functions lets the
+// trace and shade halves run as separate, narrower raygen entry points
+// (ProducerTraceRayGen / ProducerShadeRayGen) that the GPU schedules at higher
+// occupancy than the combined megakernel. The surface is handed between the two
+// passes through CleanGiProducerSurfaceBuffer via the pack/unpack helpers.
+
+CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, bool primarySampledSpecular)
+{
+    CleanGiProducerSurface g = (CleanGiProducerSurface)0;
+    g.worldPos = s.worldPos;
+    g.valid = s.valid;
+    g.geometryNormal = s.geometryNormal;
+    g.linearDepth = s.linearDepth;
+    g.shadingNormal = s.shadingNormal;
+    g.materialId = s.materialId;
+    g.viewDir = s.viewDir;
+    g.materialIndex = s.materialIndex;
+    g.diffuseAlbedo = s.material.diffuseAlbedo;
+    g.roughness = s.material.roughness;
+    g.specularF0 = s.material.specularF0;
+    g.opacity = s.material.opacity;
+    g.emissiveRadiance = s.material.emissiveRadiance;
+    g.alphaCutoff = s.material.alphaCutoff;
+    g.instanceId = s.instanceId;
+    g.primitiveIndex = s.primitiveIndex;
+    g.surfaceClass = s.surfaceClass;
+    g.surfaceFlags = s.flags;
+    g.materialFlags = s.material.flags;
+    g.emissiveTextureIndex = s.material.emissiveTextureIndex;
+    g.primarySampledSpecular = primarySampledSpecular ? 1u : 0u;
+    return g;
+}
+
+RAB_Surface CleanGiUnpackProducerSurface(CleanGiProducerSurface g)
+{
+    RAB_Surface s = RAB_EmptySurface();
+    s.valid = g.valid;
+    s.worldPos = g.worldPos;
+    s.linearDepth = g.linearDepth;
+    s.geometryNormal = g.geometryNormal;
+    s.shadingNormal = g.shadingNormal;
+    s.viewDir = g.viewDir;
+    s.materialId = g.materialId;
+    s.materialIndex = g.materialIndex;
+    s.instanceId = g.instanceId;
+    s.primitiveIndex = g.primitiveIndex;
+    s.surfaceClass = g.surfaceClass;
+    s.flags = g.surfaceFlags;
+
+    RAB_Material m = RAB_EmptyMaterial();
+    m.materialId = g.materialId;
+    m.materialIndex = g.materialIndex;
+    m.flags = g.materialFlags;
+    m.alphaCutoff = g.alphaCutoff;
+    m.diffuseAlbedo = g.diffuseAlbedo;
+    m.roughness = g.roughness;
+    m.specularF0 = g.specularF0;
+    m.opacity = g.opacity;
+    m.emissiveRadiance = g.emissiveRadiance;
+    m.emissiveTextureIndex = g.emissiveTextureIndex;
+    s.material = m;
+    return s;
+}
+
+bool CleanGiBuildProducerSurface(
     float3 primaryPosition,
     float3 primaryGeometricNormal,
     float3 bounceDir,
     float samplePdf,
-    bool primarySampledSpecular,
-    inout RTXDI_RandomSamplerState rng)
+    out RAB_Surface secondarySurface)
 {
-    CleanGiProducerResult result = (CleanGiProducerResult)0;
+    secondarySurface = RAB_EmptySurface();
 
     if (samplePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
     {
-        return result;
+        return false;
     }
 
     RayDesc bounceRay;
@@ -3223,10 +3322,16 @@ CleanGiProducerResult CleanGiTraceProducerRay(
     TraceRay(SmokeScene, RAY_FLAG_FORCE_NON_OPAQUE, 0xff, 0, 1, 0, bounceRay, payload);
     if (payload.value == 0u)
     {
-        return result; // miss: zero radiance, invalid hit geometry
+        return false; // miss: zero radiance, invalid hit geometry
     }
 
     const float3 hitPosition = bounceRay.Origin + bounceDir * payload.hitT;
+
+    // Load hit material / class+flags once; both the normal-map decode (inside
+    // the geometry block below) and the surface build reuse these.
+    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
+    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
 
     float3 p0, p1, p2;
     float3 n0, n1, n2;
@@ -3258,7 +3363,6 @@ CleanGiProducerResult CleanGiTraceProducerRay(
         hitTexCoord = uv0 * b0 + uv1 * b1 + uv2 * b2;
         hitVertexColor = saturate(c0 * b0 + c1 * b1 + c2 * b2);
 
-        const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
         const bool forceGeometricNormal = (hitTriangleClassAndFlags & RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL) != 0u;
         float3 interpolatedNormal = CleanGiSafeNormalize(n0 * b0 + n1 * b1 + n2 * b2, hitGeometricNormal);
         if (dot(interpolatedNormal, hitGeometricNormal) < 0.0)
@@ -3289,19 +3393,14 @@ CleanGiProducerResult CleanGiTraceProducerRay(
             }
         }
 
-        const uint hitMaterialIndexForNormal = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
-        const PathTraceSmokeMaterial hitMaterialForNormal = CleanGiLoadSmokeMaterial(hitMaterialIndexForNormal);
         hitShadingNormal = CleanGiConstrainShadingNormal(
-            CleanGiDecodeNormalTexture(hitMaterialForNormal, hitTexCoord, hitShadingNormal, hitTangent, hitBitangent),
+            CleanGiDecodeNormalTexture(hitMaterial, hitTexCoord, hitShadingNormal, hitTangent, hitBitangent),
             hitGeometricNormal);
     }
 
-    const uint hitMaterialIndex = CleanGiLoadTriangleMaterialIndex(payload.hitInstanceId, payload.hitPrimitiveIndex);
     const uint hitMaterialId = CleanGiLoadTriangleMaterialId(payload.hitInstanceId, payload.hitPrimitiveIndex);
-    const uint hitTriangleClassAndFlags = CleanGiLoadTriangleClassAndFlags(payload.hitInstanceId, payload.hitPrimitiveIndex);
     const uint hitSurfaceClass = CleanGiTriangleSurfaceClass(hitTriangleClassAndFlags);
     const uint hitTranslucentSubtype = CleanGiTriangleTranslucentSubtype(hitTriangleClassAndFlags);
-    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(hitMaterialIndex);
     const RAB_Material hitRabMaterial = CleanGiBuildMaterialFromHit(
         hitMaterialId,
         hitMaterialIndex,
@@ -3311,9 +3410,7 @@ CleanGiProducerResult CleanGiTraceProducerRay(
         hitTranslucentSubtype,
         hitTriangleClassAndFlags,
         hitVertexColor);
-    const float3 hitEmissive = hitRabMaterial.emissiveRadiance;
 
-    RAB_Surface secondarySurface = RAB_EmptySurface();
     secondarySurface.valid = 1u;
     secondarySurface.worldPos = hitPosition;
     secondarySurface.linearDepth = payload.hitT;
@@ -3327,13 +3424,19 @@ CleanGiProducerResult CleanGiTraceProducerRay(
     secondarySurface.surfaceClass = hitSurfaceClass;
     secondarySurface.flags = hitTriangleClassAndFlags;
     secondarySurface.material = hitRabMaterial;
+    return true;
+}
 
-    const float3 outgoing = CleanGiShadeSecondaryVertex(secondarySurface, hitGeometricNormal, hitEmissive, primarySampledSpecular, rng);
-
+float3 CleanGiShadeProducerSurface(RAB_Surface secondarySurface, bool primarySampledSpecular, inout RTXDI_RandomSamplerState rng)
+{
     // Producer radiance contract: incoming radiance at the primary surface.
-    // The first-bounce sample PDF is used to reject invalid proposals, but is
-    // not baked into the payload; the GI reservoir/final shading path owns the
-    // sampling weight separately.
+    const float3 outgoing = CleanGiShadeSecondaryVertex(
+        secondarySurface,
+        secondarySurface.geometryNormal,
+        secondarySurface.material.emissiveRadiance,
+        primarySampledSpecular,
+        rng);
+
     float3 producerRadiance = outgoing;
 
     // Firefly clamp (initial samples only). Matches the Remix shape:
@@ -3349,18 +3452,42 @@ CleanGiProducerResult CleanGiTraceProducerRay(
         }
     }
 
+    return producerRadiance;
+}
+
+CleanGiProducerResult CleanGiTraceProducerRay(
+    float3 primaryPosition,
+    float3 primaryGeometricNormal,
+    float3 bounceDir,
+    float samplePdf,
+    bool primarySampledSpecular,
+    inout RTXDI_RandomSamplerState rng)
+{
+    CleanGiProducerResult result = (CleanGiProducerResult)0;
+
+    RAB_Surface secondarySurface;
+    if (!CleanGiBuildProducerSurface(primaryPosition, primaryGeometricNormal, bounceDir, samplePdf, secondarySurface))
+    {
+        return result;
+    }
+
+    const float3 producerRadiance = CleanGiShadeProducerSurface(secondarySurface, primarySampledSpecular, rng);
     if (!CleanGiAllFinite3(producerRadiance))
     {
         return result;
     }
 
+    // materialFlags / diffuseTextureIndex come from the smoke material, not the
+    // RAB_Material; the debug-view contract reads them, so re-fetch here.
+    const PathTraceSmokeMaterial hitMaterial = CleanGiLoadSmokeMaterial(secondarySurface.materialIndex);
+
     result.valid = 1u;
     result.radiance = max(producerRadiance, float3(0.0, 0.0, 0.0));
-    result.pathLength = payload.hitT;
-    result.hitPosition = hitPosition;
-    result.hitNormal = hitShadingNormal;
-    result.materialAlbedo = hitRabMaterial.diffuseAlbedo;
-    result.materialOpacity = hitRabMaterial.opacity;
+    result.pathLength = secondarySurface.linearDepth;
+    result.hitPosition = secondarySurface.worldPos;
+    result.hitNormal = secondarySurface.shadingNormal;
+    result.materialAlbedo = secondarySurface.material.diffuseAlbedo;
+    result.materialOpacity = secondarySurface.material.opacity;
     result.materialFlags = hitMaterial.flags;
     result.diffuseTextureIndex = hitMaterial.diffuseTextureIndex;
     return result;
@@ -4025,8 +4152,11 @@ float3 PathTraceCleanRestirGiSentinelColor(uint2 pixel)
     return roundTripOk ? float3(0.05, pulse, 0.25) : float3(1.0, 0.0, 0.0);
 }
 
+// Pass A of the producer trace/shade split: trace the indirect bounce, rebuild
+// the secondary surface, and stash it in CleanGiProducerSurfaceBuffer. No
+// direct lighting / shadow rays here, so this entry point stays narrow.
 [shader("raygeneration")]
-void ProducerRayGen()
+void ProducerTraceRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -4034,26 +4164,90 @@ void ProducerRayGen()
     {
         return;
     }
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
 
     PathTracePrimarySurfaceRecord record;
     const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
 
-    CleanGiProducerResult producer = (CleanGiProducerResult)0;
+    CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
+    float3 hitPosition = float3(0.0, 0.0, 0.0);
+    float3 hitNormal = float3(0.0, 0.0, 0.0);
     if (surfaceValid)
     {
+        // Consume exactly the two bounce-direction randoms. The shade pass
+        // re-seeds the same stream and skips these two, so the NEE samples
+        // match the pre-split monolithic producer bit-for-bit.
         RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-        producer = CleanGiRunProducer(pixel, record, rng);
+        const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+        const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
+        const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
+        const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+        const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
+        const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+
+        RAB_Surface secondarySurface;
+        if (CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+        {
+            gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+            hitPosition = secondarySurface.worldPos;
+            hitNormal = secondarySurface.shadingNormal;
+        }
+    }
+
+    CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
+    // Hit geometry is consumed by the reuse pass; producer radiance is written
+    // by the shade pass that runs next.
+    CleanRestirGiProducerHitPosition[pixel] = float4(hitPosition, gbuf.valid != 0u ? 1.0 : 0.0);
+    CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, 0.0);
+}
+
+// Pass B of the producer trace/shade split: load the surface produced by the
+// trace pass and run the divergent direct-NEE (the 4-way light sampling +
+// shadow rays). Isolated from the bounce-trace/geometry machinery.
+[shader("raygeneration")]
+void ProducerShadeRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+
+    CleanGiProducerResult producer = (CleanGiProducerResult)0;
+    if (gbuf.valid != 0u)
+    {
+        RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
+        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+        // Skip the two bounce-direction randoms the trace pass already consumed.
+        RAB_GetNextRandom(rng);
+        RAB_GetNextRandom(rng);
+
+        const float3 radiance = CleanGiShadeProducerSurface(secondarySurface, gbuf.primarySampledSpecular != 0u, rng);
+        if (CleanGiAllFinite3(radiance))
+        {
+            producer.valid = 1u;
+            producer.radiance = max(radiance, float3(0.0, 0.0, 0.0));
+            producer.pathLength = secondarySurface.linearDepth;
+            producer.hitPosition = secondarySurface.worldPos;
+            producer.hitNormal = secondarySurface.shadingNormal;
+            producer.materialAlbedo = secondarySurface.material.diffuseAlbedo;
+        }
     }
 
     CleanRestirGiProducerRadiance[pixel] = float4(producer.radiance, producer.pathLength);
-    CleanRestirGiProducerHitPosition[pixel] = float4(producer.hitPosition, producer.valid != 0u ? 1.0 : 0.0);
-    CleanRestirGiProducerHitNormal[pixel] = float4(producer.hitNormal, 0.0);
 
     const uint view = CleanRestirGiView;
     if (view != 1u && view != 2u && view != 9u && view != 10u)
     {
         return;
     }
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
 
     float3 color = float3(1.0, 0.0, 1.0);
     if (view == 1u)
@@ -4120,13 +4314,47 @@ void ProducerRayGen()
         }
         else
         {
-            const bool hasDiffuseTexture = producer.diffuseTextureIndex != 0xffffffffu;
-            const bool forceDebugAlbedo = (producer.materialFlags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u;
+            // diffuseTextureIndex / smoke-material flags are not in the surface
+            // G-buffer; re-fetch the smoke material for this debug view only.
+            const PathTraceSmokeMaterial sm = CleanGiLoadSmokeMaterial(gbuf.materialIndex);
+            const bool hasDiffuseTexture = sm.diffuseTextureIndex != 0xffffffffu;
+            const bool forceDebugAlbedo = (sm.flags & RT_SMOKE_MATERIAL_FORCE_DEBUG_ALBEDO) != 0u;
             color = float3(hasDiffuseTexture ? 0.0 : 1.0, hasDiffuseTexture ? 1.0 : 0.0, forceDebugAlbedo ? 1.0 : 0.0);
         }
     }
 
     SmokeOutput[pixel] = float4(color, 1.0);
+}
+
+// INIT-page seed pass: clears the transient INIT reservoir page and merges the
+// specular-producer and NEE-cache seeds into it. Extracted from the temporal
+// pass because CleanGiSeedInitPageFromSpecularProducer runs a full specular
+// bounce trace + secondary NEE shade -- heavy, divergent producer work that was
+// broadening the temporal entry point. Always dispatched (it owns the INIT
+// clear the temporal contract depends on); the expensive seeds self-gate on
+// their cvars. Runs after the diffuse producer, before the temporal contract.
+[shader("raygeneration")]
+void SeedRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+
+    const uint view = CleanRestirGiView;
+    if (view == 1u || view == 2u || view == 9u || view == 10u)
+    {
+        return;
+    }
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+
+    RAB_StoreGIReservoir(RTXDI_EmptyGIReservoir(), int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
+    CleanGiSeedInitPageFromSpecularProducer(pixel, surfaceValid, record);
+    CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
 }
 
 [shader("raygeneration")]
@@ -4230,10 +4458,10 @@ void ReuseRayGen()
     const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
     CleanGiProducerResult producer = (CleanGiProducerResult)0;
 
-    // ---- Initial reservoir seeds (preloaded into the transient INIT page) ----
-    RAB_StoreGIReservoir(RTXDI_EmptyGIReservoir(), int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
-    CleanGiSeedInitPageFromSpecularProducer(pixel, surfaceValid, record);
-    CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
+    // INIT-page seeding (clear + specular/NEE producer seeds) now runs in the
+    // separate SeedRayGen pass so the heavy specular producer trace+shade no
+    // longer broadens this temporal entry point. The INIT page is already
+    // populated when this dispatch runs.
 
     // ---- RGI-03/04 initial reservoir + temporal reuse (frozen contract) ----
     const RemixRestirGITemporalReuseResult temporalResult =

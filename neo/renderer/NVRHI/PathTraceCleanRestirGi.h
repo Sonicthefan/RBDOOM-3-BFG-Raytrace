@@ -25,6 +25,7 @@ struct PathTraceCleanRestirGiState
     nvrhi::TextureHandle producerRadianceTexture;
     nvrhi::TextureHandle producerHitPositionTexture;
     nvrhi::TextureHandle producerHitNormalTexture;
+    nvrhi::BufferHandle producerSurfaceBuffer;   // trace->shade G-buffer (CleanGiProducerSurface per pixel)
     nvrhi::TextureHandle indirectDiffuseTexture;
     nvrhi::TextureHandle indirectDiffuseLobeTexture;
     nvrhi::TextureHandle indirectSpecularLobeTexture;
@@ -33,7 +34,9 @@ struct PathTraceCleanRestirGiState
     nvrhi::ShaderLibraryHandle shaderLibrary;
     nvrhi::rt::PipelineHandle pipeline;
     nvrhi::rt::ShaderTableHandle shaderTable;
-    nvrhi::rt::ShaderTableHandle producerShaderTable;
+    nvrhi::rt::ShaderTableHandle producerShaderTable;   // ProducerTraceRayGen
+    nvrhi::rt::ShaderTableHandle shadeShaderTable;      // ProducerShadeRayGen
+    nvrhi::rt::ShaderTableHandle seedShaderTable;       // SeedRayGen (INIT-page seeds)
     nvrhi::rt::ShaderTableHandle reuseShaderTable;
     nvrhi::TextureHandle blueNoiseTexture;       // STBN mask array (t127), or unused dummy
     std::vector<uint8_t> blueNoiseBlob;          // staged mask bytes, uploaded once then cleared
