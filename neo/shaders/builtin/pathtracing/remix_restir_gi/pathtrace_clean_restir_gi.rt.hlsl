@@ -967,8 +967,13 @@ bool CleanGiAllFinite3(float3 value)
 bool CleanGiLoadSurfaceRecord(uint2 pixel, uint2 dimensions, out PathTracePrimarySurfaceRecord record)
 {
     record = (PathTracePrimarySurfaceRecord)0;
+#if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
+    const uint width = dimensions.x;
+    const uint height = dimensions.y;
+#else
     const uint width = CleanRtxdiDiWidth != 0u ? CleanRtxdiDiWidth : dimensions.x;
     const uint height = CleanRtxdiDiHeight != 0u ? CleanRtxdiDiHeight : dimensions.y;
+#endif
     if (width == 0u || height == 0u || pixel.x >= width || pixel.y >= height)
     {
         return false;
@@ -4455,7 +4460,10 @@ bool CleanGiSeedPassSkipsView(uint view)
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     const uint2 pixel = dispatchThreadId.xy;
-    const uint2 dimensions = uint2(CleanRtxdiDiWidth, CleanRtxdiDiHeight);
+    uint producerWidth = 0u;
+    uint producerHeight = 0u;
+    CleanRestirGiProducerHitPosition.GetDimensions(producerWidth, producerHeight);
+    const uint2 dimensions = uint2(producerWidth, producerHeight);
     if (dimensions.x == 0u || dimensions.y == 0u || pixel.x >= dimensions.x || pixel.y >= dimensions.y)
     {
         return;
