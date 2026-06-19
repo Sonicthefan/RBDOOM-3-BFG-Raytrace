@@ -3214,6 +3214,44 @@ uint CleanGiDiagnoseDirectLightSampleGate(
         return 4u;
     }
 
+    const float3 shadingNormal = RAB_SafeNormalize(
+        RAB_GetSurfaceNormal(secondarySurface),
+        RAB_GetSurfaceGeoNormal(secondarySurface));
+    const float3 geometricNormal = RAB_SafeNormalize(
+        RAB_GetSurfaceGeoNormal(secondarySurface),
+        shadingNormal);
+    const float3 viewDir = RAB_SafeNormalize(
+        RAB_GetSurfaceViewDir(secondarySurface),
+        geometricNormal);
+    if (dot(geometricNormal, lightDir) <= 0.0)
+    {
+        return 9u;
+    }
+    if (!RAB_IsSurfaceValid(secondarySurface))
+    {
+        return 10u;
+    }
+    if (secondarySurface.surfaceClass == RT_SMOKE_SURFACE_CLASS_TRANSLUCENT)
+    {
+        return 11u;
+    }
+    if (secondarySurface.material.opacity <= 0.0)
+    {
+        return 12u;
+    }
+    if (dot(shadingNormal, viewDir) <= 0.0)
+    {
+        return 13u;
+    }
+    if (dot(geometricNormal, viewDir) <= 0.0)
+    {
+        return 14u;
+    }
+    if (CleanGiLuminance(GetDiffuseAlbedo(secondarySurface.material)) <= 0.0)
+    {
+        return 15u;
+    }
+
     const float3 brdf = RAB_EvaluateSurfaceBrdf(secondarySurface, lightDir, RAB_GetSurfaceViewDir(secondarySurface));
     if (CleanGiLuminance(brdf) <= 0.0)
     {
@@ -3271,6 +3309,34 @@ float3 CleanGiProducerShadeGateColor(uint gate, float3 acceptedRadiance)
     if (gate == 8u)
     {
         return float3(0.15, 0.15, 0.75);
+    }
+    if (gate == 9u)
+    {
+        return float3(0.0, 1.0, 0.45);
+    }
+    if (gate == 10u)
+    {
+        return float3(0.35, 0.0, 0.0);
+    }
+    if (gate == 11u)
+    {
+        return float3(1.0, 1.0, 1.0);
+    }
+    if (gate == 12u)
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    if (gate == 13u)
+    {
+        return float3(0.0, 0.35, 1.0);
+    }
+    if (gate == 14u)
+    {
+        return float3(0.45, 0.0, 1.0);
+    }
+    if (gate == 15u)
+    {
+        return float3(0.7, 1.0, 0.0);
     }
     return float3(0.75, 0.0, 0.75);
 }
