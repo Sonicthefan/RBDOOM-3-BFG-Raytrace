@@ -5132,6 +5132,87 @@ void ProducerSimpleRayGen()
     CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, 0.0);
 }
 
+// Lean split baseline, pass A: keep the simple producer's constrained primary
+// normal sampling but only write the secondary surface and hit geometry.
+[shader("raygeneration")]
+void ProducerLeanTraceRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+
+    CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
+    float3 hitPosition = float3(0.0, 0.0, 0.0);
+    float3 hitNormal = float3(0.0, 0.0, 0.0);
+
+    if (surfaceValid)
+    {
+        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+        const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+        const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), float3(0.0, 0.0, 1.0));
+        const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
+            RAB_GetSurfaceNormal(surface),
+            primaryGeometricNormal);
+        const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+        const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
+        const float diffusePdf = CleanGiDiffuseProducerPdfForNormal(surface, primaryShadingNormal, primaryGeometricNormal, bounceDir);
+
+        RAB_Surface secondarySurface;
+        if (CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+        {
+            gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+            hitPosition = secondarySurface.worldPos;
+            hitNormal = secondarySurface.shadingNormal;
+        }
+    }
+
+    CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
+    CleanRestirGiProducerHitPosition[pixel] = float4(hitPosition, gbuf.valid != 0u ? 1.0 : 0.0);
+    CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, 0.0);
+}
+
+// Lean split baseline, pass B: consume the trace G-buffer and run only the
+// stripped one-sample secondary shade used by the simple producer.
+[shader("raygeneration")]
+void ProducerLeanShadeRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+
+    CleanGiProducerResult producer = (CleanGiProducerResult)0;
+    if (gbuf.valid != 0u)
+    {
+        RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
+        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+        RAB_GetNextRandom(rng);
+        RAB_GetNextRandom(rng);
+
+        const float3 radiance = CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng);
+        if (CleanGiAllFinite3(radiance))
+        {
+            producer.valid = 1u;
+            producer.radiance = max(radiance, float3(0.0, 0.0, 0.0));
+            producer.pathLength = secondarySurface.linearDepth;
+        }
+    }
+
+    CleanRestirGiProducerRadiance[pixel] = float4(producer.radiance, producer.pathLength);
+}
+
 // Pass A of the producer trace/shade split: trace the indirect bounce, rebuild
 // the secondary surface, and stash it in CleanGiProducerSurfaceBuffer. No
 // direct lighting / shadow rays here, so this entry point stays narrow.

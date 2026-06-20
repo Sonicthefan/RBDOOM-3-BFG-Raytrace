@@ -1761,6 +1761,12 @@ idCVar r_pathTracingCleanRestirGiProducerSimple(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI experiment: use a stripped one-dispatch TraceRay initial producer that writes the raw GI sample directly, bypassing the split trace/shade producer" );
 
+idCVar r_pathTracingCleanRestirGiProducerLeanSplit(
+    "r_pathTracingCleanRestirGiProducerLeanSplit",
+    "0",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI experiment: use a lean split TraceRay producer with constrained-normal trace plus stripped one-sample shade" );
+
 idCVar r_pathTracingCleanRestirGiProducerRayQuery(
     "r_pathTracingCleanRestirGiProducerRayQuery",
     "0",
