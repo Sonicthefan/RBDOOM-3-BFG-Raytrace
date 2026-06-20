@@ -4592,6 +4592,75 @@ float3 CleanGiToneMap(float3 radiance)
     return safeRadiance / (float3(1.0, 1.0, 1.0) + safeRadiance);
 }
 
+float3 CleanGiProducerReservoirPathColor(
+    uint2 pixel,
+    bool surfaceValid,
+    RAB_Surface surface,
+    RTXDI_GIReservoir initialReservoir,
+    RTXDI_GIReservoir temporalReservoir)
+{
+    if (!surfaceValid || !RAB_IsSurfaceValid(surface))
+    {
+        return float3(0.08, 0.08, 0.08);
+    }
+
+    const RemixRestirGIRawInitialSample rawSample = RemixRAB_LoadRawGIInitialSample(pixel);
+    if (rawSample.valid == 0u)
+    {
+        return float3(1.0, 0.0, 0.0);
+    }
+    if (!CleanGiAllFinite3(rawSample.radiance) || CleanGiLuminance(rawSample.radiance) <= 1.0e-6)
+    {
+        return float3(0.35, 0.0, 0.0);
+    }
+
+    const float3 toSample = rawSample.hitPosition - RAB_GetSurfaceWorldPos(surface);
+    const float distanceSquared = dot(toSample, toSample);
+    if (distanceSquared <= 1.0e-6 || distanceSquared != distanceSquared)
+    {
+        return float3(1.0, 0.35, 0.0);
+    }
+
+    const float3 sampleDir = toSample * rsqrt(distanceSquared);
+    if (dot(sampleDir, RAB_GetSurfaceGeoNormal(surface)) <= 0.0)
+    {
+        return float3(0.0, 0.15, 1.0);
+    }
+    if (dot(sampleDir, RAB_GetSurfaceNormal(surface)) <= 0.0)
+    {
+        return float3(0.55, 0.0, 1.0);
+    }
+
+    const float targetPdf = RemixRAB_GetGISampleTargetPdfForSurface(rawSample.hitPosition, rawSample.radiance, surface);
+    if (targetPdf <= 1.0e-8 || targetPdf != targetPdf)
+    {
+        return float3(0.0, 0.8, 0.85);
+    }
+    if (!RTXDI_IsValidGIReservoir(initialReservoir) ||
+        initialReservoir.weightSum <= 0.0 ||
+        initialReservoir.weightSum != initialReservoir.weightSum ||
+        !CleanGiAllFinite3(initialReservoir.radiance))
+    {
+        return float3(1.0, 1.0, 0.0);
+    }
+    if (!RTXDI_IsValidGIReservoir(temporalReservoir) ||
+        temporalReservoir.weightSum <= 0.0 ||
+        temporalReservoir.weightSum != temporalReservoir.weightSum ||
+        !CleanGiAllFinite3(temporalReservoir.radiance))
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+
+    const float3 finalIndirect = CleanGiFinalShadeIndirect(surface, temporalReservoir);
+    const float finalLuminance = CleanGiAllFinite3(finalIndirect) ? CleanGiLuminance(finalIndirect) : -1.0;
+    if (finalLuminance <= 1.0e-6)
+    {
+        return float3(0.0, 0.45, 0.35);
+    }
+
+    return CleanGiToneMap(float3(0.0, finalLuminance, 0.0));
+}
+
 float3 CleanGiStoredSpecularOutputColor(uint2 pixel)
 {
     const float4 storedSpecular = CleanRestirGiIndirectSpecularLobe[pixel];
@@ -5667,6 +5736,15 @@ void ReuseRayGen()
             RAB_Surface viewSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
             color = CleanGiToneMap(CleanGiFinalShadeIndirect(viewSurface, temporalReservoir));
         }
+    }
+    else if (view == 23u)
+    {
+        RAB_Surface viewSurface = RAB_EmptySurface();
+        if (surfaceValid)
+        {
+            viewSurface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+        }
+        color = CleanGiProducerReservoirPathColor(pixel, surfaceValid, viewSurface, initialReservoir, temporalReservoir);
     }
     else if (view == 7u)
     {

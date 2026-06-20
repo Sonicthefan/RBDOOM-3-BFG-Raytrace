@@ -998,7 +998,7 @@ bool PathTraceCleanRestirGiExecute(
         return false;
     }
 
-    const int view = idMath::ClampInt(0, 22, r_pathTracingCleanRestirGiView.GetInteger());
+    const int view = idMath::ClampInt(0, 23, r_pathTracingCleanRestirGiView.GetInteger());
     const bool rrHitDistanceRequested =
         r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 &&
         r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0;
