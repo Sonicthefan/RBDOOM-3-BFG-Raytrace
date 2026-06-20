@@ -12,6 +12,11 @@ Working notes from the GPU performance pass on the path-tracing lanes (started
 - [`restir_gi_results.md`](restir_gi_results.md) — what was tried, what worked,
   what didn't, with numbers and the reasoning/lessons behind each.
 
+- [`rtx_remix_reference_notes.md`](rtx_remix_reference_notes.md) - local
+  RTX Remix performance-structure notes: ray-query compute usage, shader
+  specialization, DI/GI sample budgets, and the rbdoom experiments suggested by
+  the comparison.
+
 ## TL;DR lessons (read before optimizing more)
 1. **`VK_EXT_debug_utils` must be enabled** or all NVRHI markers and resource
    debug-names are silent no-ops — Nsight shows unnamed dispatches/resources.
