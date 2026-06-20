@@ -1759,7 +1759,7 @@ idCVar r_pathTracingCleanRestirGiProducerRayQuery(
     "r_pathTracingCleanRestirGiProducerRayQuery",
     "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room ReSTIR GI diagnostic: dispatch CleanGI.0a producer trace as inline ray-query compute when r_pathTracingCleanRestirGiProducerOpaqueTrace is enabled" );
+    "Clean-room ReSTIR GI diagnostic: dispatch CleanGI.0a producer trace as inline ray-query compute; alpha/material rejection is handled in the ray-query loop" );
 
 idCVar r_pathTracingCleanRestirGiProducerRayQueryRoughFallback(
     "r_pathTracingCleanRestirGiProducerRayQueryRoughFallback",

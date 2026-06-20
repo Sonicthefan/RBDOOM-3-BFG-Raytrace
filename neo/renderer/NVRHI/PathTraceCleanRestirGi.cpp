@@ -1249,7 +1249,6 @@ bool PathTraceCleanRestirGiExecute(
 
     nvrhi::BindingSetHandle producerRayQueryComputeBindingSet;
     const bool producerRayQueryComputeRequested =
-        tail.producerOpaqueTrace != 0u &&
         r_pathTracingCleanRestirGiProducerRayQuery.GetInteger() != 0;
     if (producerRayQueryComputeRequested && CleanRestirGiEnsureProducerRayQueryComputePipeline(state, inputs))
     {
