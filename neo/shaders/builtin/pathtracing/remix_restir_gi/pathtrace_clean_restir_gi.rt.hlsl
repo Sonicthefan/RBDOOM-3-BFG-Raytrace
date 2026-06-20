@@ -4764,7 +4764,7 @@ float3 PathTraceCleanRestirGiSentinelColor(uint2 pixel)
 
 bool CleanGiSeedPassSkipsView(uint view)
 {
-    return view == 1u || view == 2u || view == 9u || view == 10u || view == 21u;
+    return view == 1u || view == 2u || view == 9u || view == 10u || view == 21u || view == 22u;
 }
 
 #if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
@@ -4878,19 +4878,31 @@ void ProducerTraceRoughFallbackRayGen()
 
     PathTracePrimarySurfaceRecord record;
     const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+    const uint view = CleanRestirGiView;
     if (!surfaceValid)
     {
+        if (view == 22u)
+        {
+            SmokeOutput[pixel] = float4(0.08, 0.08, 0.08, 1.0);
+        }
         return;
     }
 
     RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
     const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
-    if (CleanGiSurfaceSupportsSpecularProducer(surface))
+    const bool specularEligible = CleanGiSurfaceSupportsSpecularProducer(surface);
+    if (specularEligible)
     {
+        if (view == 22u)
+        {
+            // Blue: this pixel is intentionally outside the rough fallback set.
+            SmokeOutput[pixel] = float4(0.02, 0.18, 0.85, 1.0);
+        }
         return;
     }
 
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+    const CleanGiProducerSurface queryGbuf = CleanGiProducerSurfaceBuffer[flatIndex];
     CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
     float3 hitPosition = float3(0.0, 0.0, 0.0);
     float3 hitNormal = float3(0.0, 0.0, 0.0);
@@ -4902,7 +4914,97 @@ void ProducerTraceRoughFallbackRayGen()
     const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
 
     RAB_Surface secondarySurface;
-    if (CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+    const bool traceValid = CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface);
+    if (view == 22u)
+    {
+        const bool queryValid = queryGbuf.valid != 0u;
+        float3 color = float3(0.0, 1.0, 0.0);
+
+        if (!queryValid && !traceValid)
+        {
+            color = float3(0.0, 0.0, 0.0);
+        }
+        else if (!queryValid && traceValid)
+        {
+            color = float3(1.0, 0.0, 0.0);
+        }
+        else if (queryValid && !traceValid)
+        {
+            color = float3(0.0, 0.85, 1.0);
+        }
+        else
+        {
+            const float3 queryGeo = CleanGiSafeNormalize(queryGbuf.geometryNormal, float3(0.0, 0.0, 1.0));
+            const float3 queryShade = CleanGiSafeNormalize(queryGbuf.shadingNormal, queryGeo);
+            const float3 queryView = CleanGiSafeNormalize(queryGbuf.viewDir, queryGeo);
+            const float3 traceGeo = CleanGiSafeNormalize(secondarySurface.geometryNormal, float3(0.0, 0.0, 1.0));
+            const float3 traceShade = CleanGiSafeNormalize(secondarySurface.shadingNormal, traceGeo);
+            const float3 traceView = CleanGiSafeNormalize(secondarySurface.viewDir, traceGeo);
+            const bool queryGeoFacesView = dot(queryGeo, queryView) > 0.0;
+            const bool queryShadeFacesView = dot(queryShade, queryView) > 0.0;
+            const bool traceGeoFacesView = dot(traceGeo, traceView) > 0.0;
+            const bool traceShadeFacesView = dot(traceShade, traceView) > 0.0;
+            const float hitTolerance = max(0.05, 0.02 * max(abs(secondarySurface.linearDepth), 1.0));
+            const float positionTolerance = max(0.25, 0.04 * max(abs(secondarySurface.linearDepth), 1.0));
+
+            if (queryGbuf.instanceId != secondarySurface.instanceId ||
+                queryGbuf.primitiveIndex != secondarySurface.primitiveIndex)
+            {
+                color = float3(1.0, 1.0, 0.0);
+            }
+            else if (queryGbuf.materialIndex != secondarySurface.materialIndex ||
+                queryGbuf.materialId != secondarySurface.materialId)
+            {
+                color = float3(1.0, 0.55, 0.0);
+            }
+            else if (!queryGeoFacesView && traceGeoFacesView)
+            {
+                color = float3(0.0, 0.0, 0.55);
+            }
+            else if (!queryShadeFacesView && traceShadeFacesView)
+            {
+                color = float3(0.55, 0.0, 0.85);
+            }
+            else if (abs(queryGbuf.linearDepth - secondarySurface.linearDepth) > hitTolerance ||
+                length(queryGbuf.worldPos - secondarySurface.worldPos) > positionTolerance)
+            {
+                color = float3(1.0, 0.25, 0.0);
+            }
+            else if (dot(queryGeo, traceGeo) < 0.9 || dot(queryShade, traceShade) < 0.85)
+            {
+                color = float3(0.45, 0.0, 1.0);
+            }
+            else
+            {
+                RAB_Surface querySurface = CleanGiUnpackProducerSurface(queryGbuf);
+                RTXDI_RandomSamplerState queryRng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+                RTXDI_RandomSamplerState traceRng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+                RAB_GetNextRandom(queryRng);
+                RAB_GetNextRandom(queryRng);
+                RAB_GetNextRandom(traceRng);
+                RAB_GetNextRandom(traceRng);
+                const float3 queryRadiance = CleanGiShadeProducerSurface(querySurface, queryGbuf.primarySampledSpecular != 0u, queryRng);
+                const float3 traceRadiance = CleanGiShadeProducerSurface(secondarySurface, false, traceRng);
+                const float queryLuminance = CleanGiAllFinite3(queryRadiance) ? CleanGiLuminance(queryRadiance) : -1.0;
+                const float traceLuminance = CleanGiAllFinite3(traceRadiance) ? CleanGiLuminance(traceRadiance) : -1.0;
+                const float luminanceScale = max(max(abs(queryLuminance), abs(traceLuminance)), 1.0e-3);
+                if (queryLuminance < 0.0 || traceLuminance < 0.0)
+                {
+                    color = float3(1.0, 1.0, 1.0);
+                }
+                else if (abs(queryLuminance - traceLuminance) / luminanceScale > 0.75 &&
+                    max(queryLuminance, traceLuminance) > 1.0e-4)
+                {
+                    color = float3(1.0, 0.0, 1.0);
+                }
+            }
+        }
+
+        SmokeOutput[pixel] = float4(color, 1.0);
+        return;
+    }
+
+    if (traceValid)
     {
         gbuf = CleanGiPackProducerSurface(secondarySurface, false);
         hitPosition = secondarySurface.worldPos;
@@ -4927,6 +5029,11 @@ void ProducerShadeRayGen()
         return;
     }
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    if (CleanRestirGiView == 22u)
+    {
+        return;
+    }
 
     const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
 
@@ -5074,6 +5181,11 @@ void ProducerShadeFastRayGen()
         return;
     }
     const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    if (CleanRestirGiView == 22u)
+    {
+        return;
+    }
 
     const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
 
@@ -5307,7 +5419,7 @@ void ReuseRayGen()
     }
 
     const uint view = CleanRestirGiView;
-    if (view == 1u || view == 2u || view == 9u || view == 10u || view == 21u)
+    if (view == 1u || view == 2u || view == 9u || view == 10u || view == 21u || view == 22u)
     {
         return;
     }
