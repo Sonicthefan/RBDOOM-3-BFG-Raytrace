@@ -1290,7 +1290,6 @@ bool PathTraceCleanRestirGiExecute(
 
     nvrhi::BindingSetHandle producerRayQueryComputeBindingSet;
     const bool producerRayQueryComputeRequested =
-        !leanProducerActive &&
         !simpleProducerActive &&
         r_pathTracingCleanRestirGiProducerRayQuery.GetInteger() != 0;
     if (producerRayQueryComputeRequested && CleanRestirGiEnsureProducerRayQueryComputePipeline(state, inputs))
@@ -1334,13 +1333,29 @@ bool PathTraceCleanRestirGiExecute(
     // combined producer megakernel.
     if (leanProducerActive)
     {
-        nvrhi::rt::State producerTraceState;
-        producerTraceState.shaderTable = state.producerLeanTraceShaderTable;
-        producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
-        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerLeanTrace DispatchRays"); }
-        commandList->setRayTracingState(producerTraceState);
-        commandList->dispatchRays(giArgs);
-        if (nsightGpuMarkers) { commandList->endMarker(); }
+        if (producerRayQueryComputeActive)
+        {
+            nvrhi::ComputeState producerTraceState;
+            producerTraceState.pipeline = state.producerRayQueryComputePipeline;
+            producerTraceState.bindings = { producerRayQueryComputeBindingSet, inputs.textureDescriptorTable };
+            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerLeanTraceRayQuery Dispatch"); }
+            commandList->setComputeState(producerTraceState);
+            commandList->dispatch(
+                static_cast<uint32_t>((inputs.width + 15) / 16),
+                static_cast<uint32_t>((inputs.height + 7) / 8),
+                1);
+            if (nsightGpuMarkers) { commandList->endMarker(); }
+        }
+        else
+        {
+            nvrhi::rt::State producerTraceState;
+            producerTraceState.shaderTable = state.producerLeanTraceShaderTable;
+            producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
+            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerLeanTrace DispatchRays"); }
+            commandList->setRayTracingState(producerTraceState);
+            commandList->dispatchRays(giArgs);
+            if (nsightGpuMarkers) { commandList->endMarker(); }
+        }
 
         nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
         nvrhi::utils::TextureUavBarrier(commandList, state.producerHitPositionTexture);

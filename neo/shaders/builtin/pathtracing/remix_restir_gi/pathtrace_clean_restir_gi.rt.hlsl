@@ -5050,11 +5050,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     {
         RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
         const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
-        const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
-        const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
+        const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), float3(0.0, 0.0, 1.0));
+        const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
+            RAB_GetSurfaceNormal(surface),
+            primaryGeometricNormal);
         const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
         const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-        const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+        const float diffusePdf = CleanGiDiffuseProducerPdfForNormal(surface, primaryShadingNormal, primaryGeometricNormal, bounceDir);
 
         RAB_Surface secondarySurface;
         if (CleanGiBuildProducerSurfaceRayQuery(pixel, dimensions, RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface, traceStatus))
