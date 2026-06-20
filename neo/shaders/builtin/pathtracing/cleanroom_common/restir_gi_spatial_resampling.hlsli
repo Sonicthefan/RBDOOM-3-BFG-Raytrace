@@ -86,7 +86,7 @@
 #endif
 
 #ifndef RBPT_GI_VALIDATE_REUSE_SAMPLE
-#define RBPT_GI_VALIDATE_REUSE_SAMPLE(surface, reservoir) true
+#define RBPT_GI_VALIDATE_REUSE_SAMPLE(pixel, neighborPixel, sampleIndex, surface, reservoir) true
 #endif
 
 // p-hat of a reservoir sample as seen from `surface`. With the default
@@ -425,7 +425,7 @@ RTXDI_GIReservoir RTXDI_GISpatialResampling(
         {
             continue;
         }
-        if (!RBPT_GI_VALIDATE_REUSE_SAMPLE(surface, neighbor))
+        if (!RBPT_GI_VALIDATE_REUSE_SAMPLE(pixel, neighborPixel, i, surface, neighbor))
         {
             continue;
         }

@@ -1662,8 +1662,8 @@ idCVar r_pathTracingCleanRestirGiSpatial(
 idCVar r_pathTracingCleanRestirGiSpatialVisibility(
     "r_pathTracingCleanRestirGiSpatialVisibility",
     "1",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room ReSTIR GI diagnostic: 0 disables spatial neighbor visibility rays while keeping spatial reservoir reuse enabled" );
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI spatial visibility: 0 off, 1 validate every neighbor, 2 validate alternating half of neighbors" );
 
 idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection(
     "r_pathTracingCleanRestirGiTemporalBiasCorrection",

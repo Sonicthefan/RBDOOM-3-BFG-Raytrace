@@ -74,7 +74,7 @@ struct PathTraceCleanRestirGiConstantsTail
     float contributionFireflyThreshold;
     uint32_t blueNoiseEnabled;
     uint32_t producerRayQueryHitIdMode;
-    uint32_t spatialVisibilityEnabled;
+    uint32_t spatialVisibilityMode;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
@@ -1219,7 +1219,8 @@ bool PathTraceCleanRestirGiExecute(
     tail.blueNoiseEnabled = (state.blueNoiseValid && r_pathTracingCleanRestirGiBlueNoise.GetInteger() != 0) ? 1u : 0u;
     tail.producerRayQueryHitIdMode = static_cast<uint32_t>(
         idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiProducerRayQueryHitIdMode.GetInteger()));
-    tail.spatialVisibilityEnabled = r_pathTracingCleanRestirGiSpatialVisibility.GetInteger() != 0 ? 1u : 0u;
+    tail.spatialVisibilityMode = static_cast<uint32_t>(
+        idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiSpatialVisibility.GetInteger()));
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's

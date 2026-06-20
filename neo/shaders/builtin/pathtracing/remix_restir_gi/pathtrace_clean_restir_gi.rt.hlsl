@@ -387,7 +387,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     // PathTraceCleanRestirGi.cpp).
     uint CleanRestirGiBlueNoiseEnabled;
     uint CleanRestirGiProducerRayQueryHitIdMode;
-    uint CleanRestirGiSpatialVisibilityEnabled;
+    uint CleanRestirGiSpatialVisibilityMode;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -818,19 +818,35 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 #define RBPT_GI_SURFACE_LINEAR_DEPTH(surface) RAB_GetSurfaceLinearDepth(surface)
 #define RBPT_GI_TARGET_PDF(surface, reservoir) \
     RemixRAB_GetGISampleTargetPdfForSurface((reservoir).position, (reservoir).radiance, (surface))
-bool CleanGiValidateSpatialReuseSample(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+bool CleanGiValidateSpatialReuseSample(uint2 pixel, int2 neighborPixel, uint sampleIndex, RAB_Surface surface, RTXDI_GIReservoir reservoir)
 {
-    if (CleanRestirGiSpatialVisibilityEnabled == 0u)
+    if (CleanRestirGiSpatialVisibilityMode == 0u)
     {
         return true;
+    }
+    if (CleanRestirGiSpatialVisibilityMode == 2u)
+    {
+        uint h = pixel.x * 0x8da6b343u;
+        h ^= pixel.y * 0xd8163841u;
+        h ^= uint(neighborPixel.x) * 0xcb1ab31fu;
+        h ^= uint(neighborPixel.y) * 0x9e3779b9u;
+        h ^= sampleIndex * 0x85ebca6bu;
+        h ^= CleanRestirGiFrameIndex * 0xc2b2ae35u;
+        h ^= h >> 16u;
+        h *= 0x7feb352du;
+        h ^= h >> 15u;
+        if ((h & 1u) != 0u)
+        {
+            return true;
+        }
     }
     return CleanGiTraceVisibility(
         RAB_GetSurfaceWorldPos(surface),
         RAB_GetSurfaceGeoNormal(surface),
         reservoir.position) > 0.0;
 }
-#define RBPT_GI_VALIDATE_REUSE_SAMPLE(surface, reservoir) \
-    CleanGiValidateSpatialReuseSample(surface, reservoir)
+#define RBPT_GI_VALIDATE_REUSE_SAMPLE(pixel, neighborPixel, sampleIndex, surface, reservoir) \
+    CleanGiValidateSpatialReuseSample(pixel, neighborPixel, sampleIndex, surface, reservoir)
 #include "Rtxdi/GI/SpatialResampling.hlsli"
 
 bool CleanGiSpecularProducerNeedsReuseQuarantine(RAB_Surface surface)
