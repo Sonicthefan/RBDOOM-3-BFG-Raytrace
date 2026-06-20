@@ -283,6 +283,7 @@ extern idCVar r_pathTracingCleanRestirGiEnable;
 extern idCVar r_pathTracingCleanRestirGiView;
 extern idCVar r_pathTracingCleanRestirGiTemporal;
 extern idCVar r_pathTracingCleanRestirGiSpatial;
+extern idCVar r_pathTracingCleanRestirGiSpatialVisibility;
 extern idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection;
 extern idCVar r_pathTracingCleanRestirGiJacobian;
 extern idCVar r_pathTracingCleanRestirGiMaxHistoryLength;

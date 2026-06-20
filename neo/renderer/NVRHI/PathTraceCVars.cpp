@@ -1659,6 +1659,12 @@ idCVar r_pathTracingCleanRestirGiSpatial(
     CVAR_RENDERER | CVAR_BOOL,
     "Clean-room ReSTIR GI spatial resampling: 0 = spatial input passes through to the spatial output page unchanged" );
 
+idCVar r_pathTracingCleanRestirGiSpatialVisibility(
+    "r_pathTracingCleanRestirGiSpatialVisibility",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI diagnostic: 0 disables spatial neighbor visibility rays while keeping spatial reservoir reuse enabled" );
+
 idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection(
     "r_pathTracingCleanRestirGiTemporalBiasCorrection",
     "1",

@@ -382,12 +382,12 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     // Runtime blue-noise toggle (RGI). The shader is statically compiled with
     // RBPT_ENABLE_BLUE_NOISE, so eligible GI producer/initial sampling RNGs can
     // pull blue noise; this field masks it on/off per cvar without a second
-    // shader permutation. The following uint is a ray-query diagnostic mode;
-    // one remaining padding scalar keeps the following struct
-    // 16-byte aligned (must match PathTraceCleanRestirGi.cpp).
+    // shader permutation. The following uints are diagnostic controls that
+    // keep the following struct 16-byte aligned (must match
+    // PathTraceCleanRestirGi.cpp).
     uint CleanRestirGiBlueNoiseEnabled;
     uint CleanRestirGiProducerRayQueryHitIdMode;
-    uint CleanRestirGiBlueNoisePadding1;
+    uint CleanRestirGiSpatialVisibilityEnabled;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -818,11 +818,19 @@ int2 RAB_ClampSamplePositionIntoView(int2 pixelPosition, bool previousFrame)
 #define RBPT_GI_SURFACE_LINEAR_DEPTH(surface) RAB_GetSurfaceLinearDepth(surface)
 #define RBPT_GI_TARGET_PDF(surface, reservoir) \
     RemixRAB_GetGISampleTargetPdfForSurface((reservoir).position, (reservoir).radiance, (surface))
+bool CleanGiValidateSpatialReuseSample(RAB_Surface surface, RTXDI_GIReservoir reservoir)
+{
+    if (CleanRestirGiSpatialVisibilityEnabled == 0u)
+    {
+        return true;
+    }
+    return CleanGiTraceVisibility(
+        RAB_GetSurfaceWorldPos(surface),
+        RAB_GetSurfaceGeoNormal(surface),
+        reservoir.position) > 0.0;
+}
 #define RBPT_GI_VALIDATE_REUSE_SAMPLE(surface, reservoir) \
-    (CleanGiTraceVisibility( \
-        RAB_GetSurfaceWorldPos(surface), \
-        RAB_GetSurfaceGeoNormal(surface), \
-        (reservoir).position) > 0.0)
+    CleanGiValidateSpatialReuseSample(surface, reservoir)
 #include "Rtxdi/GI/SpatialResampling.hlsli"
 
 bool CleanGiSpecularProducerNeedsReuseQuarantine(RAB_Surface surface)
