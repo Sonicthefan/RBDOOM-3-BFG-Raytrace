@@ -3608,6 +3608,14 @@ float3 CleanGiShadeSecondaryVertex(
 // occupancy than the combined megakernel. The surface is handed between the two
 // passes through CleanGiProducerSurfaceBuffer via the pack/unpack helpers.
 
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_OK = 0u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_PRIMARY_INVALID = 1u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_REJECTED = 2u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS = 3u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_METADATA_MISS = 4u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_SURFACE_BUILD_MISS = 5u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED = 6u;
+
 CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, bool primarySampledSpecular)
 {
     CleanGiProducerSurface g = (CleanGiProducerSurface)0;
@@ -3918,12 +3926,15 @@ bool CleanGiBuildProducerSurfaceRayQuery(
     float3 primaryGeometricNormal,
     float3 bounceDir,
     float samplePdf,
-    out RAB_Surface secondarySurface)
+    out RAB_Surface secondarySurface,
+    out uint traceStatus)
 {
     secondarySurface = RAB_EmptySurface();
+    traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_OK;
 
     if (samplePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
     {
+        traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_REJECTED;
         return false;
     }
 
@@ -3936,15 +3947,24 @@ bool CleanGiBuildProducerSurfaceRayQuery(
     const uint rayFlags = CleanRestirGiProducerOpaqueTrace != 0u ? RAY_FLAG_FORCE_OPAQUE : RAY_FLAG_FORCE_NON_OPAQUE;
     RayQuery<RAY_FLAG_NONE> query;
     query.TraceRayInline(SmokeScene, rayFlags, 0xff, bounceRay);
+    bool sawCandidate = false;
+    bool sawRejectedCandidate = false;
+    bool sawAcceptedCandidate = false;
     while (query.Proceed())
     {
         if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
         {
+            sawCandidate = true;
             const uint candidateInstanceId = query.CandidateInstanceID();
             const uint candidatePrimitiveIndex = query.CandidatePrimitiveIndex();
             const float2 candidateBarycentrics = query.CandidateTriangleBarycentrics();
-            if (!CleanGiMaterialRejectsHit(pixel, candidateInstanceId, candidatePrimitiveIndex, candidateBarycentrics, false))
+            if (CleanGiMaterialRejectsHit(pixel, candidateInstanceId, candidatePrimitiveIndex, candidateBarycentrics, false))
             {
+                sawRejectedCandidate = true;
+            }
+            else
+            {
+                sawAcceptedCandidate = true;
                 query.CommitNonOpaqueTriangleHit();
             }
         }
@@ -3952,6 +3972,9 @@ bool CleanGiBuildProducerSurfaceRayQuery(
 
     if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
     {
+        traceStatus = sawCandidate && sawRejectedCandidate && !sawAcceptedCandidate
+            ? CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED
+            : CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS;
         return false;
     }
 
@@ -3960,10 +3983,11 @@ bool CleanGiBuildProducerSurfaceRayQuery(
 
     if (!CleanGiHitMetadataInRange(hitInstanceId, hitPrimitiveIndex))
     {
+        traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_METADATA_MISS;
         return false;
     }
 
-    return CleanGiBuildProducerSurfaceFromHit(
+    const bool surfaceBuilt = CleanGiBuildProducerSurfaceFromHit(
         bounceRay.Origin,
         bounceDir,
         query.CommittedRayT(),
@@ -3971,6 +3995,10 @@ bool CleanGiBuildProducerSurfaceRayQuery(
         hitPrimitiveIndex,
         query.CommittedTriangleBarycentrics(),
         secondarySurface);
+    traceStatus = surfaceBuilt
+        ? CLEAN_GI_PRODUCER_TRACE_STATUS_OK
+        : CLEAN_GI_PRODUCER_TRACE_STATUS_SURFACE_BUILD_MISS;
+    return surfaceBuilt;
 }
 #endif
 
@@ -4607,6 +4635,37 @@ float3 CleanGiProducerReservoirPathColor(
     const RemixRestirGIRawInitialSample rawSample = RemixRAB_LoadRawGIInitialSample(pixel);
     if (rawSample.valid == 0u)
     {
+        uint producerWidth = 0u;
+        uint producerHeight = 0u;
+        CleanRestirGiProducerHitPosition.GetDimensions(producerWidth, producerHeight);
+        if (producerWidth != 0u && producerHeight != 0u && pixel.x < producerWidth && pixel.y < producerHeight)
+        {
+            const uint flatIndex = pixel.y * producerWidth + pixel.x;
+            const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+            if (gbuf.valid != 0u)
+            {
+                return float3(1.0, 1.0, 1.0);
+            }
+        }
+
+        const float statusValue = CleanRestirGiProducerHitNormal[pixel].w;
+        const uint traceStatus = statusValue == statusValue ? (uint)(statusValue + 0.5) : 0u;
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_REJECTED)
+        {
+            return float3(1.0, 0.45, 0.0);
+        }
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_METADATA_MISS)
+        {
+            return float3(1.0, 1.0, 0.0);
+        }
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_SURFACE_BUILD_MISS)
+        {
+            return float3(0.65, 0.0, 1.0);
+        }
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED)
+        {
+            return float3(0.0, 0.85, 1.0);
+        }
         return float3(1.0, 0.0, 0.0);
     }
     if (!CleanGiAllFinite3(rawSample.radiance) || CleanGiLuminance(rawSample.radiance) <= 1.0e-6)
@@ -4843,6 +4902,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
     float3 hitPosition = float3(0.0, 0.0, 0.0);
     float3 hitNormal = float3(0.0, 0.0, 0.0);
+    uint traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_PRIMARY_INVALID;
     if (surfaceValid)
     {
         RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
@@ -4854,7 +4914,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurfaceRayQuery(pixel, RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+        if (CleanGiBuildProducerSurfaceRayQuery(pixel, RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface, traceStatus))
         {
             gbuf = CleanGiPackProducerSurface(secondarySurface, false);
             hitPosition = secondarySurface.worldPos;
@@ -4864,7 +4924,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
     CleanRestirGiProducerHitPosition[pixel] = float4(hitPosition, gbuf.valid != 0u ? 1.0 : 0.0);
-    CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, 0.0);
+    CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, (float)traceStatus);
 }
 #else
 
