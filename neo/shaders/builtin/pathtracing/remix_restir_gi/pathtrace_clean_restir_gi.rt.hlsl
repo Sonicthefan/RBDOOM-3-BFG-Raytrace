@@ -4282,6 +4282,17 @@ float CleanGiDiffuseProducerPdf(RAB_Surface surface, float3 bounceDir)
     return dot(geometryNormal, bounceDir) > 0.0 ? ndotl / RTXDI_PI : 0.0;
 }
 
+float CleanGiDiffuseProducerPdfForNormal(RAB_Surface surface, float3 sampleNormal, float3 geometryNormal, float3 bounceDir)
+{
+    if (!RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return 0.0;
+    }
+
+    const float ndotl = saturate(dot(sampleNormal, bounceDir));
+    return dot(geometryNormal, bounceDir) > 0.0 ? ndotl / RTXDI_PI : 0.0;
+}
+
 float CleanGiSpecularProducerPdf(RAB_Surface surface, float3 bounceDir)
 {
     if (!CleanGiSurfaceSupportsSpecularProducer(surface))
@@ -5059,6 +5070,67 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, (float)traceStatus);
 }
 #else
+
+// Clean-slate baseline producer: one TraceRay dispatch writes the raw GI
+// initial sample directly. This intentionally bypasses the trace/shade split,
+// ray-query path, NEE-cache secondary path, and continuation bounce so Nsight
+// can compare a stripped producer shape against the existing staged producer.
+[shader("raygeneration")]
+void ProducerSimpleRayGen()
+{
+    const uint2 pixel = DispatchRaysIndex().xy;
+    const uint2 dimensions = DispatchRaysDimensions().xy;
+    if (pixel.x >= dimensions.x || pixel.y >= dimensions.y)
+    {
+        return;
+    }
+    const uint flatIndex = pixel.y * dimensions.x + pixel.x;
+
+    PathTracePrimarySurfaceRecord record;
+    const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
+
+    CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
+    CleanGiProducerResult producer = (CleanGiProducerResult)0;
+    float3 hitPosition = float3(0.0, 0.0, 0.0);
+    float3 hitNormal = float3(0.0, 0.0, 0.0);
+
+    if (surfaceValid)
+    {
+        RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+        const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+        const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), float3(0.0, 0.0, 1.0));
+        const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
+            RAB_GetSurfaceNormal(surface),
+            primaryGeometricNormal);
+        const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+        const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
+        const float diffusePdf = CleanGiDiffuseProducerPdfForNormal(surface, primaryShadingNormal, primaryGeometricNormal, bounceDir);
+
+        RAB_Surface secondarySurface;
+        if (CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+        {
+            gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+            hitPosition = secondarySurface.worldPos;
+            hitNormal = secondarySurface.shadingNormal;
+
+            const float3 radiance = CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng);
+            if (CleanGiAllFinite3(radiance))
+            {
+                producer.valid = 1u;
+                producer.radiance = max(radiance, float3(0.0, 0.0, 0.0));
+                producer.pathLength = secondarySurface.linearDepth;
+                producer.hitPosition = secondarySurface.worldPos;
+                producer.hitNormal = secondarySurface.shadingNormal;
+                producer.materialAlbedo = secondarySurface.material.diffuseAlbedo;
+            }
+        }
+    }
+
+    CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
+    CleanRestirGiProducerRadiance[pixel] = float4(producer.radiance, producer.pathLength);
+    CleanRestirGiProducerHitPosition[pixel] = float4(hitPosition, gbuf.valid != 0u ? 1.0 : 0.0);
+    CleanRestirGiProducerHitNormal[pixel] = float4(hitNormal, 0.0);
+}
 
 // Pass A of the producer trace/shade split: trace the indirect bounce, rebuild
 // the secondary surface, and stash it in CleanGiProducerSurfaceBuffer. No

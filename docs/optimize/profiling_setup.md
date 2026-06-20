@@ -71,6 +71,7 @@ touching code:
 |---|---|---|
 | `r_pathTracingCleanRestirGiMaxBounces` | 1 | 1 = primary->secondary only; 2 adds the continuation bounce (dead at 1). |
 | `r_pathTracingCleanRestirGiSecondaryDirectProbability` | 1 | 0 skips the secondary-hit direct NEE (shadow rays + light sampling). |
+| `r_pathTracingCleanRestirGiProducerSimple` | 0 | Uses `CleanGI.0a IndirectProducerSimple`: a one-dispatch TraceRay baseline that writes the raw GI initial sample directly, bypassing the split trace/shade producer, ray-query producer, NEE-cache secondary path, and continuation bounce. |
 | `r_pathTracingCleanRestirGiSpecularProducer` | 0 | The specular-GI producer (a full specular bounce trace + NEE). **Enables specular reflections in GI**; a significant cost when on. |
 | `r_pathTracingCleanRestirGiNeeCacheSeed` | 0 | NEE-cache seed at the temporal initial-sample step. Off by default. |
 
