@@ -1014,6 +1014,23 @@ float CleanTraceVisibility(RAB_Surface surface, RAB_LightInfo lightInfo, RAB_Lig
     return payload.value == 0u ? 1.0 : 0.0;
 }
 
+bool CleanTryStoredReservoirVisibility(RTXDI_DIReservoir reservoir, out float visibility)
+{
+    RTXDI_VisibilityReuseParameters visibilityReuseParams = (RTXDI_VisibilityReuseParameters)0;
+    visibilityReuseParams.maxAge = 16u;
+    visibilityReuseParams.maxDistance = 4.0;
+
+    float3 reusedVisibility = float3(0.0, 0.0, 0.0);
+    if (RTXDI_GetDIReservoirVisibility(reservoir, visibilityReuseParams, reusedVisibility))
+    {
+        visibility = saturate(dot(reusedVisibility, float3(0.33333334, 0.33333334, 0.33333334)));
+        return true;
+    }
+
+    visibility = 0.0;
+    return false;
+}
+
 float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRecord surfaceRecord, RAB_Surface surface, RTXDI_DIReservoir reservoir)
 {
     const float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
@@ -1037,7 +1054,16 @@ float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRec
 
     surface.material.diffuseAlbedo = receiverAlbedo;
     const float3 reflected = RAB_GetReflectedBsdfRadianceForSurface(sample.position, sample.radiance, surface);
-    const float visibility = CleanTraceVisibility(surface, lightInfo, sample);
+    float visibility = 0.0;
+    bool reusedVisibilityValid = false;
+    if (CleanRtxdiDiResolveVisibilityReuse != 0u)
+    {
+        reusedVisibilityValid = CleanTryStoredReservoirVisibility(reservoir, visibility);
+    }
+    if (!reusedVisibilityValid)
+    {
+        visibility = CleanTraceVisibility(surface, lightInfo, sample);
+    }
     const float resolvePdf = (CleanRtxdiDiFlags & CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF) != 0u ? max(sample.solidAnglePdf, 1.0e-6) : 1.0;
     const float3 selectedLightContribution =
         reflected * visibility * RTXDI_GetDIReservoirInvPdf(reservoir) / resolvePdf;
