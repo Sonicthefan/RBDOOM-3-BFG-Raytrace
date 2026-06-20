@@ -3616,6 +3616,8 @@ static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_METADATA_MISS = 4u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_SURFACE_BUILD_MISS = 5u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED = 6u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PRIMARY_PROBE_HIT = 7u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_TARGET_PROBE_HIT = 8u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PROBE_INPUT_INVALID = 9u;
 
 CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, bool primarySampledSpecular)
 {
@@ -3940,8 +3942,41 @@ bool CleanGiRayQueryProbePrimaryHit(uint2 pixel, uint2 dimensions)
     ray.TMin = 0.1;
     ray.TMax = 100000.0;
 
-    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
-    query.TraceRayInline(SmokeScene, RAY_FLAG_NONE, 0xff, ray);
+    RayQuery<RAY_FLAG_NONE> query;
+    query.TraceRayInline(SmokeScene, RAY_FLAG_FORCE_OPAQUE, 0xff, ray);
+    while (query.Proceed())
+    {
+    }
+    return query.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
+}
+
+bool CleanGiRayQueryProbeKnownSurfaceHit(float3 primaryPosition, out bool inputValid)
+{
+    inputValid = false;
+    if (CleanRtxdiDiCameraOriginAndValid.w < 0.5 ||
+        !CleanGiAllFinite3(CleanRtxdiDiCameraOriginAndValid.xyz) ||
+        !CleanGiAllFinite3(primaryPosition))
+    {
+        return false;
+    }
+
+    const float3 toPrimary = primaryPosition - CleanRtxdiDiCameraOriginAndValid.xyz;
+    const float distanceSquared = dot(toPrimary, toPrimary);
+    if (distanceSquared <= 1.0e-4 || distanceSquared != distanceSquared)
+    {
+        return false;
+    }
+
+    inputValid = true;
+    const float distanceToPrimary = sqrt(distanceSquared);
+    RayDesc ray;
+    ray.Origin = CleanRtxdiDiCameraOriginAndValid.xyz;
+    ray.Direction = toPrimary / distanceToPrimary;
+    ray.TMin = 0.1;
+    ray.TMax = distanceToPrimary + 2.0;
+
+    RayQuery<RAY_FLAG_NONE> query;
+    query.TraceRayInline(SmokeScene, RAY_FLAG_FORCE_OPAQUE, 0xff, ray);
     while (query.Proceed())
     {
     }
@@ -4001,11 +4036,28 @@ bool CleanGiBuildProducerSurfaceRayQuery(
 
     if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
     {
-        traceStatus = sawCandidate && sawRejectedCandidate && !sawAcceptedCandidate
-            ? CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED
-            : (CleanGiRayQueryProbePrimaryHit(pixel, dimensions)
-                ? CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PRIMARY_PROBE_HIT
-                : CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS);
+        bool knownSurfaceProbeInputValid = false;
+        const bool knownSurfaceProbeHit = CleanGiRayQueryProbeKnownSurfaceHit(primaryPosition, knownSurfaceProbeInputValid);
+        if (sawCandidate && sawRejectedCandidate && !sawAcceptedCandidate)
+        {
+            traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED;
+        }
+        else if (knownSurfaceProbeHit)
+        {
+            traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_TARGET_PROBE_HIT;
+        }
+        else if (!knownSurfaceProbeInputValid)
+        {
+            traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PROBE_INPUT_INVALID;
+        }
+        else if (CleanGiRayQueryProbePrimaryHit(pixel, dimensions))
+        {
+            traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PRIMARY_PROBE_HIT;
+        }
+        else
+        {
+            traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS;
+        }
         return false;
     }
 
@@ -4700,6 +4752,14 @@ float3 CleanGiProducerReservoirPathColor(
         if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PRIMARY_PROBE_HIT)
         {
             return float3(0.0, 0.25, 1.0);
+        }
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_TARGET_PROBE_HIT)
+        {
+            return float3(0.0, 0.65, 1.0);
+        }
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PROBE_INPUT_INVALID)
+        {
+            return float3(1.0, 0.15, 0.35);
         }
         return float3(1.0, 0.0, 0.0);
     }
