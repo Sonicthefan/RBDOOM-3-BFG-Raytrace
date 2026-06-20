@@ -1303,8 +1303,12 @@ bool PathTraceCleanRestirGiExecute(
             1);
         if (nsightGpuMarkers) { commandList->endMarker(); }
 
-        if (r_pathTracingCleanRestirGiProducerRayQueryRoughFallback.GetInteger() != 0 || view == 22)
+        const bool runRoughFallback =
+            r_pathTracingCleanRestirGiProducerRayQueryRoughFallback.GetInteger() != 0 || view == 22;
+        if (runRoughFallback)
         {
+            nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
+
             nvrhi::rt::State roughFallbackState;
             roughFallbackState.shaderTable = state.producerRoughFallbackShaderTable;
             roughFallbackState.bindings = { bindingSet, inputs.textureDescriptorTable };
