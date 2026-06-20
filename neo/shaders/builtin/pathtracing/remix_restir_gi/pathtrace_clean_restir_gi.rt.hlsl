@@ -3615,6 +3615,7 @@ static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS = 3u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_METADATA_MISS = 4u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_SURFACE_BUILD_MISS = 5u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED = 6u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PRIMARY_PROBE_HIT = 7u;
 
 CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, bool primarySampledSpecular)
 {
@@ -3920,8 +3921,36 @@ bool CleanGiBuildProducerSurface(
 }
 
 #if defined(CLEAN_RESTIR_GI_PRODUCER_RAYQUERY_CS)
+bool CleanGiRayQueryProbePrimaryHit(uint2 pixel, uint2 dimensions)
+{
+    if (dimensions.x == 0u || dimensions.y == 0u || CleanRtxdiDiCameraOriginAndValid.w < 0.5)
+    {
+        return false;
+    }
+
+    const float2 uv = (float2(pixel) + 0.5) / float2(dimensions);
+    const float2 ndc = uv * 2.0 - 1.0;
+
+    RayDesc ray;
+    ray.Origin = CleanRtxdiDiCameraOriginAndValid.xyz;
+    ray.Direction = normalize(
+        CleanRtxdiDiCameraForwardAndTanX.xyz +
+        CleanRtxdiDiCameraLeftAndTanY.xyz * (-ndc.x * CleanRtxdiDiCameraForwardAndTanX.w) +
+        CleanRtxdiDiCameraUpAndTanY.xyz * (-ndc.y * CleanRtxdiDiCameraLeftAndTanY.w));
+    ray.TMin = 0.1;
+    ray.TMax = 100000.0;
+
+    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
+    query.TraceRayInline(SmokeScene, RAY_FLAG_NONE, 0xff, ray);
+    while (query.Proceed())
+    {
+    }
+    return query.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
+}
+
 bool CleanGiBuildProducerSurfaceRayQuery(
     uint2 pixel,
+    uint2 dimensions,
     float3 primaryPosition,
     float3 primaryGeometricNormal,
     float3 bounceDir,
@@ -3974,7 +4003,9 @@ bool CleanGiBuildProducerSurfaceRayQuery(
     {
         traceStatus = sawCandidate && sawRejectedCandidate && !sawAcceptedCandidate
             ? CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED
-            : CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS;
+            : (CleanGiRayQueryProbePrimaryHit(pixel, dimensions)
+                ? CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PRIMARY_PROBE_HIT
+                : CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS);
         return false;
     }
 
@@ -4666,6 +4697,10 @@ float3 CleanGiProducerReservoirPathColor(
         {
             return float3(0.0, 0.85, 1.0);
         }
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PRIMARY_PROBE_HIT)
+        {
+            return float3(0.0, 0.25, 1.0);
+        }
         return float3(1.0, 0.0, 0.0);
     }
     if (!CleanGiAllFinite3(rawSample.radiance) || CleanGiLuminance(rawSample.radiance) <= 1.0e-6)
@@ -4914,7 +4949,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurfaceRayQuery(pixel, RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface, traceStatus))
+        if (CleanGiBuildProducerSurfaceRayQuery(pixel, dimensions, RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface, traceStatus))
         {
             gbuf = CleanGiPackProducerSurface(secondarySurface, false);
             hitPosition = secondarySurface.worldPos;
