@@ -1345,6 +1345,19 @@ bool PathTraceCleanRestirGiExecute(
                 static_cast<uint32_t>((inputs.height + 7) / 8),
                 1);
             if (nsightGpuMarkers) { commandList->endMarker(); }
+
+            if (r_pathTracingCleanRestirGiProducerRayQueryRoughFallback.GetInteger() != 0)
+            {
+                nvrhi::utils::BufferUavBarrier(commandList, state.producerSurfaceBuffer);
+
+                nvrhi::rt::State roughFallbackState;
+                roughFallbackState.shaderTable = state.producerRoughFallbackShaderTable;
+                roughFallbackState.bindings = { bindingSet, inputs.textureDescriptorTable };
+                if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a2 IndirectProducerLeanTraceRoughFallback DispatchRays"); }
+                commandList->setRayTracingState(roughFallbackState);
+                commandList->dispatchRays(giArgs);
+                if (nsightGpuMarkers) { commandList->endMarker(); }
+            }
         }
         else
         {
