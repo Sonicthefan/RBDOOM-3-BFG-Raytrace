@@ -23,6 +23,14 @@ throughput, active threads per warp, coherence, live registers, and total pass
 time, not by whether the timeline event is `vkCmdDispatch` or
 `vkCmdTraceRaysKHR`.
 
+The GI-specific finding from the deeper pass is that Remix does not run ReSTIR
+GI as an isolated full-screen "producer trace + producer shade + reuse" lane. It
+binds ReSTIR GI radiance, hit-geometry, and reservoir outputs into the existing
+`Integrate Indirect Raytracing` pass, then later ReSTIR GI temporal/spatial
+compute passes consume those compact side outputs. The expensive secondary path
+work is therefore shared with the normal indirect integrator instead of being
+duplicated by a separate GI-only producer.
+
 ## Evidence In Remix
 
 ### Integrate Indirect Has Explicit Tracing Modes
@@ -88,6 +96,67 @@ Implication: do not try to improve rbdoom temporal/spatial reservoir work by
 moving it to raygen. If the work is screen-space resampling, compute is the
 right default shape.
 
+### ReSTIR GI Production Is A Side Output Of Integrate Indirect
+
+Host dispatch:
+`src/dxvk/rtx_render/rtx_pathtracer_integrate_indirect.cpp`
+
+The indirect integrator binds ReSTIR GI resources before tracing indirect rays:
+
+- `bindIntegrateIndirectPathTracingResources(...)` binds `ReSTIR GI Radiance`,
+  `ReSTIR GI Hit Geometry`, and the GI reservoir buffer.
+- `Integrate Indirect Raytracing` then selects ray-query compute, ray-query
+  raygen, or trace-ray raygen for the same indirect integration pass.
+
+Shader path:
+`src/dxvk/shaders/rtx/pass/integrate/integrate_indirect.slangh`
+`src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh`
+
+The shader writes a compact GI side channel while doing ordinary indirect path
+integration:
+
+- At initialization, it writes a ReSTIR GI radiance factor into the radiance
+  texture instead of carrying the factor live through the whole integrator.
+- While resolving the first suitable secondary hit, it writes hit position,
+  normal, portal id, and opaque/non-opaque state into the hit-geometry target.
+- At the end of path integration, it reloads the stored factor, multiplies by
+  accumulated path radiance, encodes the indirect path length, and stores the
+  final ReSTIR GI candidate radiance.
+
+This is not the same shape as rbdoom's current `CleanGI.0a` trace secondary hit
+-> large secondary surface buffer -> `CleanGI.0b` shade secondary surface ->
+reuse flow. In Remix, the comparable candidate data is emitted while the
+indirect path is already being traced and shaded.
+
+Implication: optimizing rbdoom's standalone `CleanGI.0a/0b` passes has a hard
+ceiling. The larger win is to stop duplicating secondary indirect work. If a
+live rbdoom indirect/path-tracing pass already traces the same first indirect
+ray and evaluates the same direct lighting, the ReSTIR GI producer should become
+a compact side-output mode of that pass. If no such pass is active in the clean
+GI route, merging `0a` and `0b` back together is not the Remix design; it just
+recreates the earlier broad producer megakernel.
+
+### Specular Handling Is MIS, Not A Second Full Producer
+
+Options:
+`src/dxvk/rtx_render/rtx_restir_gi_rayquery.h`
+
+Shader path:
+`src/dxvk/shaders/rtx/algorithm/integrator_indirect.slangh`
+`src/dxvk/shaders/rtx/pass/rtxdi/restir_gi_final_shading.comp.slang`
+
+Remix does not appear to run a separate full-screen specular seed trace/shade
+producer comparable to rbdoom's `CleanGI.0d/0e`. It accepts or rejects the first
+sample by roughness/lobe rules, supports virtual samples for highly specular
+paths, steals mature ReSTIR GI samples inside the path tracer, and blends the
+initial indirect result with the ReSTIR GI result using roughness/parallax MIS in
+final shading.
+
+Implication: rbdoom's separate specular producer is likely a major structural
+cost. A Remix-shaped alternative is not "optimize the specular producer"; it is
+to make the normal indirect sample remain the specular fallback and use MIS to
+blend ReSTIR GI where it is reliable, especially on rougher surfaces.
+
 ### RTXDI/DI Is Deliberately Small
 
 Options:
@@ -138,20 +207,52 @@ spatial sample count after convergence is probably wasted work.
 
 ## rbdoom Experiments Suggested By This Comparison
 
-### 1. Finish The GI Producer Ray-Query Correctness Path
+### 1. Stop Duplicating The First Indirect Path
 
-Current rbdoom ray-query producer work is the right kind of experiment, but it
-must be correctness-clean before performance conclusions matter. Once pure
-ray-query mode renders rough/diffuse surfaces correctly, compare the same
-producer as:
+Audit whether any active rbdoom path-tracing or ReSTIR PT pass already traces
+the first indirect ray and evaluates secondary direct lighting before clean GI
+reuse. If yes, add a narrow side-output mode there:
 
-- TraceRay raygen,
-- RayQuery raygen, if practical,
-- RayQuery compute.
+- ReSTIR GI radiance factor / final candidate radiance,
+- hit position and normal,
+- indirect path length,
+- opaque/non-opaque or alpha-tested-hit flag,
+- optional portal/subview metadata if needed.
 
-Measure the sum of trace + shade + reuse, not just the trace event.
+Then disable the standalone `CleanGI.0a/0b` producer path for an A/B. Measure
+the whole GI lane, not just the removed events.
 
-### 2. Add Compile-Time Variants For Expensive Feature Combinations
+If there is no existing active pass to piggyback on, keep the split producer for
+correctness and avoid merging it back into a monolithic raygen. The earlier
+combined producer was exactly the broad-shader shape Remix is avoiding.
+
+### 2. Reframe The Specular Producer As A Fallback/MIS Problem
+
+Test whether specular producer work can be replaced by:
+
+- normal first-indirect-path output for the initial/specular signal,
+- ReSTIR GI only where roughness/lobe conditions make it reliable,
+- final-shading MIS between initial indirect and ReSTIR GI output.
+
+This is a larger correctness slice than a simple performance toggle, but it
+matches the Remix structure better than a second full-screen specular trace and
+shade producer.
+
+### 3. Finish The GI Producer Ray-Query Correctness Path
+
+Current rbdoom ray-query producer work is still useful as a lower-level variant,
+but it should not be mistaken for the full Remix design. Once pure ray-query mode
+renders rough/diffuse surfaces correctly, compare:
+
+- TraceRay raygen producer,
+- RayQuery raygen producer, if practical,
+- RayQuery compute producer,
+- producer side-output from an existing indirect pass, if available.
+
+Measure the sum of producer + shade + specular seed + reuse, not just the trace
+event.
+
+### 4. Add Compile-Time Variants For Expensive Feature Combinations
 
 Remix relies heavily on variant stripping. The closest rbdoom candidates are:
 
@@ -167,7 +268,7 @@ profiling, then check register count, active threads, and pass time. The local
 phase-split regression showed that splitting entry points without changing the
 executed work is not enough.
 
-### 3. Make DI Budgets Remix-Like Under ReSTIR PT/GI
+### 5. Make DI Budgets Remix-Like Under ReSTIR PT/GI
 
 Test a profile where DI is intentionally small:
 
@@ -181,7 +282,7 @@ Test a profile where DI is intentionally small:
 This matches the direction from Remix and the current observation that DI
 temporal was much too expensive before stripping.
 
-### 4. Try Adaptive GI Spatial Samples
+### 6. Try Adaptive GI Spatial Samples
 
 Use reservoir history/age to select:
 
@@ -192,7 +293,7 @@ Use reservoir history/age to select:
 This should be tested with boiling/noise captures, not just frame time, because
 the whole point is trading converged reuse work against temporal stability.
 
-### 5. Prefer Ray-Query Compute For Simple Traversal, Not Uber-Shading
+### 7. Prefer Ray-Query Compute For Simple Traversal, Not Uber-Shading
 
 Good candidates:
 
@@ -230,9 +331,13 @@ problem.
 
 ## Current Priority Order
 
-1. Fix pure ray-query GI producer correctness.
-2. A/B producer TraceRay vs ray-query after correctness is stable.
-3. Strip DI to Remix-like budgets when ReSTIR PT/GI is enabled.
-4. Add adaptive GI spatial sample counts.
+1. Audit whether rbdoom has an active first-indirect path pass that can emit
+   compact ReSTIR GI side outputs.
+2. If yes, prototype side-output GI production there and A/B against
+   standalone `CleanGI.0a/0b`.
+3. Rework specular GI contribution toward initial-path fallback + final MIS
+   instead of a second full-screen specular producer.
+4. Fix pure ray-query GI producer correctness as a lower-level variant, not the
+   only path to Remix parity.
 5. Add targeted compile-time variants for the exact profiled feature sets.
 6. Revisit SER only after the pass structure has stabilized.
