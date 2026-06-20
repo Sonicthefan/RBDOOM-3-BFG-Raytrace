@@ -4933,13 +4933,31 @@ void ProducerTraceRoughFallbackRayGen()
             const float hitTolerance = max(0.05, 0.02 * max(abs(secondarySurface.linearDepth), 1.0));
             const float positionTolerance = max(0.25, 0.04 * max(abs(secondarySurface.linearDepth), 1.0));
 
-            if (queryGbuf.instanceId != secondarySurface.instanceId ||
-                queryGbuf.primitiveIndex != secondarySurface.primitiveIndex)
+            const bool instanceMismatch = queryGbuf.instanceId != secondarySurface.instanceId;
+            const bool primitiveMismatch = queryGbuf.primitiveIndex != secondarySurface.primitiveIndex;
+            const bool materialMismatch =
+                queryGbuf.materialIndex != secondarySurface.materialIndex ||
+                queryGbuf.materialId != secondarySurface.materialId;
+            const bool positionMismatch =
+                abs(queryGbuf.linearDepth - secondarySurface.linearDepth) > hitTolerance ||
+                length(queryGbuf.worldPos - secondarySurface.worldPos) > positionTolerance;
+            if ((instanceMismatch || primitiveMismatch) && !positionMismatch && !materialMismatch)
+            {
+                color = float3(0.95, 1.0, 0.95);
+            }
+            else if (instanceMismatch && primitiveMismatch)
             {
                 color = float3(1.0, 1.0, 0.0);
             }
-            else if (queryGbuf.materialIndex != secondarySurface.materialIndex ||
-                queryGbuf.materialId != secondarySurface.materialId)
+            else if (instanceMismatch)
+            {
+                color = float3(1.0, 0.92, 0.0);
+            }
+            else if (primitiveMismatch)
+            {
+                color = float3(0.55, 1.0, 0.0);
+            }
+            else if (materialMismatch)
             {
                 color = float3(1.0, 0.55, 0.0);
             }
@@ -4951,8 +4969,7 @@ void ProducerTraceRoughFallbackRayGen()
             {
                 color = float3(0.55, 0.0, 0.85);
             }
-            else if (abs(queryGbuf.linearDepth - secondarySurface.linearDepth) > hitTolerance ||
-                length(queryGbuf.worldPos - secondarySurface.worldPos) > positionTolerance)
+            else if (positionMismatch)
             {
                 color = float3(1.0, 0.25, 0.0);
             }
