@@ -3618,6 +3618,8 @@ static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_ANYHIT_REJECTED = 6u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PRIMARY_PROBE_HIT = 7u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_TARGET_PROBE_HIT = 8u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PROBE_INPUT_INVALID = 9u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_PDF_REJECTED = 10u;
+static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_GEOMETRY_REJECTED = 11u;
 
 CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, bool primarySampledSpecular)
 {
@@ -3996,9 +3998,14 @@ bool CleanGiBuildProducerSurfaceRayQuery(
     secondarySurface = RAB_EmptySurface();
     traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_OK;
 
-    if (samplePdf <= 1.0e-6 || dot(primaryGeometricNormal, bounceDir) <= 0.0)
+    if (dot(primaryGeometricNormal, bounceDir) <= 0.0)
     {
-        traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_REJECTED;
+        traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_GEOMETRY_REJECTED;
+        return false;
+    }
+    if (samplePdf <= 1.0e-6)
+    {
+        traceStatus = CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_PDF_REJECTED;
         return false;
     }
 
@@ -4737,6 +4744,14 @@ float3 CleanGiProducerReservoirPathColor(
         {
             return float3(1.0, 0.45, 0.0);
         }
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_PDF_REJECTED)
+        {
+            return float3(1.0, 0.8, 0.0);
+        }
+        if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_GEOMETRY_REJECTED)
+        {
+            return float3(1.0, 0.25, 0.0);
+        }
         if (traceStatus == CLEAN_GI_PRODUCER_TRACE_STATUS_METADATA_MISS)
         {
             return float3(1.0, 1.0, 0.0);
@@ -4765,6 +4780,28 @@ float3 CleanGiProducerReservoirPathColor(
     }
     if (!CleanGiAllFinite3(rawSample.radiance) || CleanGiLuminance(rawSample.radiance) <= 1.0e-6)
     {
+        uint producerWidth = 0u;
+        uint producerHeight = 0u;
+        CleanRestirGiProducerHitPosition.GetDimensions(producerWidth, producerHeight);
+        if (producerWidth != 0u && producerHeight != 0u && pixel.x < producerWidth && pixel.y < producerHeight)
+        {
+            const uint flatIndex = pixel.y * producerWidth + pixel.x;
+            const CleanGiProducerSurface gbuf = CleanGiProducerSurfaceBuffer[flatIndex];
+            if (gbuf.valid != 0u)
+            {
+                RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
+                RTXDI_RandomSamplerState debugRng = CleanGiInitProducerRandomSampler(
+                    pixel,
+                    CleanRestirGiFrameIndex,
+                    CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
+                RAB_GetNextRandom(debugRng);
+                RAB_GetNextRandom(debugRng);
+                return CleanGiProducerShadeGateDebugColor(
+                    secondarySurface,
+                    gbuf.primarySampledSpecular != 0u,
+                    debugRng);
+            }
+        }
         return float3(0.35, 0.0, 0.0);
     }
 
