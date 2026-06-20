@@ -1488,8 +1488,8 @@ idCVar r_pathTracingCleanRtxdiDiView18Tile(
 idCVar r_pathTracingCleanRtxdiDiResolveVisibilityReuse(
     "r_pathTracingCleanRtxdiDiResolveVisibilityReuse",
     "0",
-    CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room Remix DI diagnostic: in final resolve, reuse RTXDI reservoir visibility when valid before falling back to the current visibility trace" );
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI spatial resolve visibility diagnostic: 0 trace final selected-light visibility, 1 reuse packed reservoir visibility when valid before tracing, 2 force selected sample visible with no final visibility trace, 3 checkerboard skip about half of final visibility traces" );
 
 idCVar r_pathTracingCleanRtxdiDiResolveSolidAnglePdf(
     "r_pathTracingCleanRtxdiDiResolveSolidAnglePdf",
@@ -1661,9 +1661,9 @@ idCVar r_pathTracingCleanRestirGiSpatial(
 
 idCVar r_pathTracingCleanRestirGiSpatialVisibility(
     "r_pathTracingCleanRestirGiSpatialVisibility",
-    "2",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI spatial visibility: 0 off, 1 validate every neighbor, 2 validate alternating half of neighbors (default)" );
+    "Clean-room ReSTIR GI spatial visibility: 0 off, 1 validate every neighbor, 2 validate alternating half of neighbors" );
 
 idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection(
     "r_pathTracingCleanRestirGiTemporalBiasCorrection",

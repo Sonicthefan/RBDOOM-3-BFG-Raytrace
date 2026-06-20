@@ -1031,7 +1031,26 @@ bool CleanTryStoredReservoirVisibility(RTXDI_DIReservoir reservoir, out float vi
     return false;
 }
 
-float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRecord surfaceRecord, RAB_Surface surface, RTXDI_DIReservoir reservoir)
+bool CleanSkipResolveVisibilityTrace(uint2 pixel, uint visibilityMode)
+{
+    if (visibilityMode == 2u)
+    {
+        return true;
+    }
+    if (visibilityMode == 3u)
+    {
+        uint h = pixel.x * 0x8da6b343u;
+        h ^= pixel.y * 0xd8163841u;
+        h ^= CleanRtxdiDiFrameIndex * 0xcb1ab31fu;
+        h ^= h >> 16u;
+        h *= 0x7feb352du;
+        h ^= h >> 15u;
+        return (h & 1u) != 0u;
+    }
+    return false;
+}
+
+float3 CleanResolve(uint2 pixel, uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRecord surfaceRecord, RAB_Surface surface, RTXDI_DIReservoir reservoir)
 {
     const float3 receiverAlbedo = CleanTexturedSurfaceAlbedo(surfaceRecord);
     if (CleanRtxdiDiResolveBrdfTarget != 0u)
@@ -1054,15 +1073,23 @@ float3 CleanResolve(uint lightIndex, float2 sampleUv, PathTracePrimarySurfaceRec
 
     surface.material.diffuseAlbedo = receiverAlbedo;
     const float3 reflected = RAB_GetReflectedBsdfRadianceForSurface(sample.position, sample.radiance, surface);
+    const uint visibilityMode = min(CleanRtxdiDiResolveVisibilityReuse, 3u);
     float visibility = 0.0;
-    bool reusedVisibilityValid = false;
-    if (CleanRtxdiDiResolveVisibilityReuse != 0u)
+    if (CleanSkipResolveVisibilityTrace(pixel, visibilityMode))
     {
-        reusedVisibilityValid = CleanTryStoredReservoirVisibility(reservoir, visibility);
+        visibility = 1.0;
     }
-    if (!reusedVisibilityValid)
+    else
     {
-        visibility = CleanTraceVisibility(surface, lightInfo, sample);
+        bool reusedVisibilityValid = false;
+        if (visibilityMode == 1u || visibilityMode == 3u)
+        {
+            reusedVisibilityValid = CleanTryStoredReservoirVisibility(reservoir, visibility);
+        }
+        if (!reusedVisibilityValid)
+        {
+            visibility = CleanTraceVisibility(surface, lightInfo, sample);
+        }
     }
     const float resolvePdf = (CleanRtxdiDiFlags & CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF) != 0u ? max(sample.solidAnglePdf, 1.0e-6) : 1.0;
     const float3 selectedLightContribution =
@@ -1217,6 +1244,7 @@ void RayGen()
     }
 
     const float3 resolvedRadiance = CleanResolve(
+        pixel,
         RTXDI_GetDIReservoirLightIndex(spatialReservoir),
         RTXDI_GetDIReservoirSampleUV(spatialReservoir),
         surface,
