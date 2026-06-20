@@ -16,6 +16,9 @@ Working notes from the GPU performance pass on the path-tracing lanes (started
   RTX Remix performance-structure notes: ray-query compute usage, shader
   specialization, DI/GI sample budgets, and the rbdoom experiments suggested by
   the comparison.
+- [`first_indirect_candidate_design.md`](first_indirect_candidate_design.md) -
+  design contract for a standalone first-indirect candidate producer that Clean
+  GI can consume now and future unified-reservoir work can consume later.
 
 ## TL;DR lessons (read before optimizing more)
 1. **`VK_EXT_debug_utils` must be enabled** or all NVRHI markers and resource

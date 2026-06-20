@@ -21,6 +21,7 @@
 
 #include "../../../vulkan.hlsli"
 #include "../PathTracePrimarySurface.hlsli"
+#include "../cleanroom_common/pathtrace_first_indirect_candidate.hlsli"
 #include "Rtxdi/RtxdiParameters.h"
 #include "Rtxdi/GI/ReSTIRGIParameters.h"
 #include "Rtxdi/Utils/RandomSamplerState.hlsli"
@@ -234,36 +235,10 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuse : re
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectDiffuseLobe : register(u85);
 VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe : register(u86);
 
-// Deferred-shading G-buffer for the producer trace/shade split.
-// ProducerTraceRayGen reconstructs the secondary-hit surface and stores it here;
-// ProducerShadeRayGen reads it back to run the divergent direct-NEE without
-// re-deriving geometry/material, keeping each raygen entry point narrow.
-// Mirrors RAB_Surface (+ RAB_Material) exactly so reconstruction is lossless.
-struct CleanGiProducerSurface
-{
-    float3 worldPos;
-    uint valid;
-    float3 geometryNormal;
-    float linearDepth;
-    float3 shadingNormal;
-    uint materialId;
-    float3 viewDir;
-    uint materialIndex;
-    float3 diffuseAlbedo;
-    float roughness;
-    float3 specularF0;
-    float opacity;
-    float3 emissiveRadiance;
-    float alphaCutoff;
-    uint instanceId;
-    uint primitiveIndex;
-    uint surfaceClass;
-    uint surfaceFlags;
-    uint materialFlags;
-    uint emissiveTextureIndex;
-    uint primarySampledSpecular;
-    uint pad0;
-};
+// CleanGI currently owns the first consumer, but the trace->shade payload is a
+// first-indirect candidate surface rather than a GI-specific contract.
+#define CleanGiProducerSurface PathTraceFirstIndirectCandidateSurface
+#define CleanGiProducerResult PathTraceFirstIndirectCandidateResult
 RWStructuredBuffer<CleanGiProducerSurface> CleanGiProducerSurfaceBuffer : register(u92);
 
 struct CleanGiSpecularSeedReceiverSurface
@@ -2875,19 +2850,6 @@ float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3
 // ---------------------------------------------------------------------------
 // Producer (RGI-02)
 // ---------------------------------------------------------------------------
-
-struct CleanGiProducerResult
-{
-    uint valid;          // 1 when the bounce ray hit a usable surface
-    float3 radiance;     // Incoming radiance at the primary surface (excludes primary BSDF/albedo)
-    float pathLength;    // indirect path length (hitT)
-    float3 hitPosition;
-    float3 hitNormal;
-    float3 materialAlbedo;
-    float materialOpacity;
-    uint materialFlags;
-    uint diffuseTextureIndex;
-};
 
 struct CleanGiSpecularProducerDebug
 {

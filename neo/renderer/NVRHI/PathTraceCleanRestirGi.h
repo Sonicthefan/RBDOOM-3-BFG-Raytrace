@@ -25,7 +25,7 @@ struct PathTraceCleanRestirGiState
     nvrhi::TextureHandle producerRadianceTexture;
     nvrhi::TextureHandle producerHitPositionTexture;
     nvrhi::TextureHandle producerHitNormalTexture;
-    nvrhi::BufferHandle producerSurfaceBuffer;   // trace->shade G-buffer (CleanGiProducerSurface per pixel)
+    nvrhi::BufferHandle producerSurfaceBuffer;   // trace->shade first-indirect candidate surface per pixel
     nvrhi::TextureHandle indirectDiffuseTexture;
     nvrhi::TextureHandle indirectDiffuseLobeTexture;
     nvrhi::TextureHandle indirectSpecularLobeTexture;

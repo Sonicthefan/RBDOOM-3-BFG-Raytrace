@@ -787,16 +787,16 @@ bool CleanRestirGiEnsureResources(PathTraceCleanRestirGiState& state, const Path
         producerDesc.debugName = "PathTraceCleanRestirGiIndirectSpecularLobe";
         state.indirectSpecularLobeTexture = inputs.device->createTexture(producerDesc);
 
-        // Trace->shade G-buffer: one packed CleanGiProducerSurface per pixel.
-        // structStride MUST match sizeof(CleanGiProducerSurface) in
-        // pathtrace_clean_restir_gi.rt.hlsl (144 bytes).
+        // Trace->shade first-indirect candidate surface per pixel.
+        // structStride MUST match PathTraceFirstIndirectCandidateSurface in
+        // pathtrace_first_indirect_candidate.hlsli (144 bytes).
         nvrhi::BufferDesc surfaceBufferDesc;
         surfaceBufferDesc.byteSize = uint64_t(width) * uint64_t(height) * 144ull;
         surfaceBufferDesc.structStride = 144;
         surfaceBufferDesc.canHaveUAVs = true;
         surfaceBufferDesc.initialState = nvrhi::ResourceStates::UnorderedAccess;
         surfaceBufferDesc.keepInitialState = true;
-        surfaceBufferDesc.debugName = "PathTraceCleanRestirGiProducerSurface";
+        surfaceBufferDesc.debugName = "PathTraceFirstIndirectCandidateSurface";
         state.producerSurfaceBuffer = inputs.device->createBuffer(surfaceBufferDesc);
 
         if (!state.producerRadianceTexture || !state.producerHitPositionTexture || !state.producerHitNormalTexture ||

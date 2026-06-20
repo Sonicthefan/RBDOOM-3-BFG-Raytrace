@@ -331,13 +331,15 @@ problem.
 
 ## Current Priority Order
 
-1. Audit whether rbdoom has an active first-indirect path pass that can emit
-   compact ReSTIR GI side outputs.
-2. If yes, prototype side-output GI production there and A/B against
-   standalone `CleanGI.0a/0b`.
-3. Rework specular GI contribution toward initial-path fallback + final MIS
+1. Keep DI and GI reservoirs separate, but make the first-indirect trace/shade
+   payload estimator-neutral instead of GI-only.
+2. Build a robust standalone first-indirect candidate producer and let Clean GI
+   be the first consumer.
+3. A/B that producer against standalone `CleanGI.0a/0b` once it can feed the
+   same initial GI reservoir contract.
+4. Rework specular GI contribution toward initial-path fallback + final MIS
    instead of a second full-screen specular producer.
-4. Fix pure ray-query GI producer correctness as a lower-level variant, not the
+5. Fix pure ray-query GI producer correctness as a lower-level variant, not the
    only path to Remix parity.
-5. Add targeted compile-time variants for the exact profiled feature sets.
-6. Revisit SER only after the pass structure has stabilized.
+6. Add targeted compile-time variants for the exact profiled feature sets.
+7. Revisit SER only after the pass structure has stabilized.

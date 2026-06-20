@@ -134,6 +134,7 @@ set(PATH_TRACING_CLEAN_RESTIR_GI_INCLUDES
     ${PATH_TRACING_CLEAN_RESTIR_GI_LOCAL_INCLUDES}
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/GI/Reservoir.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/Rtxdi/GI/ReSTIRGIParameters.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/pathtrace_first_indirect_candidate.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_gi_reservoir.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_gi_reservoir_storage.hlsli
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/pathtracing/cleanroom_common/restir_gi_parameters.hlsli
