@@ -669,7 +669,7 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
     RemixRestirGIInitialSampleControls controls)
 {
     RTXDI_GIReservoir reservoir = RTXDI_EmptyGIReservoir();
-    if (rawSample.valid == 0u || !RAB_IsSurfaceValid(surface))
+    if (!RAB_IsSurfaceValid(surface))
     {
         return reservoir;
     }
@@ -681,6 +681,22 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
         reservoir = RAB_LoadGIReservoir(int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
     }
     const bool seededReservoirValid = RTXDI_IsValidGIReservoir(reservoir);
+    if (rawSample.valid == 0u)
+    {
+        if (!seededReservoirValid)
+        {
+            return reservoir;
+        }
+
+        const float seedTargetPdf = RemixRAB_GetGISampleTargetPdfForSurface(reservoir.position, reservoir.radiance, surface);
+        if (seedTargetPdf <= 0.0)
+        {
+            return RTXDI_EmptyGIReservoir();
+        }
+        reservoir.M = 1;
+        RTXDI_FinalizeGIResampling(reservoir, 1.0, seedTargetPdf * reservoir.M);
+        return reservoir;
+    }
 
     const RTXDI_GIReservoir initialSample = RTXDI_MakeGIReservoir(
         rawSample.hitPosition,
