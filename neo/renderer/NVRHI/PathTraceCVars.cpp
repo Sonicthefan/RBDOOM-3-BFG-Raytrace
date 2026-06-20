@@ -1661,9 +1661,9 @@ idCVar r_pathTracingCleanRestirGiSpatial(
 
 idCVar r_pathTracingCleanRestirGiSpatialVisibility(
     "r_pathTracingCleanRestirGiSpatialVisibility",
-    "1",
+    "2",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI spatial visibility: 0 off, 1 validate every neighbor, 2 validate alternating half of neighbors" );
+    "Clean-room ReSTIR GI spatial visibility: 0 off, 1 validate every neighbor, 2 validate alternating half of neighbors (default)" );
 
 idCVar r_pathTracingCleanRestirGiTemporalBiasCorrection(
     "r_pathTracingCleanRestirGiTemporalBiasCorrection",
