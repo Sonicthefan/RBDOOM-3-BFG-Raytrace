@@ -239,6 +239,7 @@ VK_IMAGE_FORMAT("rgba16f") RWTexture2D<float4> CleanRestirGiIndirectSpecularLobe
 // first-indirect candidate surface rather than a GI-specific contract.
 #define CleanGiProducerSurface PathTraceFirstIndirectCandidateSurface
 #define CleanGiProducerResult PathTraceFirstIndirectCandidateResult
+#define CleanGiFirstIndirectRaySample PathTraceFirstIndirectCandidateRaySample
 RWStructuredBuffer<CleanGiProducerSurface> CleanGiProducerSurfaceBuffer : register(u92);
 
 struct CleanGiSpecularSeedReceiverSurface
@@ -3607,7 +3608,32 @@ static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_QUERY_MISS_PROBE_INPUT_INVALID 
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_PDF_REJECTED = 10u;
 static const uint CLEAN_GI_PRODUCER_TRACE_STATUS_SAMPLE_GEOMETRY_REJECTED = 11u;
 
-CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, bool primarySampledSpecular)
+CleanGiFirstIndirectRaySample CleanGiMakeFirstIndirectRaySample(
+    float3 direction,
+    float sourcePdf,
+    uint lobeFlag,
+    float lobeProbability,
+    float lobePdf)
+{
+    CleanGiFirstIndirectRaySample sample = (CleanGiFirstIndirectRaySample)0;
+    if (!CleanGiAllFinite3(direction))
+    {
+        return sample;
+    }
+
+    sample.direction = CleanGiSafeNormalize(direction, float3(0.0, 0.0, 1.0));
+    sample.sourcePdf = sourcePdf;
+    sample.randomsConsumed = PATH_TRACE_FIRST_INDIRECT_CANDIDATE_RANDOMS_TWO_D;
+    sample.lobeProbability = lobeProbability;
+    sample.lobePdf = lobePdf;
+    if (sourcePdf > 1.0e-6)
+    {
+        sample.flags = PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_VALID | lobeFlag;
+    }
+    return sample;
+}
+
+CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, CleanGiFirstIndirectRaySample raySample)
 {
     CleanGiProducerSurface g = (CleanGiProducerSurface)0;
     g.worldPos = s.worldPos;
@@ -3630,7 +3656,7 @@ CleanGiProducerSurface CleanGiPackProducerSurface(RAB_Surface s, bool primarySam
     g.surfaceFlags = s.flags;
     g.materialFlags = s.material.flags;
     g.emissiveTextureIndex = s.material.emissiveTextureIndex;
-    g.primarySampledSpecular = primarySampledSpecular ? 1u : 0u;
+    g.primarySampledSpecular = PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample) ? 1u : 0u;
     return g;
 }
 
@@ -4131,20 +4157,30 @@ float3 CleanGiShadeProducerSurfaceDefaultOneSample(RAB_Surface secondarySurface,
 CleanGiProducerResult CleanGiTraceProducerRay(
     float3 primaryPosition,
     float3 primaryGeometricNormal,
-    float3 bounceDir,
-    float samplePdf,
-    bool primarySampledSpecular,
+    CleanGiFirstIndirectRaySample raySample,
     inout RTXDI_RandomSamplerState rng)
 {
     CleanGiProducerResult result = (CleanGiProducerResult)0;
-
-    RAB_Surface secondarySurface;
-    if (!CleanGiBuildProducerSurface(primaryPosition, primaryGeometricNormal, bounceDir, samplePdf, secondarySurface))
+    if (!PathTraceFirstIndirectCandidateRaySampleIsValid(raySample))
     {
         return result;
     }
 
-    const float3 producerRadiance = CleanGiShadeProducerSurface(secondarySurface, primarySampledSpecular, rng);
+    RAB_Surface secondarySurface;
+    if (!CleanGiBuildProducerSurface(
+        primaryPosition,
+        primaryGeometricNormal,
+        raySample.direction,
+        raySample.sourcePdf,
+        secondarySurface))
+    {
+        return result;
+    }
+
+    const float3 producerRadiance = CleanGiShadeProducerSurface(
+        secondarySurface,
+        PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample),
+        rng);
     if (!CleanGiAllFinite3(producerRadiance))
     {
         return result;
@@ -4329,44 +4365,76 @@ float CleanGiProducerMixturePdf(RAB_Surface surface, float3 bounceDir)
     return mixturePdf > 0.0 && mixturePdf == mixturePdf ? mixturePdf : 0.0;
 }
 
+CleanGiFirstIndirectRaySample CleanGiSampleDiffuseFirstIndirectRay(
+    RAB_Surface surface,
+    float3 sampleNormal,
+    float3 geometryNormal,
+    inout RTXDI_RandomSamplerState rng)
+{
+    const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+    const float3 bounceDir = RAB_CosineHemisphereDirection(sampleNormal, randomValues);
+    const float diffusePdf = CleanGiDiffuseProducerPdfForNormal(surface, sampleNormal, geometryNormal, bounceDir);
+    return CleanGiMakeFirstIndirectRaySample(
+        bounceDir,
+        diffusePdf,
+        PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_DIFFUSE_LOBE,
+        1.0,
+        diffusePdf);
+}
+
+CleanGiFirstIndirectRaySample CleanGiSampleSpecularFirstIndirectRay(
+    RAB_Surface surface,
+    inout RTXDI_RandomSamplerState rng)
+{
+    float3 bounceDir;
+    float solidAnglePdf;
+    if (!CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, solidAnglePdf))
+    {
+        return (CleanGiFirstIndirectRaySample)0;
+    }
+
+    return CleanGiMakeFirstIndirectRaySample(
+        bounceDir,
+        solidAnglePdf,
+        PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_SPECULAR_LOBE,
+        1.0,
+        solidAnglePdf);
+}
+
 CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RTXDI_RandomSamplerState rng)
 {
     const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
     const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
 
-    // Cosine-weighted diffuse bounce direction around the primary shading
-    // normal. This producer must divide by the actual distribution it samples;
-    // the optional specular producer is a separate seed path.
-    const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
-    const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-    const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
-    return CleanGiTraceProducerRay(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, false, rng);
+    const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+        surface,
+        primaryShadingNormal,
+        primaryGeometricNormal,
+        rng);
+    return CleanGiTraceProducerRay(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, raySample, rng);
 }
 
 CleanGiSpecularProducerDebug CleanGiBuildSpecularProducerDebug(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RTXDI_RandomSamplerState rng)
 {
     CleanGiSpecularProducerDebug debug = (CleanGiSpecularProducerDebug)0;
     const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
-    float3 bounceDir;
-    float solidAnglePdf;
-    if (!CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, solidAnglePdf))
+    const CleanGiFirstIndirectRaySample raySample = CleanGiSampleSpecularFirstIndirectRay(surface, rng);
+    if (!PathTraceFirstIndirectCandidateRaySampleIsValid(raySample))
     {
         return debug;
     }
     debug.sampledDirection = 1u;
-    debug.bounceDir = bounceDir;
+    debug.bounceDir = raySample.direction;
     CleanGiProducerMixtureProbabilities(surface, debug.diffuseProbability, debug.specularProbability);
-    debug.diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
-    debug.specularPdf = CleanGiSpecularProducerPdf(surface, bounceDir);
-    const float mixturePdf = CleanGiProducerMixturePdf(surface, bounceDir);
+    debug.diffusePdf = CleanGiDiffuseProducerPdf(surface, raySample.direction);
+    debug.specularPdf = CleanGiSpecularProducerPdf(surface, raySample.direction);
+    const float mixturePdf = CleanGiProducerMixturePdf(surface, raySample.direction);
     debug.mixturePdf = mixturePdf;
     debug.producer = CleanGiTraceProducerRay(
         RAB_GetSurfaceWorldPos(surface),
         RAB_GetSurfaceGeoNormal(surface),
-        bounceDir,
-        solidAnglePdf,
-        true,
+        raySample,
         rng);
     return debug;
 }
@@ -5040,14 +5108,24 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
             RAB_GetSurfaceNormal(surface),
             primaryGeometricNormal);
-        const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
-        const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-        const float diffusePdf = CleanGiDiffuseProducerPdfForNormal(surface, primaryShadingNormal, primaryGeometricNormal, bounceDir);
+        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+            surface,
+            primaryShadingNormal,
+            primaryGeometricNormal,
+            rng);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurfaceRayQuery(pixel, dimensions, RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface, traceStatus))
+        if (CleanGiBuildProducerSurfaceRayQuery(
+            pixel,
+            dimensions,
+            RAB_GetSurfaceWorldPos(surface),
+            primaryGeometricNormal,
+            raySample.direction,
+            raySample.sourcePdf,
+            secondarySurface,
+            traceStatus))
         {
-            gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+            gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
             hitPosition = secondarySurface.worldPos;
             hitNormal = secondarySurface.shadingNormal;
         }
@@ -5090,14 +5168,21 @@ void ProducerSimpleRayGen()
         const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
             RAB_GetSurfaceNormal(surface),
             primaryGeometricNormal);
-        const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
-        const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-        const float diffusePdf = CleanGiDiffuseProducerPdfForNormal(surface, primaryShadingNormal, primaryGeometricNormal, bounceDir);
+        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+            surface,
+            primaryShadingNormal,
+            primaryGeometricNormal,
+            rng);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+        if (CleanGiBuildProducerSurface(
+            RAB_GetSurfaceWorldPos(surface),
+            primaryGeometricNormal,
+            raySample.direction,
+            raySample.sourcePdf,
+            secondarySurface))
         {
-            gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+            gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
             hitPosition = secondarySurface.worldPos;
             hitNormal = secondarySurface.shadingNormal;
 
@@ -5148,14 +5233,21 @@ void ProducerLeanTraceRayGen()
         const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
             RAB_GetSurfaceNormal(surface),
             primaryGeometricNormal);
-        const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
-        const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-        const float diffusePdf = CleanGiDiffuseProducerPdfForNormal(surface, primaryShadingNormal, primaryGeometricNormal, bounceDir);
+        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+            surface,
+            primaryShadingNormal,
+            primaryGeometricNormal,
+            rng);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+        if (CleanGiBuildProducerSurface(
+            RAB_GetSurfaceWorldPos(surface),
+            primaryGeometricNormal,
+            raySample.direction,
+            raySample.sourcePdf,
+            secondarySurface))
         {
-            gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+            gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
             hitPosition = secondarySurface.worldPos;
             hitNormal = secondarySurface.shadingNormal;
         }
@@ -5230,14 +5322,21 @@ void ProducerTraceRayGen()
         const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
         const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
         const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
-        const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
-        const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-        const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+            surface,
+            primaryShadingNormal,
+            primaryGeometricNormal,
+            rng);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface))
+        if (CleanGiBuildProducerSurface(
+            RAB_GetSurfaceWorldPos(surface),
+            primaryGeometricNormal,
+            raySample.direction,
+            raySample.sourcePdf,
+            secondarySurface))
         {
-            gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+            gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
             hitPosition = secondarySurface.worldPos;
             hitNormal = secondarySurface.shadingNormal;
         }
@@ -5297,12 +5396,19 @@ void ProducerTraceRoughFallbackRayGen()
 
     const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
-    const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
-    const float3 bounceDir = RAB_CosineHemisphereDirection(primaryShadingNormal, randomValues);
-    const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+    const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+        surface,
+        primaryShadingNormal,
+        primaryGeometricNormal,
+        rng);
 
     RAB_Surface secondarySurface;
-    const bool traceValid = CleanGiBuildProducerSurface(RAB_GetSurfaceWorldPos(surface), primaryGeometricNormal, bounceDir, diffusePdf, secondarySurface);
+    const bool traceValid = CleanGiBuildProducerSurface(
+        RAB_GetSurfaceWorldPos(surface),
+        primaryGeometricNormal,
+        raySample.direction,
+        raySample.sourcePdf,
+        secondarySurface);
     if (view == 22u)
     {
         const bool queryValid = queryGbuf.valid != 0u;
@@ -5411,7 +5517,7 @@ void ProducerTraceRoughFallbackRayGen()
 
     if (traceValid)
     {
-        gbuf = CleanGiPackProducerSurface(secondarySurface, false);
+        gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
         hitPosition = secondarySurface.worldPos;
         hitNormal = secondarySurface.shadingNormal;
     }
@@ -5662,19 +5768,18 @@ void SpecularSeedTraceRayGen()
         {
             RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
             const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
-            float3 bounceDir;
-            float solidAnglePdf;
-            if (CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, solidAnglePdf))
+            const CleanGiFirstIndirectRaySample raySample = CleanGiSampleSpecularFirstIndirectRay(surface, rng);
+            if (PathTraceFirstIndirectCandidateRaySampleIsValid(raySample))
             {
                 RAB_Surface secondarySurface;
                 if (CleanGiBuildProducerSurface(
                     RAB_GetSurfaceWorldPos(surface),
                     RAB_GetSurfaceGeoNormal(surface),
-                    bounceDir,
-                    solidAnglePdf,
+                    raySample.direction,
+                    raySample.sourcePdf,
                     secondarySurface))
                 {
-                    gbuf = CleanGiPackProducerSurface(secondarySurface, true);
+                    gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
                 }
             }
         }

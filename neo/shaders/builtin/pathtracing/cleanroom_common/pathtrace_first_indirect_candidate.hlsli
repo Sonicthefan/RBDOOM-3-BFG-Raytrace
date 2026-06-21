@@ -9,6 +9,25 @@
 
 static const uint PATH_TRACE_FIRST_INDIRECT_CANDIDATE_SURFACE_STRIDE_BYTES = 144u;
 
+static const uint PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_VALID = 1u << 0u;
+static const uint PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_DIFFUSE_LOBE = 1u << 1u;
+static const uint PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_SPECULAR_LOBE = 1u << 2u;
+
+// The current diffuse cosine and GGX half-vector samplers both consume two
+// random values. Keep it explicit so split trace/shade kernels do not hide RNG
+// replay assumptions in GI-only code.
+static const uint PATH_TRACE_FIRST_INDIRECT_CANDIDATE_RANDOMS_TWO_D = 2u;
+
+struct PathTraceFirstIndirectCandidateRaySample
+{
+    float3 direction;
+    float sourcePdf;
+    uint flags;
+    uint randomsConsumed;
+    float lobeProbability;
+    float lobePdf;
+};
+
 // Trace -> shade surface record for a first-indirect hit. Mirrors the subset of
 // RAB_Surface + RAB_Material needed to shade the candidate without reloading hit
 // geometry. Keep this in lockstep with the host buffer stride.
@@ -52,5 +71,33 @@ struct PathTraceFirstIndirectCandidateResult
     uint materialFlags;
     uint diffuseTextureIndex;
 };
+
+bool PathTraceFirstIndirectCandidateRaySampleIsValid(PathTraceFirstIndirectCandidateRaySample sample)
+{
+    return (sample.flags & PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_VALID) != 0u &&
+        sample.sourcePdf > 0.0;
+}
+
+bool PathTraceFirstIndirectCandidateRaySampleIsSpecular(PathTraceFirstIndirectCandidateRaySample sample)
+{
+    return (sample.flags & PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_SPECULAR_LOBE) != 0u;
+}
+
+uint PathTraceFirstIndirectCandidateSurfaceSampleFlags(PathTraceFirstIndirectCandidateSurface surface)
+{
+    if (surface.valid == 0u)
+    {
+        return 0u;
+    }
+    return PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_VALID |
+        (surface.primarySampledSpecular != 0u
+            ? PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_SPECULAR_LOBE
+            : PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_DIFFUSE_LOBE);
+}
+
+float3 PathTraceFirstIndirectCandidateSurfaceSampleDirection(PathTraceFirstIndirectCandidateSurface surface)
+{
+    return -surface.viewDir;
+}
 
 #endif // PATH_TRACE_FIRST_INDIRECT_CANDIDATE_HLSLI

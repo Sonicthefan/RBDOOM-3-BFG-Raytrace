@@ -26,6 +26,19 @@ shader code:
 Clean GI aliases this record for compatibility, so the current rendering path is
 unchanged. The host buffer stride remains 144 bytes.
 
+The producer now also uses an explicit first-indirect ray sample object before
+tracing:
+
+- sampled direction,
+- source PDF,
+- diffuse/specular lobe flags,
+- lobe PDF/probability,
+- number of RNG values consumed.
+
+That object is shader-local today; it does not add another full-screen buffer.
+The trace-to-shade surface keeps only the data Clean GI needs now, while the
+sample stage has a reusable shape for a later unified-candidate consumer.
+
 ## Design Rules
 
 1. DI and GI reservoirs stay separate until explicitly opened as a later stage.
@@ -54,6 +67,11 @@ Primary surface
 ```
 
 The last step is GI-specific. The earlier steps should remain reusable.
+
+The current increment implements the first two named stages inside the existing
+Clean GI producer entry points. The next structural step is to make the shaded
+candidate handoff explicit before it is converted into the Clean GI raw initial
+sample textures.
 
 ## Explicit Non-Goals
 
