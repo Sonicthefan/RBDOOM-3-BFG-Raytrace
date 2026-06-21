@@ -1823,9 +1823,9 @@ idCVar r_pathTracingCleanRestirGiNeeCacheSecondaryProbability(
 
 idCVar r_pathTracingCleanRestirGiSpecularProducer(
     "r_pathTracingCleanRestirGiSpecularProducer",
-    "0",
+    "2",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Clean-room ReSTIR GI specular mode: 0 off, 1 full specular/glossy seed producer, 2 fallback/reuse mode that keeps specular output eligibility but skips the extra full-screen specular seed trace/shade" );
+    "Clean-room ReSTIR GI specular mode: 0 off, 1 full specular/glossy seed producer reference, 2 one-ray mixed producer default that keeps specular output eligibility but skips the extra full-screen specular seed trace/shade" );
 
 idCVar r_pathTracingCleanRestirGiRrHitDistance(
     "r_pathTracingCleanRestirGiRrHitDistance",

@@ -52,6 +52,19 @@ producer and before the temporal contract, with a reservoir barrier between.
   this was a **build desync** (stale exe vs. fresh shaders), not the design. A
   clean full build of exe + shaders together fixed it.
 
+### 4. Mixed first-indirect specular mode - default (~8 ms)
+`r_pathTracingCleanRestirGiSpecularProducer 2` replaces the separate full-screen
+specular seed trace/shade (`FirstIndirect.0d/0e`) with a one-ray diffuse/specular
+mixture in the normal `FirstIndirect.0a` producer. Low-roughness/high-F0
+receivers use the same temporal/spatial reuse quarantine as the full specular
+seed mode to avoid reflection smearing.
+- **Result:** user Nsight A/B measured mode 2 about **8 ms faster** than mode 1;
+  `FirstIndirect.0d/0e` accounted for roughly that whole delta. Extended DLSSRR
+  playtesting found no detectable visual difference.
+- **Why it worked:** it removes the duplicate full-screen specular first-indirect
+  producer instead of optimizing around it. Mode 1 remains as the reference
+  fallback; mode 2 is the default.
+
 ---
 
 ## What did NOT work (reverted, or kept but zero perf)
