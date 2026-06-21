@@ -1032,12 +1032,13 @@ bool PathTraceCleanRestirGiExecute(
     }
 
     const int view = idMath::ClampInt(0, 23, r_pathTracingCleanRestirGiView.GetInteger());
+    const int specularProducerMode = idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiSpecularProducer.GetInteger());
     const bool rrHitDistanceRequested =
         r_pathTracingCleanRestirGiRrHitDistance.GetInteger() != 0 &&
-        r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0;
+        specularProducerMode != 0;
     const bool rrSpecularInputRequested =
         r_pathTracingCleanRestirGiRrSpecularInput.GetInteger() != 0 &&
-        r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0;
+        specularProducerMode != 0;
     if (view == 0 && r_pathTracingCleanRestirGiResolve.GetInteger() == 0 && !rrHitDistanceRequested && !rrSpecularInputRequested)
     {
         // Nothing consumes the lane yet without a debug view or resolve.
@@ -1199,7 +1200,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.neeCacheSeedEnabled = r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0 ? 1u : 0u;
     tail.frameIndex = state.frameIndex;
     tail.resolveEnabled = r_pathTracingCleanRestirGiResolve.GetInteger() != 0 ? 1u : 0u;
-    tail.specularProducerEnabled = r_pathTracingCleanRestirGiSpecularProducer.GetInteger() != 0 ? 1u : 0u;
+    tail.specularProducerEnabled = static_cast<uint32_t>(specularProducerMode);
     tail.rrHitDistanceEnabled = rrHitDistanceRequested ? 1u : 0u;
     tail.rrSpecularInputEnabled = rrSpecularInputRequested ? 1u : 0u;
     tail.neeCacheSecondaryEnabled = r_pathTracingCleanRestirGiNeeCacheSecondary.GetInteger() != 0 ? 1u : 0u;
@@ -1463,10 +1464,11 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::utils::TextureUavBarrier(commandList, state.producerRadianceTexture);
     }
 
-    // INIT-page seed pass: split the specular producer's trace and shade work
-    // away from the INIT clear/NEE seed so Nsight can isolate the remaining
-    // broad work instead of reporting one monolithic InitSeed raygen.
-    const bool splitSpecularSeed = tail.specularProducerEnabled != 0u;
+    // INIT-page seed pass: mode 1 splits the specular producer's trace and
+    // shade work away from the INIT clear/NEE seed so Nsight can isolate the
+    // broad work. Mode 2 keeps specular final-output eligibility active but
+    // deliberately skips this extra full-screen first-indirect seed path.
+    const bool splitSpecularSeed = tail.specularProducerEnabled == 1u;
     if (splitSpecularSeed)
     {
         nvrhi::rt::State seedNoSpecState;

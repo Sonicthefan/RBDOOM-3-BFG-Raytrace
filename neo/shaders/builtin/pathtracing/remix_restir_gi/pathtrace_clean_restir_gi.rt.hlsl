@@ -448,6 +448,8 @@ float CleanGiLuminance(float3 value);
 bool CleanGiAllFinite3(float3 value);
 float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3 toPosition);
 bool CleanGiToyFakePBRSpecularEnabled();
+bool CleanGiSpecularProducerActive();
+bool CleanGiSpecularSeedProducerActive();
 float3 CleanGiEvaluateIndirectLobes(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance);
 bool CleanGiSampleSpecularProducerDirection(RAB_Surface surface, inout RTXDI_RandomSamplerState rng, out float3 bounceDir, out float solidAnglePdf);
 void CleanGiProducerMixtureProbabilities(RAB_Surface surface, out float diffuseProbability, out float specularProbability);
@@ -652,7 +654,7 @@ RTXDI_GIReservoir RemixRAB_LoadPreparedGIInitialReservoir(
 
     // Seed hooks: cvar-gated producers can preload the INIT page before the
     // raw diffuse initial sample joins the RIS update here.
-    if (CleanRestirGiNeeCacheSeedEnabled != 0u || CleanRestirGiSpecularProducerEnabled != 0u)
+    if (CleanRestirGiNeeCacheSeedEnabled != 0u || CleanGiSpecularSeedProducerActive())
     {
         reservoir = RAB_LoadGIReservoir(int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
     }
@@ -827,7 +829,7 @@ bool CleanGiValidateSpatialReuseSample(uint2 pixel, int2 neighborPixel, uint sam
 
 bool CleanGiSpecularProducerNeedsReuseQuarantine(RAB_Surface surface)
 {
-    if (CleanRestirGiSpecularProducerEnabled == 0u || !RAB_IsSurfaceValid(surface))
+    if (!CleanGiSpecularSeedProducerActive() || !RAB_IsSurfaceValid(surface))
     {
         return false;
     }
@@ -1293,9 +1295,19 @@ bool CleanGiToyFakePBRSpecularEnabled()
     return (((uint)TextureInfo.w) & RT_SMOKE_TEXTURE_FLAG_TOY_FAKE_PBR_SPECULAR) != 0u;
 }
 
+bool CleanGiSpecularProducerActive()
+{
+    return CleanRestirGiSpecularProducerEnabled != 0u;
+}
+
+bool CleanGiSpecularSeedProducerActive()
+{
+    return CleanRestirGiSpecularProducerEnabled == 1u;
+}
+
 bool CleanGiSurfaceSupportsSpecularProducer(RAB_Surface surface)
 {
-    if (CleanRestirGiSpecularProducerEnabled == 0u || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    if (!CleanGiSpecularProducerActive() || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
     {
         return false;
     }
@@ -1309,7 +1321,7 @@ bool CleanGiSurfaceSupportsSpecularProducer(RAB_Surface surface)
 
 float3 CleanGiSpecularProducerEligibilityColor(RAB_Surface surface)
 {
-    if (CleanRestirGiSpecularProducerEnabled == 0u)
+    if (!CleanGiSpecularProducerActive())
     {
         return float3(0.0, 0.0, 0.25);
     }
@@ -1326,7 +1338,7 @@ float3 CleanGiSpecularProducerEligibilityColor(RAB_Surface surface)
 
 float3 CleanGiSpecularReuseStateColor(RAB_Surface surface, RTXDI_GIReservoir reservoir)
 {
-    if (CleanRestirGiSpecularProducerEnabled == 0u)
+    if (!CleanGiSpecularProducerActive())
     {
         return float3(0.0, 0.0, 0.25);
     }
@@ -3443,7 +3455,7 @@ bool CleanGiSampleContinuationDirection(
     CleanGiProducerMixtureProbabilities(surface, diffuseProbability, specularProbability);
     const bool trySpecular =
         specularProbability > 0.0 &&
-        (primarySampledSpecular || CleanRestirGiSpecularProducerEnabled != 0u) &&
+        (primarySampledSpecular || CleanGiSpecularProducerActive()) &&
         RAB_GetNextRandom(rng) < specularProbability;
     if (trySpecular)
     {
@@ -4704,7 +4716,7 @@ void CleanGiMergePackedSpecularSeedIntoInitPage(
 
 void CleanGiSeedInitPageFromSpecularProducer(uint2 pixel, bool surfaceValid, PathTracePrimarySurfaceRecord record)
 {
-    if (CleanRestirGiSpecularProducerEnabled == 0u || !surfaceValid)
+    if (!CleanGiSpecularSeedProducerActive() || !surfaceValid)
     {
         return;
     }
@@ -5848,7 +5860,7 @@ void FirstIndirectSpecularTraceRayGen()
 
     CleanGiProducerSurface gbuf = (CleanGiProducerSurface)0;
     const uint view = CleanRestirGiView;
-    if (!CleanGiSeedPassSkipsView(view) && CleanRestirGiSpecularProducerEnabled != 0u)
+    if (!CleanGiSeedPassSkipsView(view) && CleanGiSpecularSeedProducerActive())
     {
         PathTracePrimarySurfaceRecord record;
         const bool surfaceValid = CleanGiLoadSurfaceRecord(pixel, dimensions, record);
@@ -5888,7 +5900,7 @@ void FirstIndirectSpecularShadeRayGen()
     }
 
     const uint view = CleanRestirGiView;
-    if (CleanGiSeedPassSkipsView(view) || CleanRestirGiSpecularProducerEnabled == 0u)
+    if (CleanGiSeedPassSkipsView(view) || !CleanGiSpecularSeedProducerActive())
     {
         return;
     }
@@ -5934,7 +5946,7 @@ void FirstIndirectSpecularShadeFastRayGen()
     }
 
     const uint view = CleanRestirGiView;
-    if (CleanGiSeedPassSkipsView(view) || CleanRestirGiSpecularProducerEnabled == 0u)
+    if (CleanGiSeedPassSkipsView(view) || !CleanGiSpecularSeedProducerActive())
     {
         return;
     }
@@ -6390,7 +6402,7 @@ void ReuseRayGen()
         {
             color = float3(0.08, 0.08, 0.08);
         }
-        else if (CleanRestirGiSpecularProducerEnabled == 0u)
+        else if (!CleanGiSpecularProducerActive())
         {
             color = float3(0.0, 0.0, 0.25);
         }
