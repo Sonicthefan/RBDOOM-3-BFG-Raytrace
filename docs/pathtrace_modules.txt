@@ -808,9 +808,9 @@ PathTraceNeeCache.cpp
     probability as a mixture weight over both branches:
     cache-heavy diagnostics can set `r_pathTracingNeeCacheFallbackProbability 0`,
     normal validation uses the default `0.25`, and fallback-only baseline uses
-    `1`. Mixed analytic/emissive NEE-cache validation also depends on clean DI
-    spatial reuse using `r_cleanDiSpatialSamples 5`; lower sample counts can make
-    one light class look stable while the other remains under-resolved.
+    `1`. The clean DI default now keeps converged spatial reuse at
+    `r_cleanDiSpatialSamples 1`; raise it toward 5 when stress-testing mixed
+    analytic/emissive NEE-cache stability.
 
 pathtrace_smoke.rt.hlsl
     Core smoke ray tracing shader. It keeps mode 18, mode 20, integrator

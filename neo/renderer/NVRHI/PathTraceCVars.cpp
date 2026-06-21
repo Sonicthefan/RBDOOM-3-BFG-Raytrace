@@ -1361,7 +1361,7 @@ idCVar r_pathTracingCleanRtxdiDiSpatial(
 
 idCVar r_pathTracingCleanRtxdiDiSpatialSamples(
     "r_pathTracingCleanRtxdiDiSpatialSamples",
-    "5",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room Remix DI spatial reuse: neighbor sample count for converged pixels; basic lane clamps to 1..16" );
 
@@ -1391,7 +1391,7 @@ idCVar r_cleanSpatial(
 
 idCVar r_cleanDiSpatialSamples(
     "r_cleanDiSpatialSamples",
-    "5",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Short alias for clean DI spatial neighbor sample count; clamps to 1..16" );
 

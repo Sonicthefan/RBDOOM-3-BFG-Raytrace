@@ -1598,11 +1598,10 @@ Denoise/upscale/Ray Reconstruction reservation:
   0 for temporal-only/current-only diagnostics.
 
 - r_cleanDiSpatialSamples
-  Defaults to 5, clamped to 1..16. Controls the normal clean DI spatial
+  Defaults to 1, clamped to 1..16. Controls the normal clean DI spatial
   neighbor sample count used by `pathtrace_clean_rtxdi_di_spatial.rt.hlsl`.
-  The NEE-cache mixed analytic/emissive path needs 5 for both domains to
-  stabilize well together; lower values can make one domain look acceptable
-  while the other remains under-resolved.
+  Raise it toward 5 for stress-testing mixed analytic/emissive NEE-cache
+  stability if temporal-only noise starts leaking through the denoiser.
 
 - r_cleanDiSpatialDisocclusionSamples
   Defaults to 4, clamped to 1..16. Controls the clean DI short-history spatial
@@ -3167,7 +3166,7 @@ For clean RTXDI DI spatial reuse tuning:
     r_pathTracingCleanRtxdiDiSpatial 1
     r_cleanDiSpatial 1
     r_cleanSpatial 1
-    r_cleanDiSpatialSamples 5
+    r_cleanDiSpatialSamples 1
     r_cleanDiSpatialDisocclusionSamples 4
     r_cleanDiSpatialRadius 30
     r_pathTracingCleanRtxdiDiTemporalFireflyClamp 32
