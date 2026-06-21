@@ -450,6 +450,7 @@ float CleanGiTraceVisibility(float3 fromPosition, float3 geometricNormal, float3
 bool CleanGiToyFakePBRSpecularEnabled();
 bool CleanGiSpecularProducerActive();
 bool CleanGiSpecularSeedProducerActive();
+bool CleanGiMixedFirstIndirectProducerActive();
 float3 CleanGiEvaluateIndirectLobes(RAB_Surface surface, float3 sampleDir, float3 incomingRadiance);
 bool CleanGiSampleSpecularProducerDirection(RAB_Surface surface, inout RTXDI_RandomSamplerState rng, out float3 bounceDir, out float solidAnglePdf);
 void CleanGiProducerMixtureProbabilities(RAB_Surface surface, out float diffuseProbability, out float specularProbability);
@@ -1303,6 +1304,11 @@ bool CleanGiSpecularProducerActive()
 bool CleanGiSpecularSeedProducerActive()
 {
     return CleanRestirGiSpecularProducerEnabled == 1u;
+}
+
+bool CleanGiMixedFirstIndirectProducerActive()
+{
+    return CleanGiSpecularProducerActive() && !CleanGiSpecularSeedProducerActive();
 }
 
 bool CleanGiSurfaceSupportsSpecularProducer(RAB_Surface surface)
@@ -4217,13 +4223,19 @@ void CleanGiSkipFirstIndirectCandidateRaySampleRandoms(
     inout RTXDI_RandomSamplerState rng)
 {
     const uint randomsConsumed = candidateSurface.valid != 0u
-        ? PATH_TRACE_FIRST_INDIRECT_CANDIDATE_RANDOMS_TWO_D
+        ? (CleanGiMixedFirstIndirectProducerActive()
+            ? PATH_TRACE_FIRST_INDIRECT_CANDIDATE_RANDOMS_TWO_D + 1u
+            : PATH_TRACE_FIRST_INDIRECT_CANDIDATE_RANDOMS_TWO_D)
         : 0u;
     if (randomsConsumed > 0u)
     {
         RAB_GetNextRandom(rng);
     }
     if (randomsConsumed > 1u)
+    {
+        RAB_GetNextRandom(rng);
+    }
+    if (randomsConsumed > 2u)
     {
         RAB_GetNextRandom(rng);
     }
@@ -4544,13 +4556,67 @@ CleanGiFirstIndirectRaySample CleanGiSampleSpecularFirstIndirectRay(
         solidAnglePdf);
 }
 
+CleanGiFirstIndirectRaySample CleanGiSampleProducerFirstIndirectRay(
+    RAB_Surface surface,
+    float3 sampleNormal,
+    float3 geometryNormal,
+    inout RTXDI_RandomSamplerState rng)
+{
+    if (!CleanGiMixedFirstIndirectProducerActive())
+    {
+        return CleanGiSampleDiffuseFirstIndirectRay(surface, sampleNormal, geometryNormal, rng);
+    }
+
+    float diffuseProbability;
+    float specularProbability;
+    CleanGiProducerMixtureProbabilities(surface, diffuseProbability, specularProbability);
+
+    const float lobeSelector = RAB_GetNextRandom(rng);
+    if (specularProbability > 0.0 && lobeSelector < specularProbability)
+    {
+        float3 bounceDir;
+        float specularPdf;
+        if (!CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, specularPdf))
+        {
+            return (CleanGiFirstIndirectRaySample)0;
+        }
+
+        const float diffusePdf = CleanGiDiffuseProducerPdf(surface, bounceDir);
+        const float mixturePdf = diffuseProbability * diffusePdf + specularProbability * specularPdf;
+        CleanGiFirstIndirectRaySample sample = CleanGiMakeFirstIndirectRaySample(
+            bounceDir,
+            mixturePdf,
+            PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_SPECULAR_LOBE,
+            specularProbability,
+            specularPdf);
+        sample.randomsConsumed = PATH_TRACE_FIRST_INDIRECT_CANDIDATE_RANDOMS_TWO_D + 1u;
+        return sample;
+    }
+
+    const float2 randomValues = float2(RAB_GetNextRandom(rng), RAB_GetNextRandom(rng));
+    const float3 bounceDir = RAB_CosineHemisphereDirection(sampleNormal, randomValues);
+    const float diffusePdf = CleanGiDiffuseProducerPdfForNormal(surface, sampleNormal, geometryNormal, bounceDir);
+    const float specularPdf = specularProbability > 0.0
+        ? CleanGiSpecularProducerPdf(surface, bounceDir)
+        : 0.0;
+    const float mixturePdf = diffuseProbability * diffusePdf + specularProbability * specularPdf;
+    CleanGiFirstIndirectRaySample sample = CleanGiMakeFirstIndirectRaySample(
+        bounceDir,
+        mixturePdf,
+        PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_DIFFUSE_LOBE,
+        diffuseProbability,
+        diffusePdf);
+    sample.randomsConsumed = PATH_TRACE_FIRST_INDIRECT_CANDIDATE_RANDOMS_TWO_D + 1u;
+    return sample;
+}
+
 CleanGiProducerResult CleanGiRunProducer(uint2 pixel, PathTracePrimarySurfaceRecord record, inout RTXDI_RandomSamplerState rng)
 {
     const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
     const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
 
-    const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+    const CleanGiFirstIndirectRaySample raySample = CleanGiSampleProducerFirstIndirectRay(
         surface,
         primaryShadingNormal,
         primaryGeometricNormal,
@@ -5251,7 +5317,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
             RAB_GetSurfaceNormal(surface),
             primaryGeometricNormal);
-        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleProducerFirstIndirectRay(
             surface,
             primaryShadingNormal,
             primaryGeometricNormal,
@@ -5310,7 +5376,7 @@ void FirstIndirectSimpleRayGen()
         const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
             RAB_GetSurfaceNormal(surface),
             primaryGeometricNormal);
-        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleProducerFirstIndirectRay(
             surface,
             primaryShadingNormal,
             primaryGeometricNormal,
@@ -5367,7 +5433,7 @@ void FirstIndirectLeanTraceRayGen()
         const float3 primaryShadingNormal = CleanGiConstrainShadingNormal(
             RAB_GetSurfaceNormal(surface),
             primaryGeometricNormal);
-        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleProducerFirstIndirectRay(
             surface,
             primaryShadingNormal,
             primaryGeometricNormal,
@@ -5439,14 +5505,14 @@ void FirstIndirectTraceRayGen()
     float3 hitNormal = float3(0.0, 0.0, 0.0);
     if (surfaceValid)
     {
-        // Consume exactly the two bounce-direction randoms. The shade pass
-        // re-seeds the same stream and skips these two, so the NEE samples
-        // match the pre-split monolithic producer bit-for-bit.
+        // Consume exactly the producer-ray randoms. The shade pass re-seeds the
+        // same stream and skips them, so NEE samples match the pre-split
+        // monolithic producer bit-for-bit for the active producer mode.
         RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
         const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
         const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
         const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
-        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+        const CleanGiFirstIndirectRaySample raySample = CleanGiSampleProducerFirstIndirectRay(
             surface,
             primaryShadingNormal,
             primaryGeometricNormal,
@@ -5516,7 +5582,7 @@ void FirstIndirectTraceRoughFallbackRayGen()
 
     const float3 primaryShadingNormal = CleanGiSafeNormalize(RAB_GetSurfaceNormal(surface), RAB_GetSurfaceGeoNormal(surface));
     const float3 primaryGeometricNormal = CleanGiSafeNormalize(RAB_GetSurfaceGeoNormal(surface), primaryShadingNormal);
-    const CleanGiFirstIndirectRaySample raySample = CleanGiSampleDiffuseFirstIndirectRay(
+    const CleanGiFirstIndirectRaySample raySample = CleanGiSampleProducerFirstIndirectRay(
         surface,
         primaryShadingNormal,
         primaryGeometricNormal,

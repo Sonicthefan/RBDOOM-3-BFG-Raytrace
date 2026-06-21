@@ -239,11 +239,12 @@ matches the Remix structure better than a second full-screen specular trace and
 shade producer.
 
 Local A/B hook: `r_pathTracingCleanRestirGiSpecularProducer 2` keeps specular GI
-final-output eligibility active but skips the separate full-screen specular seed
-producer (`FirstIndirect.0d/0e`). Mode `1` is the previous full seed producer.
-Use mode `2` to test whether fallback/reuse plus the normal first-indirect path
-is visually close enough to justify removing or heavily restricting the separate
-specular producer.
+final-output eligibility active, skips the separate full-screen specular seed
+producer (`FirstIndirect.0d/0e`), and changes the normal `FirstIndirect.0a`
+producer from diffuse-only sampling to a one-ray diffuse/specular mixture. Mode
+`1` is the previous full seed producer. Use mode `2` to test whether the mixed
+first-indirect path is visually close enough to justify removing or heavily
+restricting the separate specular producer.
 
 ### 3. Finish The GI Producer Ray-Query Correctness Path
 
