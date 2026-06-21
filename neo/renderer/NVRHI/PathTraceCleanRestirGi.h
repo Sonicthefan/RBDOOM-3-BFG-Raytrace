@@ -34,13 +34,13 @@ struct PathTraceCleanRestirGiState
     nvrhi::ShaderLibraryHandle shaderLibrary;
     nvrhi::rt::PipelineHandle pipeline;
     nvrhi::rt::ShaderTableHandle shaderTable;
-    nvrhi::rt::ShaderTableHandle producerShaderTable;   // ProducerTraceRayGen
+    nvrhi::rt::ShaderTableHandle producerShaderTable;   // FirstIndirectTraceRayGen
     nvrhi::rt::ShaderTableHandle producerSimpleShaderTable;
     nvrhi::rt::ShaderTableHandle producerLeanTraceShaderTable;
     nvrhi::rt::ShaderTableHandle producerLeanShadeShaderTable;
     nvrhi::rt::ShaderTableHandle producerRoughFallbackShaderTable;
-    nvrhi::rt::ShaderTableHandle shadeShaderTable;      // ProducerShadeRayGen
-    nvrhi::rt::ShaderTableHandle shadeFastShaderTable;  // ProducerShadeFastRayGen
+    nvrhi::rt::ShaderTableHandle shadeShaderTable;      // FirstIndirectShadeRayGen
+    nvrhi::rt::ShaderTableHandle shadeFastShaderTable;  // FirstIndirectShadeFastRayGen
     nvrhi::rt::ShaderTableHandle seedShaderTable;       // SeedRayGen (INIT-page seeds)
     nvrhi::rt::ShaderTableHandle seedNoSpecShaderTable; // SeedNoSpecRayGen (INIT clear + NEE seed)
     nvrhi::rt::ShaderTableHandle specularSeedTraceShaderTable;

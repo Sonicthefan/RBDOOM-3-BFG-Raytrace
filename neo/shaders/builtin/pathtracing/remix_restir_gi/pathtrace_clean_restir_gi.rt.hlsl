@@ -3591,7 +3591,7 @@ float3 CleanGiShadeSecondaryVertex(
 // lighting. The expensive, divergent NEE shading lives in
 // CleanGiShadeProducerSurface. Keeping them as distinct functions lets the
 // trace and shade halves run as separate, narrower raygen entry points
-// (ProducerTraceRayGen / ProducerShadeRayGen) that the GPU schedules at higher
+// (FirstIndirectTraceRayGen / FirstIndirectShadeRayGen) that the GPU schedules at higher
 // occupancy than the combined megakernel. The surface is handed between the two
 // passes through CleanGiProducerSurfaceBuffer via the pack/unpack helpers.
 
@@ -5194,7 +5194,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 // ray-query path, NEE-cache secondary path, and continuation bounce so Nsight
 // can compare a stripped producer shape against the existing staged producer.
 [shader("raygeneration")]
-void ProducerSimpleRayGen()
+void FirstIndirectSimpleRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5251,7 +5251,7 @@ void ProducerSimpleRayGen()
 // Lean split baseline, pass A: keep the simple producer's constrained primary
 // normal sampling but only write the secondary surface and hit geometry.
 [shader("raygeneration")]
-void ProducerLeanTraceRayGen()
+void FirstIndirectLeanTraceRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5303,7 +5303,7 @@ void ProducerLeanTraceRayGen()
 // Lean split baseline, pass B: consume the trace G-buffer and run only the
 // stripped one-sample secondary shade used by the simple producer.
 [shader("raygeneration")]
-void ProducerLeanShadeRayGen()
+void FirstIndirectLeanShadeRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5333,7 +5333,7 @@ void ProducerLeanShadeRayGen()
 // the secondary surface, and stash it in CleanGiProducerSurfaceBuffer. No
 // direct lighting / shadow rays here, so this entry point stays narrow.
 [shader("raygeneration")]
-void ProducerTraceRayGen()
+void FirstIndirectTraceRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5389,7 +5389,7 @@ void ProducerTraceRayGen()
 // but rough diffuse surfaces need the known-good trace path until the pure
 // query producer is fixed.
 [shader("raygeneration")]
-void ProducerTraceRoughFallbackRayGen()
+void FirstIndirectTraceRoughFallbackRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5565,7 +5565,7 @@ void ProducerTraceRoughFallbackRayGen()
 // trace pass and run the divergent direct-NEE (the 4-way light sampling +
 // shadow rays). Isolated from the bounce-trace/geometry machinery.
 [shader("raygeneration")]
-void ProducerShadeRayGen()
+void FirstIndirectShadeRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5707,7 +5707,7 @@ void ProducerShadeRayGen()
 }
 
 [shader("raygeneration")]
-void ProducerShadeFastRayGen()
+void FirstIndirectShadeFastRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5770,7 +5770,7 @@ void SeedNoSpecRayGen()
 }
 
 [shader("raygeneration")]
-void SpecularSeedTraceRayGen()
+void FirstIndirectSpecularTraceRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5811,7 +5811,7 @@ void SpecularSeedTraceRayGen()
 }
 
 [shader("raygeneration")]
-void SpecularSeedShadeRayGen()
+void FirstIndirectSpecularShadeRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;
@@ -5858,7 +5858,7 @@ void SpecularSeedShadeRayGen()
 }
 
 [shader("raygeneration")]
-void SpecularSeedShadeFastRayGen()
+void FirstIndirectSpecularShadeFastRayGen()
 {
     const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = DispatchRaysDimensions().xy;

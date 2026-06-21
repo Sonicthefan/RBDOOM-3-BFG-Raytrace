@@ -55,8 +55,8 @@ the capture without any app-side timestamp-query code.
 
 **Clean ReSTIR GI lane** (`PathTraceCleanRestirGi.cpp`, added this pass; inline
 `beginMarker`/`endMarker` gated on `nsightGpuMarkers`):
-- `CleanGI.0a IndirectProducerTrace` — bounce trace + surface G-buffer write.
-- `CleanGI.0b IndirectProducerShade`  — secondary-vertex direct NEE.
+- `FirstIndirect.0a Trace` - bounce trace + surface G-buffer write.
+- `FirstIndirect.0b Shade` - secondary-vertex direct NEE.
 - `CleanGI.0c InitSeed`               — INIT-page clear + specular/NEE producer seeds.
 - `CleanGI.1 TemporalReuse`           — initial reservoir + temporal contract.
 - `CleanGI.2 SpatialReuse`            — spatial reuse + final shading/resolve.
@@ -71,8 +71,8 @@ touching code:
 |---|---|---|
 | `r_pathTracingCleanRestirGiMaxBounces` | 1 | 1 = primary->secondary only; 2 adds the continuation bounce (dead at 1). |
 | `r_pathTracingCleanRestirGiSecondaryDirectProbability` | 1 | 0 skips the secondary-hit direct NEE (shadow rays + light sampling). |
-| `r_pathTracingCleanRestirGiProducerSimple` | 0 | Uses `CleanGI.0a IndirectProducerSimple`: a one-dispatch TraceRay baseline that writes the raw GI initial sample directly, bypassing the split trace/shade producer, ray-query producer, NEE-cache secondary path, and continuation bounce. |
-| `r_pathTracingCleanRestirGiProducerLeanSplit` | 0 | Uses `CleanGI.0a IndirectProducerLeanTrace` + `CleanGI.0b IndirectProducerLeanShade`: a two-dispatch baseline that keeps the simple producer's constrained-normal trace but splits it from a stripped one-sample shade. If `r_pathTracingCleanRestirGiProducerRayQuery 1` is also set, the trace half becomes `CleanGI.0a IndirectProducerLeanTraceRayQuery` (`vkCmdDispatch`) while the lean shade half stays unchanged. Use `r_pathTracingCleanRestirGiProducerRayQueryRoughFallback 0/1` with this mode to separate "fewer valid rough hits" from scheduling effects; fallback on adds `CleanGI.0a2 IndirectProducerLeanTraceRoughFallback`. If this and `r_pathTracingCleanRestirGiProducerSimple` are both enabled, the lean split path wins. |
+| `r_pathTracingCleanRestirGiProducerSimple` | 0 | Uses `FirstIndirect.0a Simple`: a one-dispatch TraceRay baseline that writes the raw GI initial sample directly, bypassing the split trace/shade producer, ray-query producer, NEE-cache secondary path, and continuation bounce. |
+| `r_pathTracingCleanRestirGiProducerLeanSplit` | 0 | Uses `FirstIndirect.0a LeanTrace` + `FirstIndirect.0b LeanShade`: a two-dispatch baseline that keeps the simple producer's constrained-normal trace but splits it from a stripped one-sample shade. If `r_pathTracingCleanRestirGiProducerRayQuery 1` is also set, the trace half becomes `FirstIndirect.0a LeanTraceRayQuery` (`vkCmdDispatch`) while the lean shade half stays unchanged. Use `r_pathTracingCleanRestirGiProducerRayQueryRoughFallback 0/1` with this mode to separate "fewer valid rough hits" from scheduling effects; fallback on adds `FirstIndirect.0a2 LeanTraceRoughFallback`. If this and `r_pathTracingCleanRestirGiProducerSimple` are both enabled, the lean split path wins. |
 | `r_pathTracingCleanRestirGiSpatialVisibility` | 0 | `CleanGI.2 SpatialReuse` visibility cadence: 0 accepts spatial neighbor reuse samples without the per-neighbor visibility shadow ray, 1 validates every neighbor, 2 validates an alternating half of neighbor candidates and accepts the rest. Mode 0 is the current measured-fast path; use modes 1/2 only for strictness/artifact A/B. |
 | `r_pathTracingCleanRtxdiDiResolveVisibilityReuse` | 0 | `CleanDI.2 Spatial` final resolve visibility diagnostic: 0 traces selected-light visibility, 1 reuses valid visibility already packed into the selected DI reservoir before falling back to the current selected-light shadow ray, 2 forces the selected sample visible and skips all final visibility rays, 3 skips roughly half the final visibility rays with a frame-varying checkerboard and uses mode-1 behavior for the rest. This is the closest DI analogue to the GI spatial visibility optimization; DI spatial does not do per-neighbor visibility tracing. |
 | `r_pathTracingCleanRestirGiSpecularProducer` | 0 | The specular-GI producer (a full specular bounce trace + NEE). **Enables specular reflections in GI**; a significant cost when on. |

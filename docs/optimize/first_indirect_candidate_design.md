@@ -69,10 +69,13 @@ Primary surface
 The last step is GI-specific. The earlier steps should remain reusable.
 
 The current increment implements the first two named stages inside the existing
-Clean GI producer entry points. Shaded first-indirect candidates now also pass
-through a single constructor before Clean GI converts them into its raw
-initial-sample textures. This keeps the reusable candidate result separate from
-the current GI reservoir page/storage layout.
+Clean GI producer path. The active raygen entry points are named
+`FirstIndirect*RayGen` and the Nsight markers use `FirstIndirect.0*` labels, but
+they still feed the existing Clean GI storage and reuse stages. Shaded
+first-indirect candidates now also pass through a single constructor before
+Clean GI converts them into its raw initial-sample textures. This keeps the
+reusable candidate result separate from the current GI reservoir page/storage
+layout.
 
 ## Explicit Non-Goals
 

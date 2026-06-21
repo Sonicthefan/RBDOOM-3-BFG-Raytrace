@@ -185,18 +185,18 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         }
     }
 
-    nvrhi::ShaderHandle producerTraceRayGen = state.shaderLibrary->getShader("ProducerTraceRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerSimpleRayGen = state.shaderLibrary->getShader("ProducerSimpleRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerLeanTraceRayGen = state.shaderLibrary->getShader("ProducerLeanTraceRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerLeanShadeRayGen = state.shaderLibrary->getShader("ProducerLeanShadeRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerRoughFallbackRayGen = state.shaderLibrary->getShader("ProducerTraceRoughFallbackRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerShadeRayGen = state.shaderLibrary->getShader("ProducerShadeRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle producerShadeFastRayGen = state.shaderLibrary->getShader("ProducerShadeFastRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerTraceRayGen = state.shaderLibrary->getShader("FirstIndirectTraceRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerSimpleRayGen = state.shaderLibrary->getShader("FirstIndirectSimpleRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerLeanTraceRayGen = state.shaderLibrary->getShader("FirstIndirectLeanTraceRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerLeanShadeRayGen = state.shaderLibrary->getShader("FirstIndirectLeanShadeRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerRoughFallbackRayGen = state.shaderLibrary->getShader("FirstIndirectTraceRoughFallbackRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerShadeRayGen = state.shaderLibrary->getShader("FirstIndirectShadeRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle producerShadeFastRayGen = state.shaderLibrary->getShader("FirstIndirectShadeFastRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle seedRayGen = state.shaderLibrary->getShader("SeedRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle seedNoSpecRayGen = state.shaderLibrary->getShader("SeedNoSpecRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle specularSeedTraceRayGen = state.shaderLibrary->getShader("SpecularSeedTraceRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle specularSeedShadeRayGen = state.shaderLibrary->getShader("SpecularSeedShadeRayGen", nvrhi::ShaderType::RayGeneration);
-    nvrhi::ShaderHandle specularSeedShadeFastRayGen = state.shaderLibrary->getShader("SpecularSeedShadeFastRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle specularSeedTraceRayGen = state.shaderLibrary->getShader("FirstIndirectSpecularTraceRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle specularSeedShadeRayGen = state.shaderLibrary->getShader("FirstIndirectSpecularShadeRayGen", nvrhi::ShaderType::RayGeneration);
+    nvrhi::ShaderHandle specularSeedShadeFastRayGen = state.shaderLibrary->getShader("FirstIndirectSpecularShadeFastRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle reuseRayGen = state.shaderLibrary->getShader("ReuseRayGen", nvrhi::ShaderType::RayGeneration);
     nvrhi::ShaderHandle miss = state.shaderLibrary->getShader("Miss", nvrhi::ShaderType::Miss);
     nvrhi::ShaderHandle shadowMiss = state.shaderLibrary->getShader("ShadowMiss", nvrhi::ShaderType::Miss);
@@ -271,43 +271,43 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
         state.pipeline = nullptr;
         return false;
     }
-    state.producerShaderTable->setRayGenerationShader("ProducerTraceRayGen");
+    state.producerShaderTable->setRayGenerationShader("FirstIndirectTraceRayGen");
     state.producerShaderTable->addMissShader("Miss");
     state.producerShaderTable->addMissShader("ShadowMiss");
     state.producerShaderTable->addHitGroup("HitGroup");
     state.producerShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.producerSimpleShaderTable->setRayGenerationShader("ProducerSimpleRayGen");
+    state.producerSimpleShaderTable->setRayGenerationShader("FirstIndirectSimpleRayGen");
     state.producerSimpleShaderTable->addMissShader("Miss");
     state.producerSimpleShaderTable->addMissShader("ShadowMiss");
     state.producerSimpleShaderTable->addHitGroup("HitGroup");
     state.producerSimpleShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.producerLeanTraceShaderTable->setRayGenerationShader("ProducerLeanTraceRayGen");
+    state.producerLeanTraceShaderTable->setRayGenerationShader("FirstIndirectLeanTraceRayGen");
     state.producerLeanTraceShaderTable->addMissShader("Miss");
     state.producerLeanTraceShaderTable->addMissShader("ShadowMiss");
     state.producerLeanTraceShaderTable->addHitGroup("HitGroup");
     state.producerLeanTraceShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.producerLeanShadeShaderTable->setRayGenerationShader("ProducerLeanShadeRayGen");
+    state.producerLeanShadeShaderTable->setRayGenerationShader("FirstIndirectLeanShadeRayGen");
     state.producerLeanShadeShaderTable->addMissShader("Miss");
     state.producerLeanShadeShaderTable->addMissShader("ShadowMiss");
     state.producerLeanShadeShaderTable->addHitGroup("HitGroup");
     state.producerLeanShadeShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.producerRoughFallbackShaderTable->setRayGenerationShader("ProducerTraceRoughFallbackRayGen");
+    state.producerRoughFallbackShaderTable->setRayGenerationShader("FirstIndirectTraceRoughFallbackRayGen");
     state.producerRoughFallbackShaderTable->addMissShader("Miss");
     state.producerRoughFallbackShaderTable->addMissShader("ShadowMiss");
     state.producerRoughFallbackShaderTable->addHitGroup("HitGroup");
     state.producerRoughFallbackShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.shadeShaderTable->setRayGenerationShader("ProducerShadeRayGen");
+    state.shadeShaderTable->setRayGenerationShader("FirstIndirectShadeRayGen");
     state.shadeShaderTable->addMissShader("Miss");
     state.shadeShaderTable->addMissShader("ShadowMiss");
     state.shadeShaderTable->addHitGroup("HitGroup");
     state.shadeShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.shadeFastShaderTable->setRayGenerationShader("ProducerShadeFastRayGen");
+    state.shadeFastShaderTable->setRayGenerationShader("FirstIndirectShadeFastRayGen");
     state.shadeFastShaderTable->addMissShader("Miss");
     state.shadeFastShaderTable->addMissShader("ShadowMiss");
     state.shadeFastShaderTable->addHitGroup("HitGroup");
@@ -325,19 +325,19 @@ bool CleanRestirGiEnsurePipeline(PathTraceCleanRestirGiState& state, const PathT
     state.seedNoSpecShaderTable->addHitGroup("HitGroup");
     state.seedNoSpecShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.specularSeedTraceShaderTable->setRayGenerationShader("SpecularSeedTraceRayGen");
+    state.specularSeedTraceShaderTable->setRayGenerationShader("FirstIndirectSpecularTraceRayGen");
     state.specularSeedTraceShaderTable->addMissShader("Miss");
     state.specularSeedTraceShaderTable->addMissShader("ShadowMiss");
     state.specularSeedTraceShaderTable->addHitGroup("HitGroup");
     state.specularSeedTraceShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.specularSeedShadeShaderTable->setRayGenerationShader("SpecularSeedShadeRayGen");
+    state.specularSeedShadeShaderTable->setRayGenerationShader("FirstIndirectSpecularShadeRayGen");
     state.specularSeedShadeShaderTable->addMissShader("Miss");
     state.specularSeedShadeShaderTable->addMissShader("ShadowMiss");
     state.specularSeedShadeShaderTable->addHitGroup("HitGroup");
     state.specularSeedShadeShaderTable->addHitGroup("ShadowHitGroup");
 
-    state.specularSeedShadeFastShaderTable->setRayGenerationShader("SpecularSeedShadeFastRayGen");
+    state.specularSeedShadeFastShaderTable->setRayGenerationShader("FirstIndirectSpecularShadeFastRayGen");
     state.specularSeedShadeFastShaderTable->addMissShader("Miss");
     state.specularSeedShadeFastShaderTable->addMissShader("ShadowMiss");
     state.specularSeedShadeFastShaderTable->addHitGroup("HitGroup");
@@ -1339,7 +1339,7 @@ bool PathTraceCleanRestirGiExecute(
             nvrhi::ComputeState producerTraceState;
             producerTraceState.pipeline = state.producerRayQueryComputePipeline;
             producerTraceState.bindings = { producerRayQueryComputeBindingSet, inputs.textureDescriptorTable };
-            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerLeanTraceRayQuery Dispatch"); }
+            if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a LeanTraceRayQuery Dispatch"); }
             commandList->setComputeState(producerTraceState);
             commandList->dispatch(
                 static_cast<uint32_t>((inputs.width + 15) / 16),
@@ -1354,7 +1354,7 @@ bool PathTraceCleanRestirGiExecute(
                 nvrhi::rt::State roughFallbackState;
                 roughFallbackState.shaderTable = state.producerRoughFallbackShaderTable;
                 roughFallbackState.bindings = { bindingSet, inputs.textureDescriptorTable };
-                if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a2 IndirectProducerLeanTraceRoughFallback DispatchRays"); }
+                if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a2 LeanTraceRoughFallback DispatchRays"); }
                 commandList->setRayTracingState(roughFallbackState);
                 commandList->dispatchRays(giArgs);
                 if (nsightGpuMarkers) { commandList->endMarker(); }
@@ -1365,7 +1365,7 @@ bool PathTraceCleanRestirGiExecute(
             nvrhi::rt::State producerTraceState;
             producerTraceState.shaderTable = state.producerLeanTraceShaderTable;
             producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
-            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerLeanTrace DispatchRays"); }
+            if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a LeanTrace DispatchRays"); }
             commandList->setRayTracingState(producerTraceState);
             commandList->dispatchRays(giArgs);
             if (nsightGpuMarkers) { commandList->endMarker(); }
@@ -1378,7 +1378,7 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::rt::State producerShadeState;
         producerShadeState.shaderTable = state.producerLeanShadeShaderTable;
         producerShadeState.bindings = { bindingSet, inputs.textureDescriptorTable };
-        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0b IndirectProducerLeanShade DispatchRays"); }
+        if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0b LeanShade DispatchRays"); }
         commandList->setRayTracingState(producerShadeState);
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
@@ -1390,7 +1390,7 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::rt::State producerSimpleState;
         producerSimpleState.shaderTable = state.producerSimpleShaderTable;
         producerSimpleState.bindings = { bindingSet, inputs.textureDescriptorTable };
-        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerSimple DispatchRays"); }
+        if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a Simple DispatchRays"); }
         commandList->setRayTracingState(producerSimpleState);
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
@@ -1407,7 +1407,7 @@ bool PathTraceCleanRestirGiExecute(
             nvrhi::ComputeState producerTraceState;
             producerTraceState.pipeline = state.producerRayQueryComputePipeline;
             producerTraceState.bindings = { producerRayQueryComputeBindingSet, inputs.textureDescriptorTable };
-            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerTraceRayQuery Dispatch"); }
+            if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a TraceRayQuery Dispatch"); }
             commandList->setComputeState(producerTraceState);
             commandList->dispatch(
                 static_cast<uint32_t>((inputs.width + 15) / 16),
@@ -1424,7 +1424,7 @@ bool PathTraceCleanRestirGiExecute(
                 nvrhi::rt::State roughFallbackState;
                 roughFallbackState.shaderTable = state.producerRoughFallbackShaderTable;
                 roughFallbackState.bindings = { bindingSet, inputs.textureDescriptorTable };
-                if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a2 IndirectProducerTraceRoughFallback DispatchRays"); }
+                if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a2 TraceRoughFallback DispatchRays"); }
                 commandList->setRayTracingState(roughFallbackState);
                 commandList->dispatchRays(giArgs);
                 if (nsightGpuMarkers) { commandList->endMarker(); }
@@ -1435,7 +1435,7 @@ bool PathTraceCleanRestirGiExecute(
             nvrhi::rt::State producerTraceState;
             producerTraceState.shaderTable = state.producerShaderTable;
             producerTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
-            if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0a IndirectProducerTrace DispatchRays"); }
+            if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0a Trace DispatchRays"); }
             commandList->setRayTracingState(producerTraceState);
             commandList->dispatchRays(giArgs);
             if (nsightGpuMarkers) { commandList->endMarker(); }
@@ -1453,8 +1453,8 @@ bool PathTraceCleanRestirGiExecute(
         if (nsightGpuMarkers)
         {
             commandList->beginMarker(defaultOneSampleShade
-                ? "CleanGI.0b IndirectProducerShadeFast DispatchRays"
-                : "CleanGI.0b IndirectProducerShade DispatchRays");
+                ? "FirstIndirect.0b ShadeFast DispatchRays"
+                : "FirstIndirect.0b Shade DispatchRays");
         }
         commandList->setRayTracingState(producerShadeState);
         commandList->dispatchRays(giArgs);
@@ -1481,7 +1481,7 @@ bool PathTraceCleanRestirGiExecute(
         nvrhi::rt::State specularSeedTraceState;
         specularSeedTraceState.shaderTable = state.specularSeedTraceShaderTable;
         specularSeedTraceState.bindings = { bindingSet, inputs.textureDescriptorTable };
-        if (nsightGpuMarkers) { commandList->beginMarker("CleanGI.0d SpecularSeedTrace DispatchRays"); }
+        if (nsightGpuMarkers) { commandList->beginMarker("FirstIndirect.0d SpecularTrace DispatchRays"); }
         commandList->setRayTracingState(specularSeedTraceState);
         commandList->dispatchRays(giArgs);
         if (nsightGpuMarkers) { commandList->endMarker(); }
@@ -1493,8 +1493,8 @@ bool PathTraceCleanRestirGiExecute(
         if (nsightGpuMarkers)
         {
             commandList->beginMarker(defaultOneSampleShade
-                ? "CleanGI.0e SpecularSeedShadeFast DispatchRays"
-                : "CleanGI.0e SpecularSeedShade DispatchRays");
+                ? "FirstIndirect.0e SpecularShadeFast DispatchRays"
+                : "FirstIndirect.0e SpecularShade DispatchRays");
         }
         commandList->setRayTracingState(specularSeedShadeState);
         commandList->dispatchRays(giArgs);
