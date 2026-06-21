@@ -134,7 +134,8 @@ r_pathTracingNeeCacheTaskSlots
 
 r_pathTracingNeeCacheFallbackProbability
 
-    Probability of sampling from the full RLU fallback instead of the cache.
+    Probability of sampling from the source-domain fallback instead of the
+    cache.
 
     Default: greater than 0.
 
@@ -143,18 +144,19 @@ r_pathTracingNeeCacheFallbackProbability
 
 r_pathTracingNeeCacheSourceDomain
 
-    0 = all current RLU lights
+    0 = all current RLU lights (diagnostic)
     1 = emissive range only
     2 = analytic range only
-    3 = typed candidate lists with mixture probabilities
+    3 = typed cache/fallback range mixture
 
-    Default: 0 or 3, chosen by implementation and documented.
+    Default: 3.
 
-    The shader must consume this field. Domain 0 samples candidate/fallback
-    identities uniformly from the full dense current RLU. Domains 1 and 2
-    restrict candidate/fallback identities to the current typed emissive or
-    analytic range. Domain 3 builds typed candidate lists and folds the typed
-    class probability into sourcePdf.
+    The shader must consume this field. Domain 0 samples fallback identities
+    uniformly from the full dense current RLU and is kept as a noisy diagnostic
+    source. Domains 1 and 2 restrict fallback identities to the current typed
+    emissive or analytic range. Domain 3 keeps the default provider away from
+    the full-RLU uniform fallback; domain 0 remains available when the older
+    full dense current-RLU proposal is needed for diagnostics.
 
 
 r_pathTracingNeeCacheDump

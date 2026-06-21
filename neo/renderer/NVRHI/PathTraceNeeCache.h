@@ -112,7 +112,7 @@ struct PathTraceNeeCacheSettings
     uint32_t candidateSlots = 8u;
     uint32_t taskSlots = 8u;
     float fallbackProbability = 0.25f;
-    int sourceDomain = 0;
+    int sourceDomain = 3;
 };
 
 struct PathTraceNeeCacheRluInputs
