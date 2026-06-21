@@ -1227,6 +1227,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     const bool cleanRestirGiNeeCacheProviderRequested =
         r_pathTracingCleanRestirGiEnable.GetInteger() != 0 &&
         (r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger() != 0 ||
+            r_pathTracingCleanRestirGiNeeCacheSecondary.GetInteger() != 0 ||
             cleanRestirGiNeeCacheDiagnosticView);
     const bool cleanRestirGiNeeCacheLiveDiagnosticRefresh = false;
     const bool cleanNeeCacheProviderRequestedEarly =

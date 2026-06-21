@@ -2578,6 +2578,116 @@ bool CleanGiNeeCacheCandidateUsable(PathTraceNeeCacheCandidateRecord candidate, 
             candidate.lightClass == PATH_TRACE_UNIFIED_LIGHT_TYPE_EMISSIVE_TRIANGLE);
 }
 
+float CleanGiNeeCacheCandidateIdentityWeight(PathTraceNeeCacheCandidateRecord candidate, PathTraceNeeCacheCellDebug cell)
+{
+    return CleanGiNeeCacheCandidateUsable(candidate, cell)
+        ? max(candidate.candidateWeight, 0.0)
+        : 0.0;
+}
+
+float CleanGiNeeCacheCacheIdentityPdf(PathTraceNeeCacheCellDebug cell, uint denseRluIndex, out bool hasCacheDistribution)
+{
+    hasCacheDistribution = false;
+
+    const uint candidateSlots = max((uint)max(CleanRtxdiDiNeeCacheInfo0.w, 0.0), 0u);
+    if (candidateSlots == 0u)
+    {
+        return 0.0;
+    }
+
+    const PathTraceNeeCacheCellRecord storedCell = CleanRestirGiNeeCacheCells[cell.cellIndex];
+    if (storedCell.flags == 0u || storedCell.hash != cell.hash || storedCell.candidateCount == 0u)
+    {
+        return 0.0;
+    }
+
+    const uint baseSlot = cell.cellIndex * candidateSlots;
+    float totalWeight = 0.0;
+    float selectedIdentityWeight = 0.0;
+    [loop]
+    for (uint slot = 0u; slot < candidateSlots; ++slot)
+    {
+        const PathTraceNeeCacheCandidateRecord candidate = CleanRestirGiNeeCacheCandidates[baseSlot + slot];
+        const float currentWeight = CleanGiNeeCacheCandidateIdentityWeight(candidate, cell);
+        if (currentWeight <= 0.0)
+        {
+            continue;
+        }
+
+        totalWeight += currentWeight;
+        if (candidate.denseRluIndex == denseRluIndex)
+        {
+            selectedIdentityWeight += currentWeight;
+        }
+    }
+
+    hasCacheDistribution = totalWeight > 0.0;
+    return hasCacheDistribution ? selectedIdentityWeight / max(totalWeight, 1.0e-8) : 0.0;
+}
+
+float CleanGiNeeCacheFallbackIdentityPdf(uint denseRluIndex)
+{
+    const uint currentRluCount = CleanRtxdiDiRluCurrentLightCount;
+    if (currentRluCount == 0u || denseRluIndex >= currentRluCount)
+    {
+        return 0.0;
+    }
+
+    const uint sourceDomain = clamp((uint)max(CleanRtxdiDiNeeCacheInfo0.z, 0.0), 0u, 3u);
+    if (sourceDomain == 0u)
+    {
+        return 1.0 / max((float)currentRluCount, 1.0);
+    }
+
+    const uint emissiveRangeOffset = min((uint)max(CleanRtxdiDiRluRangeInfo.x, 0.0), currentRluCount);
+    const uint emissiveRangeCount = min((uint)max(CleanRtxdiDiRluRangeInfo.y, 0.0), currentRluCount - emissiveRangeOffset);
+    const uint analyticRangeOffset = min((uint)max(CleanRtxdiDiRluRangeInfo.z, 0.0), currentRluCount);
+    const uint analyticRangeCountRaw = min((uint)max(CleanRtxdiDiRluRangeInfo.w, 0.0), currentRluCount - analyticRangeOffset);
+    const uint analyticSampleCount = (uint)max(CleanRtxdiDiRluSampleInfo.y, 0.0);
+    const uint analyticRangeCount = analyticSampleCount > 0u ? min(analyticRangeCountRaw, analyticSampleCount) : analyticRangeCountRaw;
+
+    const bool inEmissiveRange =
+        denseRluIndex >= emissiveRangeOffset &&
+        denseRluIndex < emissiveRangeOffset + emissiveRangeCount;
+    const bool inAnalyticRange =
+        denseRluIndex >= analyticRangeOffset &&
+        denseRluIndex < analyticRangeOffset + analyticRangeCount;
+
+    if (sourceDomain == 1u)
+    {
+        return inEmissiveRange ? 1.0 / max((float)emissiveRangeCount, 1.0) : 0.0;
+    }
+    if (sourceDomain == 2u)
+    {
+        return inAnalyticRange ? 1.0 / max((float)analyticRangeCount, 1.0) : 0.0;
+    }
+
+    if (inEmissiveRange)
+    {
+        return CleanGiNeeCacheTypedClassProbability(false, emissiveRangeCount, analyticRangeCount) /
+            max((float)emissiveRangeCount, 1.0);
+    }
+    if (inAnalyticRange)
+    {
+        return CleanGiNeeCacheTypedClassProbability(true, emissiveRangeCount, analyticRangeCount) /
+            max((float)analyticRangeCount, 1.0);
+    }
+
+    return 0.0;
+}
+
+float CleanGiNeeCacheMixtureIdentityPdf(PathTraceNeeCacheCellDebug cell, uint denseRluIndex)
+{
+    bool hasCacheDistribution = false;
+    const float cacheIdentityPdf = CleanGiNeeCacheCacheIdentityPdf(cell, denseRluIndex, hasCacheDistribution);
+    const float fallbackIdentityPdf = CleanGiNeeCacheFallbackIdentityPdf(denseRluIndex);
+    const float fallbackProbability = saturate(CleanRtxdiDiNeeCacheInfo0.y);
+    const float cacheProbability = 1.0 - fallbackProbability;
+    return hasCacheDistribution
+        ? cacheProbability * cacheIdentityPdf + fallbackProbability * fallbackIdentityPdf
+        : fallbackIdentityPdf;
+}
+
 bool CleanGiNeeCacheSelectFallbackProposal(
     inout RTXDI_RandomSamplerState rng,
     out uint selectedDenseRluIndex,
@@ -2709,13 +2819,13 @@ bool CleanGiSelectNeeCacheCandidateProvider(
         return false;
     }
 
-    const float cacheProbability = saturate(1.0 - CleanRtxdiDiNeeCacheInfo0.y);
-    const float sourcePdf = cacheProbability * max(selected.candidateWeight, 0.0) / max(totalWeight, 1.0e-8);
+    const float sourcePdf = CleanGiNeeCacheMixtureIdentityPdf(cell, selected.denseRluIndex);
     if (sourcePdf <= 1.0e-8)
     {
         return false;
     }
 
+    const float cacheProbability = 1.0 - saturate(CleanRtxdiDiNeeCacheInfo0.y);
     result.selectedDenseRluIndex = selected.denseRluIndex;
     result.sourceLabel = selected.lightClass == PATH_TRACE_UNIFIED_LIGHT_TYPE_DOOM_ANALYTIC
         ? PATH_TRACE_NEE_CACHE_SOURCE_CACHE_ANALYTIC
@@ -2739,33 +2849,65 @@ bool CleanGiSelectNeeCacheSecondaryFastCandidate(
     sourceSelectionPdf = 0.0;
 
     const uint candidateSlots = max((uint)max(CleanRtxdiDiNeeCacheInfo0.w, 0.0), 0u);
-    if (candidateSlots == 0u)
-    {
-        return false;
-    }
-
     const PathTraceNeeCacheCellRecord storedCell = CleanRestirGiNeeCacheCells[cell.cellIndex];
-    if (storedCell.flags == 0u || storedCell.hash != cell.hash || storedCell.candidateCount == 0u)
+    const bool hasCacheCell =
+        candidateSlots > 0u &&
+        storedCell.flags != 0u &&
+        storedCell.hash == cell.hash &&
+        storedCell.candidateCount > 0u;
+
+    const float fallbackProbability = saturate(CleanRtxdiDiNeeCacheInfo0.y);
+    const bool tryFallback = RAB_GetNextRandom(rng) < fallbackProbability;
+    bool selectedCacheCandidate = false;
+
+    if (!tryFallback && hasCacheCell)
+    {
+        const uint baseSlot = cell.cellIndex * candidateSlots;
+        float totalWeight = 0.0;
+        [loop]
+        for (uint slot = 0u; slot < candidateSlots; ++slot)
+        {
+            totalWeight += CleanGiNeeCacheCandidateIdentityWeight(
+                CleanRestirGiNeeCacheCandidates[baseSlot + slot],
+                cell);
+        }
+
+        if (totalWeight > 0.0)
+        {
+            const float threshold = RAB_GetNextRandom(rng) * totalWeight;
+            float cumulativeWeight = 0.0;
+            [loop]
+            for (uint selectSlot = 0u; selectSlot < candidateSlots; ++selectSlot)
+            {
+                const PathTraceNeeCacheCandidateRecord candidate = CleanRestirGiNeeCacheCandidates[baseSlot + selectSlot];
+                const float currentWeight = CleanGiNeeCacheCandidateIdentityWeight(candidate, cell);
+                if (currentWeight <= 0.0)
+                {
+                    continue;
+                }
+
+                cumulativeWeight += currentWeight;
+                if (!selectedCacheCandidate && cumulativeWeight >= threshold)
+                {
+                    selectedDenseRluIndex = candidate.denseRluIndex;
+                    selectedCacheCandidate = true;
+                }
+            }
+        }
+    }
+
+    if (!selectedCacheCandidate &&
+        !CleanGiNeeCacheSelectFallbackProposal(rng, selectedDenseRluIndex, sourceSelectionPdf))
     {
         return false;
     }
 
-    const uint slot = min((uint)(RAB_GetNextRandom(rng) * (float)candidateSlots), candidateSlots - 1u);
-    const PathTraceNeeCacheCandidateRecord candidate =
-        CleanRestirGiNeeCacheCandidates[cell.cellIndex * candidateSlots + slot];
-    if (!CleanGiNeeCacheCandidateUsable(candidate, cell))
-    {
-        return false;
-    }
-
-    const float cacheProbability = saturate(1.0 - CleanRtxdiDiNeeCacheInfo0.y);
-    sourceSelectionPdf = cacheProbability / max((float)candidateSlots, 1.0);
+    sourceSelectionPdf = CleanGiNeeCacheMixtureIdentityPdf(cell, selectedDenseRluIndex);
     if (sourceSelectionPdf <= 1.0e-8)
     {
         return false;
     }
 
-    selectedDenseRluIndex = candidate.denseRluIndex;
     return selectedDenseRluIndex < CleanRtxdiDiRluCurrentLightCount;
 }
 
@@ -4835,11 +4977,12 @@ void CleanGiSeedInitPageFromNeeCache(uint2 pixel, bool surfaceValid, PathTracePr
             if (selectedCacheCandidate)
             {
                 selectedDenseRluIndex = cacheProviderResult.selectedDenseRluIndex;
-                sourceSelectionPdf = cacheProviderResult.sourcePdf;
+                sourceSelectionPdf = CleanGiNeeCacheMixtureIdentityPdf(cell, selectedDenseRluIndex);
             }
             else
             {
                 CleanGiNeeCacheSelectFallbackProposal(rng, selectedDenseRluIndex, sourceSelectionPdf);
+                sourceSelectionPdf = CleanGiNeeCacheMixtureIdentityPdf(cell, selectedDenseRluIndex);
             }
 
             if (selectedDenseRluIndex < CleanRtxdiDiRluCurrentLightCount &&
