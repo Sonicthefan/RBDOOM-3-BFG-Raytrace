@@ -558,3 +558,101 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunNeeCacheProviderProducer
         PathTraceCleanRoomInitialVisibilityEnabled());
     return result;
 }
+
+bool PathTraceCleanRoomNeeCacheReplaySelectedReservoir(
+    inout PathTraceCleanRtxdiDiInitialResult result,
+    RAB_Surface surface)
+{
+    result.status = RTXDI_IsValidDIReservoir(result.reservoir)
+        ? CLEAN_INITIAL_STATUS_VALID
+        : CLEAN_INITIAL_STATUS_ZERO_TARGET_PDF;
+    if (result.status != CLEAN_INITIAL_STATUS_VALID)
+    {
+        return false;
+    }
+
+    result.selectedLightIndex = RTXDI_GetDIReservoirLightIndex(result.reservoir);
+    if (result.selectedLightIndex >= CleanRtxdiDiRluCurrentLightCount)
+    {
+        result.status = CLEAN_INITIAL_STATUS_EXTERNAL_UNSUPPORTED_LIGHT;
+        result.reservoir = RTXDI_EmptyDIReservoir();
+        return false;
+    }
+
+    const RAB_LightInfo lightInfo = RAB_LoadLightInfo(result.selectedLightIndex, false);
+    if (!RAB_IsLightInfoValid(lightInfo))
+    {
+        result.status = CLEAN_INITIAL_STATUS_EXTERNAL_UNSUPPORTED_LIGHT;
+        result.reservoir = RTXDI_EmptyDIReservoir();
+        return false;
+    }
+
+    result.sampleUv = RTXDI_GetDIReservoirSampleUV(result.reservoir);
+    const RAB_LightSample selectedSample = RAB_SamplePolymorphicLight(lightInfo, surface, result.sampleUv);
+    if (!RAB_IsReplayableLightSample(selectedSample) || selectedSample.solidAnglePdf <= 0.0)
+    {
+        result.status = CLEAN_INITIAL_STATUS_BAD_SAMPLE_PDF;
+        result.reservoir = RTXDI_EmptyDIReservoir();
+        return false;
+    }
+
+    result.samplePosition = selectedSample.position;
+    result.sampleRadiance = selectedSample.radiance;
+    result.solidAnglePdf = selectedSample.solidAnglePdf;
+    result.targetPdf = result.reservoir.targetPdf;
+    result.invSourcePdf = RTXDI_GetDIReservoirInvPdf(result.reservoir);
+    result.visibility = PathTraceCleanRoomSelectedSampleVisibility(result.surface, result.reservoir, selectedSample);
+    RTXDI_StoreVisibilityInDIReservoir(
+        result.reservoir,
+        result.visibility.xxx,
+        PathTraceCleanRoomInitialVisibilityEnabled());
+    return true;
+}
+
+bool PathTraceCleanRoomTryAugmentInitialResultWithNeeCache(
+    uint2 pixel,
+    inout PathTraceCleanRtxdiDiInitialResult result)
+{
+    if (!PathTraceCleanRoomNeeCacheProviderEnabled() ||
+        !PathTraceCleanRoomRemixLightUniverseEnabled() ||
+        CleanRtxdiDiRluCurrentLightCount == 0u ||
+        result.status != CLEAN_INITIAL_STATUS_VALID ||
+        !RTXDI_IsValidDIReservoir(result.reservoir))
+    {
+        return false;
+    }
+
+    const RAB_Surface surface = PathTraceCleanRoomSurfaceForView(result.surface);
+    if (!RAB_IsSurfaceValid(surface))
+    {
+        return false;
+    }
+
+    RTXDI_DIReservoir mixedReservoir = RTXDI_EmptyDIReservoir();
+    RTXDI_RandomSamplerState rng =
+        RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4e43414du, 0u);
+
+    RTXDI_CombineDIReservoirs(
+        mixedReservoir,
+        result.reservoir,
+        RTXDI_GetNextRandom(rng),
+        result.reservoir.targetPdf);
+
+    const bool streamedCache =
+        PathTraceCleanRoomNeeCacheStreamProviderIntoReservoir(mixedReservoir, rng, surface);
+    if (!streamedCache)
+    {
+        return false;
+    }
+
+    RTXDI_FinalizeResampling(mixedReservoir, 1.0, max(mixedReservoir.M, 1.0));
+    mixedReservoir.M = 1.0;
+    mixedReservoir.packedVisibility = RTXDI_PackedDIReservoir_VisibilityMask;
+    mixedReservoir.spatialDistance = int2(0, 0);
+    mixedReservoir.age = 0u;
+    mixedReservoir.canonicalWeight = 1.0;
+
+    result.reservoir = mixedReservoir;
+    result.previousBestSelected = 0u;
+    return PathTraceCleanRoomNeeCacheReplaySelectedReservoir(result, surface);
+}

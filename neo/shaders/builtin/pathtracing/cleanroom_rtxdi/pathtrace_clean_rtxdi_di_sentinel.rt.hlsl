@@ -2775,8 +2775,19 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunSelectedInitialProducer(
     {
         return PathTraceCleanRoomRunExternalPdfNeeCurrentProducer(pixel, dimensions);
     }
+
+    PathTraceCleanRtxdiDiInitialResult initialResult =
+        PathTraceCleanRoomRunInitialProducer(pixel, dimensions);
+
     if (PathTraceCleanRoomNeeCacheProviderEnabled())
     {
+        if (initialResult.status == CLEAN_INITIAL_STATUS_VALID &&
+            RTXDI_IsValidDIReservoir(initialResult.reservoir))
+        {
+            PathTraceCleanRoomTryAugmentInitialResultWithNeeCache(pixel, initialResult);
+            return initialResult;
+        }
+
         const PathTraceCleanRtxdiDiInitialResult providerResult =
             PathTraceCleanRoomRunNeeCacheProviderProducer(pixel, dimensions);
         if (providerResult.status == CLEAN_INITIAL_STATUS_VALID &&
@@ -2784,9 +2795,9 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunSelectedInitialProducer(
         {
             return providerResult;
         }
-        return PathTraceCleanRoomRunInitialProducer(pixel, dimensions);
     }
-    return PathTraceCleanRoomRunInitialProducer(pixel, dimensions);
+
+    return initialResult;
 }
 
 float3 PathTraceCleanRoomFlatDiffuseResolveReservoir(PathTracePrimarySurfaceRecord surfaceRecord, RTXDI_DIReservoir reservoir)
