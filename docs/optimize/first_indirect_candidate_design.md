@@ -77,6 +77,18 @@ Clean GI converts them into its raw initial-sample textures. This keeps the
 reusable candidate result separate from the current GI reservoir page/storage
 layout.
 
+The active shader now has a behavior-neutral first-indirect helper layer:
+
+- `CleanGiBuildFirstIndirectTraceCandidate` validates a sampled first-indirect
+  ray, traces it, and packs the trace-to-shade candidate surface.
+- `CleanGiShadeFirstIndirectSurface` shades a raw secondary surface into a
+  first-indirect candidate result.
+- `CleanGiShadeFirstIndirectTraceCandidate` shades a packed trace candidate and
+  owns the split-kernel RNG replay step.
+
+The raygen entry points still decide which kernel shape to run; these helpers
+define the candidate contract underneath them.
+
 ## Explicit Non-Goals
 
 - Do not merge DI and GI reservoir pages in this increment.

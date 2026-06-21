@@ -4217,19 +4217,28 @@ void CleanGiSkipFirstIndirectCandidateRaySampleRandoms(
     }
 }
 
-CleanGiProducerResult CleanGiTraceProducerRay(
+static const uint CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE = 0u;
+static const uint CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE = 1u;
+
+bool CleanGiBuildFirstIndirectTraceCandidate(
     float3 primaryPosition,
     float3 primaryGeometricNormal,
     CleanGiFirstIndirectRaySample raySample,
-    inout RTXDI_RandomSamplerState rng)
+    out RAB_Surface secondarySurface,
+    out CleanGiProducerSurface traceCandidate,
+    out float3 hitPosition,
+    out float3 hitNormal)
 {
-    CleanGiProducerResult result = (CleanGiProducerResult)0;
+    secondarySurface = RAB_EmptySurface();
+    traceCandidate = (CleanGiProducerSurface)0;
+    hitPosition = float3(0.0, 0.0, 0.0);
+    hitNormal = float3(0.0, 0.0, 0.0);
+
     if (!PathTraceFirstIndirectCandidateRaySampleIsValid(raySample))
     {
-        return result;
+        return false;
     }
 
-    RAB_Surface secondarySurface;
     if (!CleanGiBuildProducerSurface(
         primaryPosition,
         primaryGeometricNormal,
@@ -4237,15 +4246,84 @@ CleanGiProducerResult CleanGiTraceProducerRay(
         raySample.sourcePdf,
         secondarySurface))
     {
+        return false;
+    }
+
+    traceCandidate = CleanGiPackProducerSurface(secondarySurface, raySample);
+    hitPosition = secondarySurface.worldPos;
+    hitNormal = secondarySurface.shadingNormal;
+    return true;
+}
+
+CleanGiProducerResult CleanGiShadeFirstIndirectSurface(
+    RAB_Surface secondarySurface,
+    bool primarySampledSpecular,
+    uint shadeMode,
+    inout RTXDI_RandomSamplerState rng)
+{
+    float3 radiance = float3(0.0, 0.0, 0.0);
+    if (shadeMode == CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE)
+    {
+        radiance = CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng);
+    }
+    else
+    {
+        radiance = CleanGiShadeProducerSurface(secondarySurface, primarySampledSpecular, rng);
+    }
+    return CleanGiMakeShadedFirstIndirectCandidate(secondarySurface, radiance);
+}
+
+CleanGiProducerResult CleanGiShadeFirstIndirectTraceCandidate(
+    CleanGiProducerSurface traceCandidate,
+    uint shadeMode,
+    bool replayRaySampleRandoms,
+    inout RTXDI_RandomSamplerState rng)
+{
+    if (traceCandidate.valid == 0u)
+    {
+        return (CleanGiProducerResult)0;
+    }
+
+    if (replayRaySampleRandoms)
+    {
+        CleanGiSkipFirstIndirectCandidateRaySampleRandoms(traceCandidate, rng);
+    }
+
+    return CleanGiShadeFirstIndirectSurface(
+        CleanGiUnpackProducerSurface(traceCandidate),
+        traceCandidate.primarySampledSpecular != 0u,
+        shadeMode,
+        rng);
+}
+
+CleanGiProducerResult CleanGiTraceProducerRay(
+    float3 primaryPosition,
+    float3 primaryGeometricNormal,
+    CleanGiFirstIndirectRaySample raySample,
+    inout RTXDI_RandomSamplerState rng)
+{
+    CleanGiProducerResult result = (CleanGiProducerResult)0;
+    RAB_Surface secondarySurface;
+    CleanGiProducerSurface traceCandidate;
+    float3 hitPosition;
+    float3 hitNormal;
+    if (!CleanGiBuildFirstIndirectTraceCandidate(
+        primaryPosition,
+        primaryGeometricNormal,
+        raySample,
+        secondarySurface,
+        traceCandidate,
+        hitPosition,
+        hitNormal))
+    {
         return result;
     }
 
-    result = CleanGiMakeShadedFirstIndirectCandidate(
+    result = CleanGiShadeFirstIndirectSurface(
         secondarySurface,
-        CleanGiShadeProducerSurface(
-            secondarySurface,
-            PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample),
-            rng));
+        PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample),
+        CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
+        rng);
     if (result.valid == 0u)
     {
         return result;
@@ -5227,19 +5305,20 @@ void FirstIndirectSimpleRayGen()
             rng);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurface(
+        if (CleanGiBuildFirstIndirectTraceCandidate(
             RAB_GetSurfaceWorldPos(surface),
             primaryGeometricNormal,
-            raySample.direction,
-            raySample.sourcePdf,
-            secondarySurface))
+            raySample,
+            secondarySurface,
+            gbuf,
+            hitPosition,
+            hitNormal))
         {
-            gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
-            hitPosition = secondarySurface.worldPos;
-            hitNormal = secondarySurface.shadingNormal;
-            producer = CleanGiMakeShadedFirstIndirectCandidate(
+            producer = CleanGiShadeFirstIndirectSurface(
                 secondarySurface,
-                CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng));
+                PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample),
+                CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE,
+                rng);
         }
     }
 
@@ -5283,17 +5362,14 @@ void FirstIndirectLeanTraceRayGen()
             rng);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurface(
+        CleanGiBuildFirstIndirectTraceCandidate(
             RAB_GetSurfaceWorldPos(surface),
             primaryGeometricNormal,
-            raySample.direction,
-            raySample.sourcePdf,
-            secondarySurface))
-        {
-            gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
-            hitPosition = secondarySurface.worldPos;
-            hitNormal = secondarySurface.shadingNormal;
-        }
+            raySample,
+            secondarySurface,
+            gbuf,
+            hitPosition,
+            hitNormal);
     }
 
     CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
@@ -5318,12 +5394,12 @@ void FirstIndirectLeanShadeRayGen()
     CleanGiProducerResult producer = (CleanGiProducerResult)0;
     if (gbuf.valid != 0u)
     {
-        RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
         RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-        CleanGiSkipFirstIndirectCandidateRaySampleRandoms(gbuf, rng);
-        producer = CleanGiMakeShadedFirstIndirectCandidate(
-            secondarySurface,
-            CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng));
+        producer = CleanGiShadeFirstIndirectTraceCandidate(
+            gbuf,
+            CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE,
+            true,
+            rng);
     }
 
     CleanGiStoreShadedFirstIndirectCandidateForRawGiSample(pixel, producer);
@@ -5365,17 +5441,14 @@ void FirstIndirectTraceRayGen()
             rng);
 
         RAB_Surface secondarySurface;
-        if (CleanGiBuildProducerSurface(
+        CleanGiBuildFirstIndirectTraceCandidate(
             RAB_GetSurfaceWorldPos(surface),
             primaryGeometricNormal,
-            raySample.direction,
-            raySample.sourcePdf,
-            secondarySurface))
-        {
-            gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
-            hitPosition = secondarySurface.worldPos;
-            hitNormal = secondarySurface.shadingNormal;
-        }
+            raySample,
+            secondarySurface,
+            gbuf,
+            hitPosition,
+            hitNormal);
     }
 
     CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
@@ -5438,12 +5511,14 @@ void FirstIndirectTraceRoughFallbackRayGen()
         rng);
 
     RAB_Surface secondarySurface;
-    const bool traceValid = CleanGiBuildProducerSurface(
+    const bool traceValid = CleanGiBuildFirstIndirectTraceCandidate(
         RAB_GetSurfaceWorldPos(surface),
         primaryGeometricNormal,
-        raySample.direction,
-        raySample.sourcePdf,
-        secondarySurface);
+        raySample,
+        secondarySurface,
+        gbuf,
+        hitPosition,
+        hitNormal);
     if (view == 22u)
     {
         const bool queryValid = queryGbuf.valid != 0u;
@@ -5550,13 +5625,6 @@ void FirstIndirectTraceRoughFallbackRayGen()
         return;
     }
 
-    if (traceValid)
-    {
-        gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
-        hitPosition = secondarySurface.worldPos;
-        hitNormal = secondarySurface.shadingNormal;
-    }
-
     CleanGiProducerSurfaceBuffer[flatIndex] = gbuf;
     CleanGiStoreFirstIndirectTraceCandidateForRawGiSample(pixel, gbuf, hitPosition, hitNormal, 0.0);
 }
@@ -5585,13 +5653,12 @@ void FirstIndirectShadeRayGen()
     CleanGiProducerResult producer = (CleanGiProducerResult)0;
     if (gbuf.valid != 0u)
     {
-        RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
         RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-        // Skip the two bounce-direction randoms the trace pass already consumed.
-        CleanGiSkipFirstIndirectCandidateRaySampleRandoms(gbuf, rng);
-        producer = CleanGiMakeShadedFirstIndirectCandidate(
-            secondarySurface,
-            CleanGiShadeProducerSurface(secondarySurface, gbuf.primarySampledSpecular != 0u, rng));
+        producer = CleanGiShadeFirstIndirectTraceCandidate(
+            gbuf,
+            CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
+            true,
+            rng);
     }
 
     CleanGiStoreShadedFirstIndirectCandidateForRawGiSample(pixel, producer);
@@ -5727,13 +5794,12 @@ void FirstIndirectShadeFastRayGen()
     CleanGiProducerResult producer = (CleanGiProducerResult)0;
     if (gbuf.valid != 0u)
     {
-        RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
         RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-        // Skip the two bounce-direction randoms the trace pass already consumed.
-        CleanGiSkipFirstIndirectCandidateRaySampleRandoms(gbuf, rng);
-        producer = CleanGiMakeShadedFirstIndirectCandidate(
-            secondarySurface,
-            CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng));
+        producer = CleanGiShadeFirstIndirectTraceCandidate(
+            gbuf,
+            CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE,
+            true,
+            rng);
     }
 
     CleanGiStoreShadedFirstIndirectCandidateForRawGiSample(pixel, producer);
@@ -5794,15 +5860,16 @@ void FirstIndirectSpecularTraceRayGen()
             if (PathTraceFirstIndirectCandidateRaySampleIsValid(raySample))
             {
                 RAB_Surface secondarySurface;
-                if (CleanGiBuildProducerSurface(
+                float3 hitPosition;
+                float3 hitNormal;
+                CleanGiBuildFirstIndirectTraceCandidate(
                     RAB_GetSurfaceWorldPos(surface),
                     RAB_GetSurfaceGeoNormal(surface),
-                    raySample.direction,
-                    raySample.sourcePdf,
-                    secondarySurface))
-                {
-                    gbuf = CleanGiPackProducerSurface(secondarySurface, raySample);
-                }
+                    raySample,
+                    secondarySurface,
+                    gbuf,
+                    hitPosition,
+                    hitNormal);
             }
         }
     }
@@ -5846,14 +5913,13 @@ void FirstIndirectSpecularShadeRayGen()
         return;
     }
 
-    RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
     RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
-    // The trace pass consumed the two specular half-vector randoms.
-    CleanGiSkipFirstIndirectCandidateRaySampleRandoms(gbuf, rng);
 
-    CleanGiProducerResult producer = CleanGiMakeShadedFirstIndirectCandidate(
-        secondarySurface,
-        CleanGiShadeProducerSurface(secondarySurface, true, rng));
+    CleanGiProducerResult producer = CleanGiShadeFirstIndirectTraceCandidate(
+        gbuf,
+        CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
+        true,
+        rng);
     CleanGiMergePackedSpecularSeedIntoInitPage(pixel, receiver, producer, RAB_GetNextRandom(rng));
 }
 
@@ -5893,14 +5959,13 @@ void FirstIndirectSpecularShadeFastRayGen()
         return;
     }
 
-    RAB_Surface secondarySurface = CleanGiUnpackProducerSurface(gbuf);
     RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
-    // The trace pass consumed the two specular half-vector randoms.
-    CleanGiSkipFirstIndirectCandidateRaySampleRandoms(gbuf, rng);
 
-    CleanGiProducerResult producer = CleanGiMakeShadedFirstIndirectCandidate(
-        secondarySurface,
-        CleanGiShadeProducerSurfaceDefaultOneSample(secondarySurface, rng));
+    CleanGiProducerResult producer = CleanGiShadeFirstIndirectTraceCandidate(
+        gbuf,
+        CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE,
+        true,
+        rng);
     CleanGiMergePackedSpecularSeedIntoInitPage(pixel, receiver, producer, RAB_GetNextRandom(rng));
 }
 
