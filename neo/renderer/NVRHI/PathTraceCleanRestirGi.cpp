@@ -71,14 +71,18 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t continuationOpaqueTrace;
     uint32_t producerOpaqueTrace;
     uint32_t secondaryDirectSamples;
+    uint32_t secondaryRluCandidateCount;
     float contributionFireflyThreshold;
     uint32_t blueNoiseEnabled;
     uint32_t producerRayQueryHitIdMode;
     uint32_t spatialVisibilityMode;
+    uint32_t pad0;
+    uint32_t pad1;
+    uint32_t pad2;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
 };
-static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 160, "GI constants tail must match the HLSL cbuffer tail layout");
+static_assert(sizeof(PathTraceCleanRestirGiConstantsTail) == 176, "GI constants tail must match the HLSL cbuffer tail layout");
 
 const uint32_t CLEAN_RESTIR_GI_CONSTANTS_SIZE = CLEAN_RESTIR_GI_DI_BLOB_SIZE + sizeof(PathTraceCleanRestirGiConstantsTail);
 
@@ -1216,6 +1220,7 @@ bool PathTraceCleanRestirGiExecute(
     tail.continuationOpaqueTrace = r_pathTracingCleanRestirGiContinuationOpaqueTrace.GetInteger() != 0 ? 1u : 0u;
     tail.producerOpaqueTrace = r_pathTracingCleanRestirGiProducerOpaqueTrace.GetInteger() != 0 ? 1u : 0u;
     tail.secondaryDirectSamples = static_cast<uint32_t>(idMath::ClampInt(1, 32, r_pathTracingCleanRestirGiSecondaryDirectSamples.GetInteger()));
+    tail.secondaryRluCandidateCount = static_cast<uint32_t>(idMath::ClampInt(1, 16, r_pathTracingCleanRestirGiSecondaryRluCandidates.GetInteger()));
     tail.contributionFireflyThreshold = Max(0.0f, r_pathTracingCleanRestirGiContributionFireflyThreshold.GetFloat());
     tail.blueNoiseEnabled = (state.blueNoiseValid && r_pathTracingCleanRestirGiBlueNoise.GetInteger() != 0) ? 1u : 0u;
     tail.producerRayQueryHitIdMode = static_cast<uint32_t>(

@@ -354,6 +354,7 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiContinuationOpaqueTrace;
     uint CleanRestirGiProducerOpaqueTrace;
     uint CleanRestirGiSecondaryDirectSamples;
+    uint CleanRestirGiSecondaryRluCandidateCount;
     float CleanRestirGiContributionFireflyThreshold;
     // Runtime blue-noise toggle (RGI). The shader is statically compiled with
     // RBPT_ENABLE_BLUE_NOISE, so eligible GI producer/initial sampling RNGs can
@@ -364,6 +365,9 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiBlueNoiseEnabled;
     uint CleanRestirGiProducerRayQueryHitIdMode;
     uint CleanRestirGiSpatialVisibilityMode;
+    uint CleanRestirGiPad0;
+    uint CleanRestirGiPad1;
+    uint CleanRestirGiPad2;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
 };
@@ -2359,7 +2363,7 @@ bool CleanGiAccumulateRluRisLightSample(
         return false;
     }
 
-    const uint candidateCount = clamp(CleanRtxdiDiCandidateCount, 1u, 16u);
+    const uint candidateCount = clamp(CleanRestirGiSecondaryRluCandidateCount, 1u, 16u);
     const float invUniformSourcePdf = (float)lightCount;
     float weightSum = 0.0;
     float selectedTargetPdf = 0.0;

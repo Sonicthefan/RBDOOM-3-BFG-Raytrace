@@ -65,6 +65,14 @@ seed mode to avoid reflection smearing.
   producer instead of optimizing around it. Mode 1 remains as the reference
   fallback; mode 2 is the default.
 
+### 5. GI-owned secondary RLU candidate cap - A/B default 2
+After removing `FirstIndirect.0d/0e`, `FirstIndirect.0b ShadeFast` became the
+largest event. Its "fast" path still ran the DI-owned RLU RIS candidate loop
+(`r_pathTracingCleanRtxdiDiCandidateCount`, default 8) before tracing the chosen
+visibility ray. `r_pathTracingCleanRestirGiSecondaryRluCandidates` now caps only
+GI first-secondary direct-light candidate selection; `8` reproduces the old
+behavior, default `2` is the performance candidate.
+
 ---
 
 ## What did NOT work (reverted, or kept but zero perf)

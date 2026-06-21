@@ -1749,6 +1749,12 @@ idCVar r_pathTracingCleanRestirGiSecondaryDirectSamples(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room ReSTIR GI direct-light proposal count at the first secondary hit; raise above 1 only for explicit producer-density diagnostics" );
 
+idCVar r_pathTracingCleanRestirGiSecondaryRluCandidates(
+    "r_pathTracingCleanRestirGiSecondaryRluCandidates",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room ReSTIR GI RLU RIS candidate count for each first-secondary direct-light proposal; 8 matches the DI candidate-count legacy behavior" );
+
 idCVar r_pathTracingCleanRestirGiContinuationOpaqueTrace(
     "r_pathTracingCleanRestirGiContinuationOpaqueTrace",
     "1",
