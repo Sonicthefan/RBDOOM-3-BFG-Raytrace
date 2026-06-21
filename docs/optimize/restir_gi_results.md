@@ -5,6 +5,16 @@ reasoning. GPU profiled with Nsight Graphics GPU Trace (see
 [`profiling_setup.md`](profiling_setup.md)). Test config: `maxBounces = 1`,
 specular producer **on**, NEE-cache seed off.
 
+Current tuning note: the first-bounce GI NEE-cache seed is now a useful opt-in
+when the cache producer is enabled:
+`r_pathTracingNeeCacheEnable 1`, `r_pathTracingCleanRestirGiNeeCacheSeed 1`,
+`r_pathTracingCleanRestirGiNeeCacheSecondary 0`. User A/B after the
+mixture-PDF fix measured this path faster than seed-off. Enabling secondary GI
+NEE cache (`r_pathTracingCleanRestirGiNeeCacheSecondary 1`) roughly broke even;
+secondary modes 1 and 2 showed no meaningful performance difference in that
+test, so the current performance recommendation is primary seed on, secondary
+off.
+
 ## Starting point
 
 `ProducerRayGen` (the indirect candidate producer) was ~77% of the GI frame,
@@ -72,6 +82,23 @@ largest event. Its "fast" path still ran the DI-owned RLU RIS candidate loop
 visibility ray. `r_pathTracingCleanRestirGiSecondaryRluCandidates` now caps only
 GI first-secondary direct-light candidate selection; `8` reproduces the old
 behavior, default `2` is the performance candidate.
+
+### 6. GI NEE-cache first-bounce seed - opt-in performance candidate
+`r_pathTracingCleanRestirGiNeeCacheSeed 1` lets the temporal initial sample merge
+an INIT-page reservoir seeded from the NEE cache before the normal GI producer
+sample is added. This is only useful when `r_pathTracingNeeCacheEnable 1` is also
+set, because that global cvar owns provider resource allocation and candidate
+builds.
+- **Result:** user A/B measured performance up with the seed path enabled and
+  `r_pathTracingCleanRestirGiNeeCacheSecondary 0`.
+- **Why it worked:** it adds a first-bounce light proposal from the shared
+  cache without replacing the normal GI producer sample. The post-fix source PDF
+  accounts for cache/fallback as one proposal mixture, matching the stable DI
+  additive cache shape and avoiding the old under/over-priced branch behavior.
+- **Secondary note:** enabling secondary GI cache consumed the gain, roughly
+  breaking even. Modes 1 and 2 showed no meaningful performance difference, so
+  leave secondary off unless visual tests in small-emissive scenes justify the
+  cost.
 
 ---
 
