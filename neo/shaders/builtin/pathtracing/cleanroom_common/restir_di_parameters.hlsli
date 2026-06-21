@@ -29,6 +29,7 @@ struct RTXDI_DITemporalResamplingParameters
     uint enablePermutationSampling;
     uint uniformRandomNumber;
     float permutationSamplingThreshold;
+    float fireflyClampRatio;
 };
 
 struct RTXDI_DISpatialResamplingParameters

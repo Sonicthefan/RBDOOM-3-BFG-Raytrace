@@ -3170,10 +3170,15 @@ For clean RTXDI DI spatial reuse tuning:
     r_cleanDiSpatialSamples 5
     r_cleanDiSpatialDisocclusionSamples 4
     r_cleanDiSpatialRadius 30
+    r_pathTracingCleanRtxdiDiTemporalFireflyClamp 32
 
 Disable any one of `r_pathTracingCleanRtxdiDiSpatial`, `r_cleanDiSpatial`, or
 `r_cleanSpatial` to remove the spatial reuse step. The sample/radius values
-used by the shader come from the `r_cleanDi*` aliases.
+used by the shader come from the `r_cleanDi*` aliases. For temporal-only or
+low-spatial-sample testing, `r_pathTracingCleanRtxdiDiTemporalFireflyClamp`
+rejects older previous-frame reservoirs whose `targetPdf * W` contribution
+scale is an extreme outlier against the current selected reservoir; set it to
+`0` for the old behavior.
 
 For abusive selected-light scaling tests:
 

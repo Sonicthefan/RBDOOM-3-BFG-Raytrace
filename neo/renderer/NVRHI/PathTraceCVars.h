@@ -278,6 +278,7 @@ extern idCVar r_pathTracingCleanRtxdiDiDoomColorSource;
 extern idCVar r_pathTracingCleanRtxdiDiRequireProvenDoomLights;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalBiasCorrection;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory;
+extern idCVar r_pathTracingCleanRtxdiDiTemporalFireflyClamp;
 extern idCVar r_pathTracingCleanRtxdiDiTemporalAudit;
 extern idCVar r_pathTracingCleanRestirGiEnable;
 extern idCVar r_pathTracingCleanRestirGiView;

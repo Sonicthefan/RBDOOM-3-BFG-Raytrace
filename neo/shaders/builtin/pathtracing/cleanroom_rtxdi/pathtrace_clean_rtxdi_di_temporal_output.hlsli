@@ -217,6 +217,7 @@ PathTraceCleanRtxdiDiTemporalResult PathTraceCleanRoomRunTemporalProducer(uint2 
     temporalParams.enablePermutationSampling = 0u;
     temporalParams.uniformRandomNumber = PathTraceCleanRoomHash(CleanRtxdiDiFrameIndex ^ 0x711ad151u);
     temporalParams.permutationSamplingThreshold = 0.0;
+    temporalParams.fireflyClampRatio = (float)CleanRtxdiDiTemporalFireflyClamp;
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x52525805u);
     int2 temporalSamplePixel = int2(-1, -1);
@@ -317,6 +318,7 @@ RTXDI_DIReservoir PathTraceCleanRoomRunTemporalProducerFast(uint2 pixel, uint2 d
     temporalParams.enablePermutationSampling = 0u;
     temporalParams.uniformRandomNumber = PathTraceCleanRoomHash(CleanRtxdiDiFrameIndex ^ 0x711ad151u);
     temporalParams.permutationSamplingThreshold = 0.0;
+    temporalParams.fireflyClampRatio = (float)CleanRtxdiDiTemporalFireflyClamp;
 
     RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x52525805u);
     int2 temporalSamplePixel = int2(-1, -1);

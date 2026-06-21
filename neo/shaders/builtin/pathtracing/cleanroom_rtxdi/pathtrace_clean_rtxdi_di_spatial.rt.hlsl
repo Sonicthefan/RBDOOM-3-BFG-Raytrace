@@ -165,7 +165,7 @@ cbuffer PathTraceCleanRtxdiDiSentinelConstants : register(b2)
     uint CleanRtxdiDiDoomAnalyticFullCurrentCount;
     uint CleanRtxdiDiDoomAnalyticFullPreviousCount;
     uint CleanRtxdiDiRluDomain;
-    uint CleanRtxdiDiRluDoomAnalyticParityProof;
+    uint CleanRtxdiDiTemporalFireflyClamp;
     float4 CleanRtxdiDiTextureInfo;
     float4 CleanRtxdiDiPrevCameraOriginAndValid;
     float4 CleanRtxdiDiPrevCameraForwardAndTanX;

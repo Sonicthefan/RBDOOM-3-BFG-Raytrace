@@ -329,7 +329,7 @@ struct PathTraceCleanRtxdiDiSentinelConstants
     uint32_t doomAnalyticFullCurrentCount = 0;
     uint32_t doomAnalyticFullPreviousCount = 0;
     uint32_t rluDomain = 0;
-    uint32_t rluDoomAnalyticParityProof = 0;
+    uint32_t temporalFireflyClamp = 0;
     float textureInfo[4] = {};
     float prevCameraOriginAndValid[4] = {};
     float prevCameraForwardAndTanX[4] = {};
@@ -3673,7 +3673,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.doomAnalyticFullCurrentCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
         cleanConstants.doomAnalyticFullPreviousCount = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticPreviousLightCount));
         cleanConstants.rluDomain = cleanRluRoute ? cleanRluStats.domain : 0u;
-        cleanConstants.rluDoomAnalyticParityProof = 0u;
+        cleanConstants.temporalFireflyClamp = static_cast<uint32_t>(idMath::ClampInt(0, 1024, r_pathTracingCleanRtxdiDiTemporalFireflyClamp.GetInteger()));
         const uint32_t cleanRluShaderEmissiveSampleCount = (cleanRluRoute && !cleanDisableEmissiveTriangleSampling) ? cleanRluStats.emissiveSampleCount : 0u;
         const uint32_t cleanRluShaderDoomSampleCount = cleanRluRoute ? cleanRluStats.doomAnalyticSampleCount : 0u;
         const uint32_t cleanRluShaderTotalSampleCount = cleanRluShaderEmissiveSampleCount + cleanRluShaderDoomSampleCount;

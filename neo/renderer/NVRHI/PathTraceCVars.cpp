@@ -1629,6 +1629,12 @@ idCVar r_pathTracingCleanRtxdiDiTemporalMaxHistory(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room Remix DI diagnostic: RTXDI temporal maxHistoryLength parameter; default 5 limits stale history during movement; use 0 to run temporal while suppressing previous-reservoir history contribution" );
 
+idCVar r_pathTracingCleanRtxdiDiTemporalFireflyClamp(
+    "r_pathTracingCleanRtxdiDiTemporalFireflyClamp",
+    "32",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Clean-room Remix DI temporal history outlier guard: 0 off, otherwise reject reused history older than one frame when its targetPdf*W exceeds the current reservoir by this ratio" );
+
 idCVar r_pathTracingCleanRtxdiDiTemporalAudit(
     "r_pathTracingCleanRtxdiDiTemporalAudit",
     "0",

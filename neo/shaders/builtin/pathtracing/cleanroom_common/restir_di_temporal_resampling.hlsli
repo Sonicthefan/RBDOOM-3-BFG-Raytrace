@@ -36,6 +36,13 @@
 // enableVisibilityShortcut is accepted but not implemented - both repo call
 // sites pass 0. If a call site enables it, implement the stored-visibility
 // fast path (RTXDI_GetDIReservoirVisibility) here at the same time.
+//
+// fireflyClampRatio rejects older history when its current-surface
+// contribution scale is an extreme outlier against this frame's selected
+// reservoir. This is intentionally a history gate, not a resolve clamp: it
+// stops rare high-W samples from being re-packed and fed back through temporal
+// reuse while leaving fresh current-frame samples for the normal RR/boiling
+// path to handle.
 
 #ifndef RTXDI_LIGHT_RESERVOIR_BUFFER
 #error "RTXDI_DITemporalResampling requires RTXDI_LIGHT_RESERVOIR_BUFFER / Rtxdi/DI/ReservoirStorage.hlsli to be set up by the including shader"
@@ -68,6 +75,37 @@ float RBPT_DITemporalTargetAtPreviousSurface(
     }
 
     return max(RAB_GetLightSampleTargetPdfForSurface(previousSample, previousSurface), 0.0);
+}
+
+float RBPT_DITemporalContributionScale(RTXDI_DIReservoir reservoir, float targetPdf)
+{
+    const float scale = max(targetPdf, 0.0) * max(reservoir.weightSum, 0.0);
+    return RBPT_DIFinitePositive(scale) ? scale : 0.0;
+}
+
+bool RBPT_DITemporalAcceptHistoryContribution(
+    RTXDI_DIReservoir currentReservoir,
+    RTXDI_DIReservoir previousReservoir,
+    float previousTargetAtCurrent,
+    float fireflyClampRatio)
+{
+    if (!(fireflyClampRatio > 0.0) || previousReservoir.age == 0u)
+    {
+        return true;
+    }
+
+    const float currentScale = RBPT_DITemporalContributionScale(
+        currentReservoir,
+        currentReservoir.targetPdf);
+    const float previousScale = RBPT_DITemporalContributionScale(
+        previousReservoir,
+        previousTargetAtCurrent);
+    if (!(currentScale > 0.0) || !(previousScale > 0.0))
+    {
+        return true;
+    }
+
+    return previousScale <= currentScale * max(fireflyClampRatio, 1.0);
 }
 
 RTXDI_DIReservoir RTXDI_DITemporalResampling(
@@ -156,6 +194,14 @@ RTXDI_DIReservoir RTXDI_DITemporalResampling(
     if (previousSampleAtCurrent.valid == 0u || previousSampleAtCurrent.solidAnglePdf <= 0.0)
     {
         previousTargetAtCurrent = 0.0;
+    }
+    if (!RBPT_DITemporalAcceptHistoryContribution(
+        currentReservoir,
+        previousReservoir,
+        previousTargetAtCurrent,
+        params.fireflyClampRatio))
+    {
+        return currentReservoir;
     }
 
     temporalSamplePixel = previousPixel;
