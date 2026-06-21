@@ -76,8 +76,8 @@ struct PathTraceCleanRestirGiConstantsTail
     uint32_t blueNoiseEnabled;
     uint32_t producerRayQueryHitIdMode;
     uint32_t spatialVisibilityMode;
-    uint32_t pad0;
-    uint32_t pad1;
+    uint32_t glossySecondRayEnabled;
+    float glossySecondRayMaxRoughness;
     uint32_t pad2;
     RTXDI_ReservoirBufferParameters reservoirParams;
     uint32_t pageInfo[4];
@@ -942,7 +942,7 @@ bool PathTraceCleanRestirGiExecute(
         }
         common->Printf(
             "PathTraceCleanRestirGi DUMP enable=%d view=%d temporal=%d spatial=%d biasCorrection=%d jacobian=%d "
-            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d specProd=%d rrHitDistance=%d rrSpecInput=%d resolve=%d size=%dx%d frame=%u "
+            "maxHistory=%d maxAge=%d firefly=%.3f neeSeed=%d specProd=%d glossy2=%d glossy2Rough=%.2f rrHitDistance=%d rrSpecInput=%d resolve=%d size=%dx%d frame=%u "
             "reservoirBuffer=%s pages[init=%u tIn=%u tOut=%u sOut=%u] arrayPitch=%u producerTex=%d pipeline=%d "
             "diBlob=%d lights=%d earlyReturn=%s\n",
             r_pathTracingCleanRestirGiEnable.GetInteger(),
@@ -956,6 +956,8 @@ bool PathTraceCleanRestirGiExecute(
             r_pathTracingCleanRestirGiFireflyThreshold.GetFloat(),
             r_pathTracingCleanRestirGiNeeCacheSeed.GetInteger(),
             r_pathTracingCleanRestirGiSpecularProducer.GetInteger(),
+            r_pathTracingCleanRestirGiGlossySecondRay.GetInteger(),
+            r_pathTracingCleanRestirGiGlossySecondRayRoughness.GetFloat(),
             r_pathTracingCleanRestirGiRrHitDistance.GetInteger(),
             r_pathTracingCleanRestirGiRrSpecularInput.GetInteger(),
             r_pathTracingCleanRestirGiResolve.GetInteger(),
@@ -1227,6 +1229,8 @@ bool PathTraceCleanRestirGiExecute(
         idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiProducerRayQueryHitIdMode.GetInteger()));
     tail.spatialVisibilityMode = static_cast<uint32_t>(
         idMath::ClampInt(0, 2, r_pathTracingCleanRestirGiSpatialVisibility.GetInteger()));
+    tail.glossySecondRayEnabled = r_pathTracingCleanRestirGiGlossySecondRay.GetInteger() != 0 ? 1u : 0u;
+    tail.glossySecondRayMaxRoughness = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingCleanRestirGiGlossySecondRayRoughness.GetFloat());
     tail.reservoirParams.reservoirBlockRowPitch = state.reservoirBlockRowPitch;
     tail.reservoirParams.reservoirArrayPitch = state.reservoirArrayPitch;
     // Page rotation (RGI-04): this frame's temporal output is next frame's

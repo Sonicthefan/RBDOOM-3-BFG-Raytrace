@@ -1839,6 +1839,18 @@ idCVar r_pathTracingCleanRestirGiSpecularProducer(
     CVAR_RENDERER | CVAR_INTEGER,
     "Clean-room ReSTIR GI specular mode: 0 off, 1 full specular/glossy seed producer reference, 2 one-ray mixed producer default that keeps specular output eligibility but skips the extra full-screen specular seed trace/shade" );
 
+idCVar r_pathTracingCleanRestirGiGlossySecondRay(
+    "r_pathTracingCleanRestirGiGlossySecondRay",
+    "1",
+    CVAR_RENDERER | CVAR_BOOL,
+    "Clean-room ReSTIR GI experiment: in mixed specular mode, add one extra specular first-indirect seed for glossy primary surfaces" );
+
+idCVar r_pathTracingCleanRestirGiGlossySecondRayRoughness(
+    "r_pathTracingCleanRestirGiGlossySecondRayRoughness",
+    "0.65",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Clean-room ReSTIR GI glossy second-ray max primary roughness; generous default tests whether extra RT traversal can replace candidate-loop pressure" );
+
 idCVar r_pathTracingCleanRestirGiRrHitDistance(
     "r_pathTracingCleanRestirGiRrHitDistance",
     "0",

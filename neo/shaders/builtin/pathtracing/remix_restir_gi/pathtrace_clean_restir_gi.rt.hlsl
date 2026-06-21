@@ -365,8 +365,8 @@ cbuffer PathTraceCleanRestirGiConstants : register(b2)
     uint CleanRestirGiBlueNoiseEnabled;
     uint CleanRestirGiProducerRayQueryHitIdMode;
     uint CleanRestirGiSpatialVisibilityMode;
-    uint CleanRestirGiPad0;
-    uint CleanRestirGiPad1;
+    uint CleanRestirGiGlossySecondRayEnabled;
+    float CleanRestirGiGlossySecondRayMaxRoughness;
     uint CleanRestirGiPad2;
     RTXDI_ReservoirBufferParameters RemixRAB_GIReservoirParams;
     uint4 RemixRAB_GIReservoirPageInfo;
@@ -893,6 +893,7 @@ RTXDI_GIReservoir CleanGiRunSpatialReuse(uint2 pixel, RAB_Surface surface, RTXDI
 
 static const uint CLEAN_RESTIR_GI_PRODUCER_RNG_PASS = 0x52525810u;
 static const uint CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS = 0x52525813u;
+static const uint CLEAN_RESTIR_GI_GLOSSY_SECOND_RAY_RNG_PASS = 0x52525815u;
 static const float CLEAN_RESTIR_GI_FIREFLY_FACTOR = 30.0;
 static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MAX_ROUGHNESS = 0.35;
 static const float CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0 = 0.035;
@@ -1315,6 +1316,11 @@ bool CleanGiMixedFirstIndirectProducerActive()
     return CleanGiSpecularProducerActive() && !CleanGiSpecularSeedProducerActive();
 }
 
+bool CleanGiGlossySecondRayActive()
+{
+    return CleanRestirGiGlossySecondRayEnabled != 0u && CleanGiMixedFirstIndirectProducerActive();
+}
+
 bool CleanGiSurfaceSupportsSpecularProducer(RAB_Surface surface)
 {
     if (!CleanGiSpecularProducerActive() || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
@@ -1327,6 +1333,19 @@ bool CleanGiSurfaceSupportsSpecularProducer(RAB_Surface surface)
     return specularLum >= CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0 &&
         (roughness <= CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MAX_ROUGHNESS ||
             specularLum >= CLEAN_RESTIR_GI_SPECULAR_PRODUCER_METAL_F0);
+}
+
+bool CleanGiSurfaceSupportsGlossySecondRay(RAB_Surface surface)
+{
+    if (!CleanGiGlossySecondRayActive() || !RAB_SurfaceSupportsOpaqueDiffuseBrdf(surface))
+    {
+        return false;
+    }
+
+    const float roughness = saturate(GetRoughness(surface.material));
+    const float specularLum = CleanGiLuminance(GetSpecularF0(surface.material));
+    return specularLum >= CLEAN_RESTIR_GI_SPECULAR_PRODUCER_MIN_F0 &&
+        roughness <= saturate(CleanRestirGiGlossySecondRayMaxRoughness);
 }
 
 float3 CleanGiSpecularProducerEligibilityColor(RAB_Surface surface)
@@ -4466,10 +4485,23 @@ CleanGiProducerResult CleanGiShadeFirstIndirectTraceCandidate(
         rng);
 }
 
-CleanGiProducerResult CleanGiTraceProducerRay(
+uint CleanGiProducerCurrentShadeMode()
+{
+    return
+        CleanRestirGiView == 0u &&
+        CleanRestirGiNeeCacheSecondaryEnabled == 0u &&
+        CleanRestirGiMaxBounces <= 1u &&
+        CleanRestirGiSecondaryDirectSamples == 1u &&
+        CleanRestirGiSecondaryDirectProbability >= 1.0
+            ? CLEAN_GI_FIRST_INDIRECT_SHADE_DEFAULT_ONE_SAMPLE
+            : CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE;
+}
+
+CleanGiProducerResult CleanGiTraceProducerRayWithShadeMode(
     float3 primaryPosition,
     float3 primaryGeometricNormal,
     CleanGiFirstIndirectRaySample raySample,
+    uint shadeMode,
     inout RTXDI_RandomSamplerState rng)
 {
     CleanGiProducerResult result = (CleanGiProducerResult)0;
@@ -4492,7 +4524,7 @@ CleanGiProducerResult CleanGiTraceProducerRay(
     result = CleanGiShadeFirstIndirectSurface(
         secondarySurface,
         PathTraceFirstIndirectCandidateRaySampleIsSpecular(raySample),
-        CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
+        shadeMode,
         rng);
     if (result.valid == 0u)
     {
@@ -4503,15 +4535,30 @@ CleanGiProducerResult CleanGiTraceProducerRay(
     return result;
 }
 
-bool CleanGiSampleSpecularProducerDirection(
+CleanGiProducerResult CleanGiTraceProducerRay(
+    float3 primaryPosition,
+    float3 primaryGeometricNormal,
+    CleanGiFirstIndirectRaySample raySample,
+    inout RTXDI_RandomSamplerState rng)
+{
+    return CleanGiTraceProducerRayWithShadeMode(
+        primaryPosition,
+        primaryGeometricNormal,
+        raySample,
+        CLEAN_GI_FIRST_INDIRECT_SHADE_FULL_NEE,
+        rng);
+}
+
+bool CleanGiSampleSpecularProducerDirectionInternal(
     RAB_Surface surface,
+    bool eligible,
     inout RTXDI_RandomSamplerState rng,
     out float3 bounceDir,
     out float solidAnglePdf)
 {
     bounceDir = float3(0.0, 0.0, 0.0);
     solidAnglePdf = 0.0;
-    if (!CleanGiSurfaceSupportsSpecularProducer(surface))
+    if (!eligible)
     {
         return false;
     }
@@ -4563,6 +4610,34 @@ bool CleanGiSampleSpecularProducerDirection(
     const float D = alphaSquared / max(RTXDI_PI * denominator * denominator, 1.0e-6);
     solidAnglePdf = (D * ndoth) / max(4.0 * vdoth, 1.0e-6);
     return solidAnglePdf > 1.0e-6 && solidAnglePdf == solidAnglePdf;
+}
+
+bool CleanGiSampleSpecularProducerDirection(
+    RAB_Surface surface,
+    inout RTXDI_RandomSamplerState rng,
+    out float3 bounceDir,
+    out float solidAnglePdf)
+{
+    return CleanGiSampleSpecularProducerDirectionInternal(
+        surface,
+        CleanGiSurfaceSupportsSpecularProducer(surface),
+        rng,
+        bounceDir,
+        solidAnglePdf);
+}
+
+bool CleanGiSampleGlossySecondRayDirection(
+    RAB_Surface surface,
+    inout RTXDI_RandomSamplerState rng,
+    out float3 bounceDir,
+    out float solidAnglePdf)
+{
+    return CleanGiSampleSpecularProducerDirectionInternal(
+        surface,
+        CleanGiSurfaceSupportsGlossySecondRay(surface),
+        rng,
+        bounceDir,
+        solidAnglePdf);
 }
 
 void CleanGiProducerMixtureProbabilities(RAB_Surface surface, out float diffuseProbability, out float specularProbability)
@@ -4690,6 +4765,25 @@ CleanGiFirstIndirectRaySample CleanGiSampleSpecularFirstIndirectRay(
     float3 bounceDir;
     float solidAnglePdf;
     if (!CleanGiSampleSpecularProducerDirection(surface, rng, bounceDir, solidAnglePdf))
+    {
+        return (CleanGiFirstIndirectRaySample)0;
+    }
+
+    return CleanGiMakeFirstIndirectRaySample(
+        bounceDir,
+        solidAnglePdf,
+        PATH_TRACE_FIRST_INDIRECT_CANDIDATE_FLAG_SPECULAR_LOBE,
+        1.0,
+        solidAnglePdf);
+}
+
+CleanGiFirstIndirectRaySample CleanGiSampleGlossySecondFirstIndirectRay(
+    RAB_Surface surface,
+    inout RTXDI_RandomSamplerState rng)
+{
+    float3 bounceDir;
+    float solidAnglePdf;
+    if (!CleanGiSampleGlossySecondRayDirection(surface, rng, bounceDir, solidAnglePdf))
     {
         return (CleanGiFirstIndirectRaySample)0;
     }
@@ -4941,6 +5035,30 @@ void CleanGiSeedInitPageFromSpecularProducer(uint2 pixel, bool surfaceValid, Pat
 
     RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_SPECULAR_PRODUCER_RNG_PASS);
     const CleanGiProducerResult producer = CleanGiRunSpecularProducer(pixel, record, rng);
+    CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
+}
+
+void CleanGiSeedInitPageFromGlossySecondRay(uint2 pixel, bool surfaceValid, PathTracePrimarySurfaceRecord record)
+{
+    if (!surfaceValid)
+    {
+        return;
+    }
+
+    const RAB_Surface surface = CleanGiMaterialSurfaceFromCurrentRecord(pixel, record);
+    if (!CleanGiSurfaceSupportsGlossySecondRay(surface))
+    {
+        return;
+    }
+
+    RTXDI_RandomSamplerState rng = CleanGiInitProducerRandomSampler(pixel, CleanRestirGiFrameIndex, CLEAN_RESTIR_GI_GLOSSY_SECOND_RAY_RNG_PASS);
+    const CleanGiFirstIndirectRaySample raySample = CleanGiSampleGlossySecondFirstIndirectRay(surface, rng);
+    const CleanGiProducerResult producer = CleanGiTraceProducerRayWithShadeMode(
+        RAB_GetSurfaceWorldPos(surface),
+        RAB_GetSurfaceGeoNormal(surface),
+        raySample,
+        CleanGiProducerCurrentShadeMode(),
+        rng);
     CleanGiMergeProducerSeedIntoInitPage(pixel, surface, producer, RAB_GetNextRandom(rng));
 }
 
@@ -6214,6 +6332,7 @@ void SeedRayGen()
 
     RAB_StoreGIReservoir(RTXDI_EmptyGIReservoir(), int2(pixel), int(RemixRAB_GetGIInitSampleReservoirIndex()));
     CleanGiSeedInitPageFromSpecularProducer(pixel, surfaceValid, record);
+    CleanGiSeedInitPageFromGlossySecondRay(pixel, surfaceValid, record);
     CleanGiSeedInitPageFromNeeCache(pixel, surfaceValid, record);
 }
 
