@@ -109,9 +109,15 @@ void SmokeApplyFullMetalOverride(PathTraceSmokeMaterial material, inout float3 a
         return;
     }
 
-    // Runtime full-metal is a neutral mirror override, not base-color metalness.
-    // Dark Doom diffuse maps should not erase the specular/reflection lobe.
-    specularF0 = max(specularF0, float3(0.85, 0.85, 0.85));
+    // Runtime full-metal keeps mirror energy high, but uses albedo chroma as
+    // a reduced tint so dark legacy diffuse maps do not erase the reflection.
+    const float maxAlbedo = max(albedo.r, max(albedo.g, albedo.b));
+    const float3 albedoChroma = maxAlbedo > 1.0e-4
+        ? saturate(albedo / maxAlbedo)
+        : float3(1.0, 1.0, 1.0);
+    const float3 neutralMirrorF0 = float3(0.85, 0.85, 0.85);
+    const float tintStrength = 0.45;
+    specularF0 = max(specularF0, neutralMirrorF0 * lerp(float3(1.0, 1.0, 1.0), albedoChroma, tintStrength));
     albedo = float3(0.0, 0.0, 0.0);
 }
 
