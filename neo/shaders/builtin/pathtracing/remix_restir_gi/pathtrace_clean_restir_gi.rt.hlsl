@@ -830,7 +830,7 @@ bool CleanGiValidateSpatialReuseSample(uint2 pixel, int2 neighborPixel, uint sam
 
 bool CleanGiSpecularProducerNeedsReuseQuarantine(RAB_Surface surface)
 {
-    if (!CleanGiSpecularSeedProducerActive() || !RAB_IsSurfaceValid(surface))
+    if (!CleanGiSpecularProducerActive() || !RAB_IsSurfaceValid(surface))
     {
         return false;
     }
@@ -5068,8 +5068,7 @@ float3 CleanGiProducerReservoirPathColor(
                     pixel,
                     CleanRestirGiFrameIndex,
                     CLEAN_RESTIR_GI_PRODUCER_RNG_PASS);
-                RAB_GetNextRandom(debugRng);
-                RAB_GetNextRandom(debugRng);
+                CleanGiSkipFirstIndirectCandidateRaySampleRandoms(gbuf, debugRng);
                 return CleanGiProducerShadeGateDebugColor(
                     secondarySurface,
                     gbuf.primarySampledSpecular != 0u,
