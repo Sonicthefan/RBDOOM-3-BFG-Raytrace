@@ -653,9 +653,9 @@ idCVar r_pathTracingNeeCacheFallbackProbability(
 
 idCVar r_pathTracingNeeCacheSourceDomain(
     "r_pathTracingNeeCacheSourceDomain",
-    "3",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "NEE cache source domain: 0 all current RLU diagnostic, 1 emissive range only, 2 analytic range only, 3 typed cache/fallback range mixture" );
+    "NEE cache source domain: 0 all current RLU, 1 emissive range only, 2 analytic range only, 3 typed candidate lists with mixture probabilities" );
 
 idCVar r_pathTracingNeeCacheDump(
     "r_pathTracingNeeCacheDump",

@@ -185,13 +185,13 @@ const char* PathTraceNeeCacheSourceDomainName(int sourceDomain)
     switch (sourceDomain)
     {
     case 0:
-        return "all-current-rlu-diagnostic";
+        return "all-current-rlu";
     case 1:
         return "emissive-range-only";
     case 2:
         return "analytic-range-only";
     case 3:
-        return "typed-cache-fallback-mixture";
+        return "typed-candidate-lists";
     default:
         return "invalid";
     }
