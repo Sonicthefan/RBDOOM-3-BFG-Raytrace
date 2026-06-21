@@ -69,9 +69,10 @@ Primary surface
 The last step is GI-specific. The earlier steps should remain reusable.
 
 The current increment implements the first two named stages inside the existing
-Clean GI producer entry points. The next structural step is to make the shaded
-candidate handoff explicit before it is converted into the Clean GI raw initial
-sample textures.
+Clean GI producer entry points. Shaded first-indirect candidates now also pass
+through a single constructor before Clean GI converts them into its raw
+initial-sample textures. This keeps the reusable candidate result separate from
+the current GI reservoir page/storage layout.
 
 ## Explicit Non-Goals
 
