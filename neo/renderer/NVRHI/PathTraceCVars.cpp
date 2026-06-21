@@ -1841,9 +1841,9 @@ idCVar r_pathTracingCleanRestirGiSpecularProducer(
 
 idCVar r_pathTracingCleanRestirGiGlossySecondRay(
     "r_pathTracingCleanRestirGiGlossySecondRay",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_BOOL,
-    "Clean-room ReSTIR GI experiment: in mixed specular mode, add one extra specular first-indirect seed for glossy primary surfaces" );
+    "Clean-room ReSTIR GI experiment: in mixed specular mode, add one extra specular first-indirect seed for glossy primary surfaces; default off after high-cost/low-quality A/B" );
 
 idCVar r_pathTracingCleanRestirGiGlossySecondRayRoughness(
     "r_pathTracingCleanRestirGiGlossySecondRayRoughness",
