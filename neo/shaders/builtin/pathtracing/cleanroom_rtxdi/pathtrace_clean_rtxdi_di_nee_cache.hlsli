@@ -386,7 +386,9 @@ bool PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
     }
 
     const float targetPdf = max(RAB_GetLightSampleTargetPdfForSurface(lightSample, surface), 0.0);
-    if (targetPdf <= 0.0 || sourceSelectionPdf <= 0.0)
+    const bool resolveDividesBySolidAngle = (CleanRtxdiDiFlags & CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF) != 0u;
+    const float sourcePdf = sourceSelectionPdf * (resolveDividesBySolidAngle ? 1.0 : lightSample.solidAnglePdf);
+    if (targetPdf <= 0.0 || sourcePdf <= 0.0)
     {
         return false;
     }
@@ -397,7 +399,7 @@ bool PathTraceCleanRoomNeeCacheStreamLightIntoReservoir(
         uv,
         RTXDI_GetNextRandom(rng),
         targetPdf,
-        1.0 / max(sourceSelectionPdf, 1.0e-8));
+        1.0 / max(sourcePdf, 1.0e-8));
     return true;
 }
 
@@ -504,7 +506,7 @@ PathTraceCleanRtxdiDiInitialResult PathTraceCleanRoomRunNeeCacheProviderProducer
     sampleParams.localLightSamplingMode = ReSTIRDI_LocalLightSamplingMode_UNIFORM;
     sampleParams.enableInitialVisibility = 0u;
 
-    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSampler(pixel, CleanRtxdiDiFrameIndex, 0x4e434439u);
+    RTXDI_RandomSamplerState rng = RTXDI_InitRandomSamplerForPass(pixel, CleanRtxdiDiFrameIndex, 0x4e434439u, 0u);
     [loop]
     for (uint sampleIndex = 0u; sampleIndex < sampleParams.numLocalLightSamples; ++sampleIndex)
     {
