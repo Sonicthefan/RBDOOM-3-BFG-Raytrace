@@ -9,6 +9,7 @@
 
 #include "PathTraceGeometry.h"
 #include "PathTraceAccelerationPlan.h"
+#include "PathTraceGeometryLifecycle.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -28,6 +29,7 @@ struct RtSmokeSurfaceClassStats;
 struct srfTriangles_t;
 struct viewDef_t;
 class RtPathTraceInstanceUniverse;
+class idRenderWorldLocal;
 
 struct RtSmokeGeometryUniverseStats
 {
@@ -460,6 +462,7 @@ struct RtPathTraceRigidRouteInstanceObservation
     int renderEntityNum = -1;
     int drawSurfIndex = -1;
     int currentArea = -1;
+    PtRenderDefKey renderDefKey;
     uint32_t materialOverrideId = 0;
     uint32_t sourceFlags = 0;
     bool seenThisFrame = true;
@@ -669,7 +672,7 @@ private:
     void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
     void AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady);
     void RecordRigidResidentObservation(const RtPathTraceRigidRouteInstanceObservation& instance);
-    void PruneRigidCachesToCurrentFrame();
+    void PruneRigidCachesToCurrentFrame(const idRenderWorldLocal* renderWorld);
 
     uint64 m_currentFrameIndex = 0;
     bool m_frameActive = false;

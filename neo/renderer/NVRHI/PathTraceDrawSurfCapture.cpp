@@ -6,6 +6,7 @@
 #include "PathTraceDrawSurfCapture.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceGeometryLifecycle.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceRestirPasses.h"
@@ -562,6 +563,7 @@ void CapturePathTraceDrawSurfMirror(
         instanceObservation.renderEntityNum = renderEntity ? renderEntity->entityNum : -1;
         instanceObservation.drawSurfIndex = surfaceIndex;
         instanceObservation.currentArea = PtMirrorResolveDrawSurfArea(viewDef, drawSurf, tri);
+        instanceObservation.renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
         instanceObservation.materialOverrideId = materialId;
         instanceObservation.sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
         if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())

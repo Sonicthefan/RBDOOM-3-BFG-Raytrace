@@ -3,6 +3,7 @@
 
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceInstanceUniverse.h"
+#include "PathTraceGeometryLifecycle.h"
 #include "PathTraceCVars.h"
 #include "PathTraceAcceleration.h"
 #include "PathTraceAccelerationPlan.h"
@@ -378,6 +379,7 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.renderEntityNum = instance.renderEntityNum;
     routeInstance.drawSurfIndex = instance.drawSurfIndex;
     routeInstance.currentArea = instance.currentArea;
+    routeInstance.renderDefKey = instance.renderDefKey;
     routeInstance.materialOverrideId = instance.materialOverrideId;
     routeInstance.sourceFlags = instance.sourceFlags;
     routeInstance.hasPreviousObjectToWorld = instance.hasPreviousObjectToWorld;
@@ -884,6 +886,7 @@ void RtSmokeGeometryUniverse::ReserveStaticSurfaceRecords(size_t surfaceCount)
 
 void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex)
 {
+    PtGeometryLifecycle::MaybeDumpLifecycleStats(frameIndex);
     m_previousStaticVertexCache = m_staticVertexCache;
     m_previousStaticIndexCache = m_staticIndexCache;
     m_previousStaticTriangleClassCache = m_staticTriangleClassCache;
@@ -2589,7 +2592,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         RecordRigidResidentObservation(MakeRigidRouteInstanceObservation(instance));
     }
 
-    PruneRigidCachesToCurrentFrame();
+    PruneRigidCachesToCurrentFrame(renderWorld);
     m_rigidResidencyStats.cachedRigidInstances = static_cast<int>(m_rigidResidentRecords.size());
     if (!enabled)
     {
@@ -2703,8 +2706,12 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
             const renderEntity_t& renderEntity = entity->parms;
             const uint64 entityKey = RigidResidencyEntityKey(entity->index, renderEntity.entityNum);
             const std::unordered_map<uint64, int>::const_iterator visibleFrameIt = m_rigidVisibleEntityModifiedFrames.find(entityKey);
-            if (visibleFrameIt == m_rigidVisibleEntityModifiedFrames.end() ||
-                visibleFrameIt->second != entity->lastModifiedFrameNum)
+            const bool lifecycleAllowsDirectAreaFeed =
+                r_pathTracingGeometryLifecycle.GetInteger() != 0 &&
+                PtGeometryLifecycle::IsEntityKeyAlive(PtGeometryLifecycle::MakeEntityKey(entity));
+            if (!lifecycleAllowsDirectAreaFeed &&
+                (visibleFrameIt == m_rigidVisibleEntityModifiedFrames.end() ||
+                visibleFrameIt->second != entity->lastModifiedFrameNum))
             {
                 continue;
             }
@@ -2774,6 +2781,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 residentInstance.renderEntityNum = renderEntity.entityNum;
                 residentInstance.drawSurfIndex = -1;
                 residentInstance.currentArea = areaIndex;
+                residentInstance.renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 residentInstance.materialOverrideId = materialId;
                 residentInstance.sourceFlags = candidateObservation.sourceFlags;
                 residentInstance.seenThisFrame = true;
@@ -3079,7 +3087,7 @@ void RtSmokeGeometryUniverse::RecordRigidResidentObservation(const RtPathTraceRi
     record.seenThisFrame = true;
 }
 
-void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame()
+void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorldLocal* renderWorld)
 {
     if (!m_frameActive)
     {
@@ -3092,7 +3100,11 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame()
         liveResidentRecords.reserve(m_rigidResidentRecords.size());
         for (const RigidResidentInstanceRecord& record : m_rigidResidentRecords)
         {
-            if (record.seenThisFrame)
+            const bool keepLifecycleRecord =
+                r_pathTracingGeometryLifecycle.GetInteger() != 0 &&
+                record.observation.renderDefKey.world == renderWorld &&
+                PtGeometryLifecycle::IsEntityKeyAlive(record.observation.renderDefKey);
+            if (record.seenThisFrame || keepLifecycleRecord)
             {
                 liveResidentRecords.push_back(record);
             }
@@ -3115,7 +3127,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame()
         liveMeshRecords.reserve(m_rigidMeshCandidateRecords.size());
         for (const RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
         {
-            if (record.valid && record.seenThisFrame)
+            if (record.valid && (record.seenThisFrame || r_pathTracingGeometryLifecycle.GetInteger() != 0))
             {
                 liveMeshRecords.push_back(record);
             }

@@ -31,6 +31,7 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "RenderCommon.h"
+#include "NVRHI/PathTraceGeometryLifecycle.h"
 
 #include <sys/DeviceManager.h>
 extern DeviceManager* deviceManager;
@@ -252,6 +253,10 @@ qhandle_t idRenderWorldLocal::AddEntityDef( const renderEntity_t* re )
 	}
 
 	UpdateEntityDef( entityHandle, re );
+	if( entityHandle >= 0 && entityHandle < entityDefs.Num() )
+	{
+		PtGeometryLifecycle::NotifyEntityAdded( entityDefs[entityHandle] );
+	}
 
 	return entityHandle;
 }
@@ -291,6 +296,9 @@ void idRenderWorldLocal::UpdateEntityDef( qhandle_t entityHandle, const renderEn
 	}
 
 	idRenderEntityLocal*	def = entityDefs[entityHandle];
+	const bool wasExistingDef = def != NULL;
+	const idRenderModel* oldModel = wasExistingDef ? def->parms.hModel : NULL;
+	const bool modelChanged = wasExistingDef && oldModel != re->hModel;
 	if( def != NULL )
 	{
 
@@ -350,6 +358,10 @@ void idRenderWorldLocal::UpdateEntityDef( qhandle_t entityHandle, const renderEn
 	def->parms = *re;
 
 	def->lastModifiedFrameNum = tr.frameCount;
+	if( wasExistingDef )
+	{
+		PtGeometryLifecycle::NotifyEntityUpdated( def, oldModel, modelChanged );
+	}
 
 	// optionally immediately issue any callbacks
 	if( !r_useEntityCallbacks.GetBool() && def->parms.callback != NULL )
@@ -394,6 +406,7 @@ void idRenderWorldLocal::FreeEntityDef( qhandle_t entityHandle )
 		return;
 	}
 
+	PtGeometryLifecycle::NotifyEntityFreed( def );
 	R_FreeEntityDefDerivedData( def, false, false );
 
 	// if we are playing a demo, these will have been freed
@@ -452,6 +465,10 @@ qhandle_t idRenderWorldLocal::AddLightDef( const renderLight_t* rlight )
 		}
 	}
 	UpdateLightDef( lightHandle, rlight );
+	if( lightHandle >= 0 && lightHandle < lightDefs.Num() )
+	{
+		PtGeometryLifecycle::NotifyLightAdded( lightDefs[lightHandle] );
+	}
 
 	return lightHandle;
 }
@@ -487,6 +504,7 @@ void idRenderWorldLocal::UpdateLightDef( qhandle_t lightHandle, const renderLigh
 
 	bool justUpdate = false;
 	idRenderLightLocal* light = lightDefs[lightHandle];
+	const bool wasExistingLight = light != NULL;
 	if( light )
 	{
 		// if the shape of the light stays the same, we don't need to dump
@@ -520,6 +538,10 @@ void idRenderWorldLocal::UpdateLightDef( qhandle_t lightHandle, const renderLigh
 
 	light->parms = *rlight;
 	light->lastModifiedFrameNum = tr.frameCount;
+	if( wasExistingLight )
+	{
+		PtGeometryLifecycle::NotifyLightUpdated( light );
+	}
 
 	// new for BFG edition: force noShadows on spectrum lights so teleport spawns
 	// don't cause such a slowdown.  Hell writing shouldn't be shadowed anyway...
@@ -559,6 +581,7 @@ void idRenderWorldLocal::FreeLightDef( qhandle_t lightHandle )
 		return;
 	}
 
+	PtGeometryLifecycle::NotifyLightFreed( light );
 	R_FreeLightDefDerivedData( light );
 
 	delete light;

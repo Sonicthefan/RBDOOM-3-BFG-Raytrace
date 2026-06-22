@@ -261,6 +261,24 @@ idCVar r_pathTracingRigidResidencyDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump source3 rigid geometry portal residency stats once" );
 
+idCVar r_pathTracingGeometryLifecycle(
+    "r_pathTracingGeometryLifecycle",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Experimental PT geometry lifecycle gate: 0 = legacy drawSurf-mirror pruning, 1 = keep rigid identity from render-def lifecycle and evict on free/reuse" );
+
+idCVar r_pathTracingGeometryLifecycleStage(
+    "r_pathTracingGeometryLifecycleStage",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "PT geometry lifecycle diagnostic stage: 0 = baseline, 1 = lifecycle existence, 2 = dual-key shadow, 3 = classification overlay, 4 = residency/existence overlay" );
+
+idCVar r_pathTracingGeometryLifecycleDump(
+    "r_pathTracingGeometryLifecycleDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump one-shot render-def lifecycle counters, generation keys, and classification samples" );
+
 idCVar r_pathTracingStaticAreaPreload(
     "r_pathTracingStaticAreaPreload",
     "1",

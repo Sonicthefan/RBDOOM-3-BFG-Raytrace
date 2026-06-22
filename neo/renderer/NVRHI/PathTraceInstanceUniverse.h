@@ -7,6 +7,7 @@
 // yet; the existing smoke capture path remains the renderable fallback.
 
 #include "PathTraceSceneCapture.h"
+#include "PathTraceGeometryLifecycle.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -63,6 +64,7 @@ struct RtPathTraceInstanceObservation
     int renderEntityNum = -1;
     int drawSurfIndex = -1;
     int currentArea = -1;
+    PtRenderDefKey renderDefKey;
     uint32_t materialOverrideId = 0;
     uint32_t sourceFlags = 0;
     uint32_t trustFlags = 0;
