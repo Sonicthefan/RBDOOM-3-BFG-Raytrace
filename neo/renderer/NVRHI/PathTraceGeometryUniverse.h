@@ -687,7 +687,11 @@ private:
     void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
     void AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady);
     void RecordRigidResidentObservation(const RtPathTraceRigidRouteInstanceObservation& instance);
-    void PruneRigidCachesToCurrentFrame(const idRenderWorldLocal* renderWorld, const idRenderMatrix* viewMvp);
+    void PruneRigidCachesToCurrentFrame(
+        const idRenderWorldLocal* renderWorld,
+        const idRenderMatrix* viewMvp,
+        const idVec3* viewOrigin,
+        const std::vector<bool>& selectedAreas);
 
     uint64 m_currentFrameIndex = 0;
     bool m_frameActive = false;

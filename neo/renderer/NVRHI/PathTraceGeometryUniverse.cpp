@@ -374,6 +374,29 @@ int CountRigidResidencySelectedAreas(const std::vector<bool>& selectedAreas)
     return count;
 }
 
+bool RigidResidencyAreaSelected(int area, const std::vector<bool>& selectedAreas)
+{
+    return area >= 0 &&
+        area < static_cast<int>(selectedAreas.size()) &&
+        selectedAreas[area];
+}
+
+bool RigidResidencyWithinDistance(
+    const RtPathTraceRigidRouteInstanceObservation& instance,
+    const idVec3* viewOrigin,
+    float maxDistance)
+{
+    if (!viewOrigin || maxDistance <= 0.0f)
+    {
+        return true;
+    }
+
+    const float dx = instance.objectToWorld[12] - viewOrigin->x;
+    const float dy = instance.objectToWorld[13] - viewOrigin->y;
+    const float dz = instance.objectToWorld[14] - viewOrigin->z;
+    return dx * dx + dy * dy + dz * dz <= maxDistance * maxDistance;
+}
+
 RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const RtPathTraceInstanceObservation& instance)
 {
     RtPathTraceRigidRouteInstanceObservation routeInstance;
@@ -2871,7 +2894,8 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     }
 
     const idRenderMatrix* viewMvp = viewDef ? &viewDef->worldSpace.mvp : nullptr;
-    PruneRigidCachesToCurrentFrame(renderWorld, viewMvp);
+    const idVec3* viewOrigin = viewDef ? &viewDef->renderView.vieworg : nullptr;
+    PruneRigidCachesToCurrentFrame(renderWorld, viewMvp, viewOrigin, selectedAreas);
     m_rigidResidencyStats.cachedRigidInstances = static_cast<int>(m_rigidResidentRecords.size());
     if (!enabled)
     {
@@ -2893,9 +2917,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
             ++m_rigidResidencyStats.skippedUnknownArea;
             continue;
         }
-        const bool selectedArea = retainedFromCache ||
-            (instance.currentArea < static_cast<int>(selectedAreas.size()) &&
-            selectedAreas[instance.currentArea]);
+        const bool selectedArea = RigidResidencyAreaSelected(instance.currentArea, selectedAreas);
         if (!retainedFromCache && !selectedArea)
         {
             ++m_rigidResidencyStats.skippedOutsideArea;
@@ -3404,7 +3426,11 @@ void RtSmokeGeometryUniverse::RecordRigidResidentObservation(const RtPathTraceRi
     record.observation.isStable = record.seenCount > 1;
 }
 
-void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorldLocal* renderWorld, const idRenderMatrix* viewMvp)
+void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
+    const idRenderWorldLocal* renderWorld,
+    const idRenderMatrix* viewMvp,
+    const idVec3* viewOrigin,
+    const std::vector<bool>& selectedAreas)
 {
     (void)renderWorld;
     const bool v2 = r_pathTracingGeometryResidencyV2.GetInteger() != 0;
@@ -3413,6 +3439,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
         return;
     }
     const uint64 framesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyFramesToKeep.GetInteger()));
+    const float maxDistance = idMath::ClampFloat(0.0f, 100000.0f, r_pathTracingResidencyMaxDistance.GetFloat());
     const bool antiCulling = r_pathTracingResidencyAntiCulling.GetInteger() != 0;
     m_rigidResidencyStats.residencyFramesToKeep = static_cast<int>(framesToKeep);
     m_rigidResidencyStats.residencyAntiCulling = antiCulling ? 1 : 0;
@@ -3429,7 +3456,11 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
             if (v2 && !record.seenThisFrame)
             {
                 const bool withinWindow = record.lastSeenFrame + framesToKeep >= m_currentFrameIndex;
-                if (withinWindow)
+                const bool areaKnown = record.observation.currentArea >= 0;
+                const bool locallyRelevant =
+                    (!areaKnown || RigidResidencyAreaSelected(record.observation.currentArea, selectedAreas)) &&
+                    RigidResidencyWithinDistance(record.observation, viewOrigin, maxDistance);
+                if (withinWindow && locallyRelevant)
                 {
                     if (antiCulling)
                     {

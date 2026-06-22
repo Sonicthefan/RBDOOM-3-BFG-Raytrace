@@ -291,6 +291,12 @@ idCVar r_pathTracingResidencyFramesToKeep(
     CVAR_RENDERER | CVAR_INTEGER,
     "Frames a rigid resident instance survives after it was last seen before frame-age GC removes it; default is long-lived Remix-style residency" );
 
+idCVar r_pathTracingResidencyMaxDistance(
+    "r_pathTracingResidencyMaxDistance",
+    "4096",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Maximum world-space distance for cached rigid residency after an instance leaves the raster view; 0 disables distance pruning" );
+
 idCVar r_pathTracingResidencyAntiCulling(
     "r_pathTracingResidencyAntiCulling",
     "0",

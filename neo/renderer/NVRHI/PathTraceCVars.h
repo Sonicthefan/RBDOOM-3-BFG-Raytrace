@@ -55,6 +55,7 @@ extern idCVar r_pathTracingGeometryLifecycleStage;
 extern idCVar r_pathTracingGeometryLifecycleDump;
 extern idCVar r_pathTracingGeometryResidencyV2;
 extern idCVar r_pathTracingResidencyFramesToKeep;
+extern idCVar r_pathTracingResidencyMaxDistance;
 extern idCVar r_pathTracingResidencyAntiCulling;
 extern idCVar r_pathTracingResidencyRouteCached;
 extern idCVar r_pathTracingResidencyRouteCachedTlas;
