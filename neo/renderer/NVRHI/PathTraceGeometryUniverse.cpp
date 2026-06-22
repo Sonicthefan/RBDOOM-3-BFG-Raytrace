@@ -416,6 +416,32 @@ bool RigidRouteInstancePriorityLess(
     return false;
 }
 
+bool RigidRouteEntityKeyEqual(
+    const RtPathTraceRigidRouteInstanceObservation& a,
+    const RtPathTraceRigidRouteInstanceObservation& b)
+{
+    if (a.renderDefKey.world != nullptr &&
+        b.renderDefKey.world != nullptr &&
+        a.renderDefKey.index >= 0 &&
+        b.renderDefKey.index >= 0)
+    {
+        return a.renderDefKey.world == b.renderDefKey.world &&
+            a.renderDefKey.index == b.renderDefKey.index &&
+            a.renderDefKey.generation == b.renderDefKey.generation;
+    }
+
+    if (a.entityIndex >= 0 &&
+        b.entityIndex >= 0 &&
+        a.renderEntityNum >= 0 &&
+        b.renderEntityNum >= 0)
+    {
+        return a.entityIndex == b.entityIndex &&
+            a.renderEntityNum == b.renderEntityNum;
+    }
+
+    return a.instanceId == b.instanceId;
+}
+
 RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const RtPathTraceInstanceObservation& instance)
 {
     RtPathTraceRigidRouteInstanceObservation routeInstance;
@@ -3800,6 +3826,94 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
 {
     std::vector<RtPathTraceRigidRouteInstanceObservation> instances;
     BuildRigidRouteInstanceList(instanceUniverse, instances);
+    const int normalizedMaxInstances = maxInstances > 0 ? maxInstances : 0;
+    if (normalizedMaxInstances > 0 && static_cast<int>(instances.size()) > normalizedMaxInstances)
+    {
+        const auto routeReadyCountForRange = [this, &instances](size_t begin, size_t end) -> int
+        {
+            int readyCount = 0;
+            for (size_t instanceIndex = begin; instanceIndex < end; ++instanceIndex)
+            {
+                const RtPathTraceRigidRouteInstanceObservation& instance = instances[instanceIndex];
+                if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+                {
+                    continue;
+                }
+                const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
+                if (it == m_rigidMeshCandidateLookup.end() || it->second >= m_rigidMeshCandidateRecords.size())
+                {
+                    continue;
+                }
+                const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
+                if (!record.valid || !record.rigidBlas)
+                {
+                    continue;
+                }
+                if (!m_rigidResidencyEnabled && !record.seenThisFrame)
+                {
+                    continue;
+                }
+                ++readyCount;
+            }
+            return readyCount;
+        };
+
+        const auto appendPartialGroup = [this, &instances, normalizedMaxInstances](std::vector<RtPathTraceRigidRouteInstanceObservation>& selected, size_t begin, size_t end, int& remaining) -> void
+        {
+            for (size_t instanceIndex = begin; instanceIndex < end && remaining > 0; ++instanceIndex)
+            {
+                const RtPathTraceRigidRouteInstanceObservation& instance = instances[instanceIndex];
+                bool consumesBudget = false;
+                if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) != 0)
+                {
+                    const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
+                    if (it != m_rigidMeshCandidateLookup.end() && it->second < m_rigidMeshCandidateRecords.size())
+                    {
+                        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
+                        consumesBudget = record.valid &&
+                            record.rigidBlas &&
+                            (m_rigidResidencyEnabled || record.seenThisFrame);
+                    }
+                }
+                selected.push_back(instance);
+                if (consumesBudget)
+                {
+                    --remaining;
+                }
+                if (static_cast<int>(selected.size()) >= normalizedMaxInstances)
+                {
+                    break;
+                }
+            }
+        };
+
+        std::vector<RtPathTraceRigidRouteInstanceObservation> selectedInstances;
+        selectedInstances.reserve(normalizedMaxInstances);
+        int remainingRouteBudget = normalizedMaxInstances;
+        for (size_t groupBegin = 0; groupBegin < instances.size() && remainingRouteBudget > 0;)
+        {
+            size_t groupEnd = groupBegin + 1;
+            while (groupEnd < instances.size() && RigidRouteEntityKeyEqual(instances[groupBegin], instances[groupEnd]))
+            {
+                ++groupEnd;
+            }
+
+            const int groupReadyCount = routeReadyCountForRange(groupBegin, groupEnd);
+            if (groupReadyCount <= remainingRouteBudget)
+            {
+                selectedInstances.insert(selectedInstances.end(), instances.begin() + groupBegin, instances.begin() + groupEnd);
+                remainingRouteBudget -= groupReadyCount;
+            }
+            else if (selectedInstances.empty())
+            {
+                appendPartialGroup(selectedInstances, groupBegin, groupEnd, remainingRouteBudget);
+            }
+
+            groupBegin = groupEnd;
+        }
+        instances.swap(selectedInstances);
+    }
+
     RtSmokeRigidTlasPlanSnapshot snapshot;
     snapshot.rigidSourceMask = RT_PT_INSTANCE_SOURCE_RIGID;
     snapshot.firstInstanceId = firstInstanceId;
