@@ -743,8 +743,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         }
 
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
-        const bool staticCacheMatch = DrawSurfMirrorIsStaticMatch(geometryUniverse, sceneUniverseLegacyKeys, legacyStaticKey);
-        if (staticCacheMatch && !(routeLifecycleMode && surfaceClass == RtSmokeSurfaceClass::RigidEntity))
+        if (DrawSurfMirrorIsStaticMatch(geometryUniverse, sceneUniverseLegacyKeys, legacyStaticKey))
         {
             continue;
         }

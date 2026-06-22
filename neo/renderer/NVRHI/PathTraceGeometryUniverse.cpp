@@ -553,8 +553,7 @@ uint32_t BuildRigidMeshCandidateRejectFlags(const RtPathTraceRigidMeshCandidateO
     {
         rejectFlags |= RT_PT_RIGID_MESH_REJECT_STATIC_WORLD;
     }
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH) != 0 &&
-        r_pathTracingGeometryLifecycle.GetInteger() == 0)
+    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH) != 0)
     {
         rejectFlags |= RT_PT_RIGID_MESH_REJECT_STATIC_CACHE_MATCH;
     }
