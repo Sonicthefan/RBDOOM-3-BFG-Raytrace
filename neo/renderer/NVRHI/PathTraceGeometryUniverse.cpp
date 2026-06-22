@@ -2432,12 +2432,19 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
     const bool prepareCachedRouteRecords =
         r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
         r_pathTracingResidencyRouteCached.GetInteger() != 0;
+    const uint64 cachedRouteFramesToKeep = prepareCachedRouteRecords
+        ? static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyFramesToKeep.GetInteger()))
+        : 0ull;
 
     for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
     {
+        const bool cachedRouteWithinKeepWindow =
+            prepareCachedRouteRecords &&
+            record.lastSeenFrame + cachedRouteFramesToKeep >= m_currentFrameIndex;
         const bool cachedRouteCandidate =
             prepareCachedRouteRecords &&
             !record.seenThisFrame &&
+            cachedRouteWithinKeepWindow &&
             RigidMeshHasCachedRouteData(record);
         if (!record.valid || (!record.seenThisFrame && !cachedRouteCandidate))
         {
@@ -3365,6 +3372,8 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
             {
                 m_rigidResidentLookup[m_rigidResidentRecords[recordIndex].observation.instanceId] = recordIndex;
             }
+            ++m_generation;
+            m_rigidResidencyStats.generation = m_generation;
         }
     }
 
@@ -3400,6 +3409,8 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
             {
                 m_rigidMeshCandidateLookup[m_rigidMeshCandidateRecords[recordIndex].meshHash] = recordIndex;
             }
+            ++m_generation;
+            m_rigidResidencyStats.generation = m_generation;
         }
     }
 }
