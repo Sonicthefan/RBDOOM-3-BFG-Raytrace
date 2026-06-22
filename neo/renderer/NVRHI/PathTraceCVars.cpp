@@ -239,9 +239,9 @@ idCVar r_pathTracingRigidRouteEmissiveCards(
 
 idCVar r_pathTracingRigidRouteMaxInstances(
     "r_pathTracingRigidRouteMaxInstances",
-    "256",
+    "2048",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Maximum source3 rigid instances routed into material IDs, route buffers, and TLAS descriptors" );
+    "Maximum source3 rigid instances routed into material IDs, route buffers, and TLAS descriptors; clamped to 4096" );
 
 idCVar r_pathTracingRigidResidency(
     "r_pathTracingRigidResidency",

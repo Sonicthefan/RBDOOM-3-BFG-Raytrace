@@ -2006,13 +2006,13 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
     r_pathTracingLightAreaOverflowMax.SetInteger(512);
     r_pathTracingLightUniverseChurn.SetInteger(mode20 && preset >= 2 ? 1 : 0);
 
-    const int presetRigidRouteMaxInstances = 256;
+    const int presetRigidRouteMaxInstances = 2048;
     if (r_pathTracingRigidRouteMaxInstances.GetInteger() < presetRigidRouteMaxInstances)
     {
         r_pathTracingRigidRouteMaxInstances.SetInteger(presetRigidRouteMaxInstances);
     }
 
-    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d lightAreaDiag=%d lightAreaApply=%d bvhValidation=%d churn=%d overflowMax=512 rigidRouteMax=%d\n",
+    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d lightAreaDiag=%d lightAreaApply=%d bvhValidation=%d churn=%d lightOverflowMax=512 rigidRouteMax=%d\n",
         label ? label : "mode test",
         preset,
         portalSteps,
@@ -3028,7 +3028,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
-    const int rigidRouteMaxInstances = idMath::ClampInt(1, 512, r_pathTracingRigidRouteMaxInstances.GetInteger());
+    const int rigidRouteMaxInstances = idMath::ClampInt(1, 4096, r_pathTracingRigidRouteMaxInstances.GetInteger());
     const bool asyncCpuPlanning = r_pathTracingCpuPlanningAsync.GetInteger() != 0;
     RtSmokeRigidTlasPlanSnapshot rigidTlasSnapshot;
     RtSmokeRigidTlasPlan rigidTlasPlan;
