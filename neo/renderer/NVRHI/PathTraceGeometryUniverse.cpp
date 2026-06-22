@@ -772,6 +772,41 @@ bool RigidMeshHasCachedRouteGpuReady(const RtSmokeGeometryUniverse::RigidMeshCan
         record.gpuBlasIndexCount == static_cast<int>(record.cachedLocalIndexes.size());
 }
 
+bool RigidPlanInstanceMatchesRecord(
+    const RtSmokePlanTlasInstance& plannedInstance,
+    const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
+{
+    return record.valid && record.meshHash == plannedInstance.meshHash;
+}
+
+void AppendRigidRoutePlaceholder(
+    RtPathTraceRigidRouteBuild& build,
+    const RtSmokePlanTlasInstance& plannedInstance)
+{
+    PathTraceRigidRouteInstance routeInstance;
+    routeInstance.instanceIdLo = static_cast<uint32_t>(plannedInstance.sourceInstanceId & 0xffffffffull);
+    routeInstance.instanceIdHi = static_cast<uint32_t>((plannedInstance.sourceInstanceId >> 32) & 0xffffffffull);
+    if (plannedInstance.hasPreviousTransform)
+    {
+        routeInstance.flags |= PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM;
+    }
+    if (plannedInstance.transformContinuous)
+    {
+        routeInstance.flags |= PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
+    }
+    CopyRigidRouteTransformRows(routeInstance.currentObjectToWorld, plannedInstance.transform);
+    CopyRigidRouteTransformRows(routeInstance.previousObjectToWorld, plannedInstance.hasPreviousTransform ? plannedInstance.previousTransform : plannedInstance.transform);
+    build.instances.push_back(routeInstance);
+    build.instanceSeenThisFrame.push_back(plannedInstance.sourceSeenThisFrame ? 1u : 0u);
+
+    std::array<float, 16> objectToWorld = {};
+    for (int elementIndex = 0; elementIndex < 16; ++elementIndex)
+    {
+        objectToWorld[elementIndex] = plannedInstance.transform[elementIndex];
+    }
+    build.instanceObjectToWorld.push_back(objectToWorld);
+}
+
 PathTraceSmokeVertex BuildRigidLocalSmokeVertex(const idDrawVert& drawVert)
 {
     idVec3 localNormal = drawVert.GetNormal();
@@ -3550,7 +3585,7 @@ std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(cons
         }
 
         const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
-        if (!record.valid || !record.rigidBlas)
+        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record) || !record.rigidBlas)
         {
             continue;
         }
@@ -3629,6 +3664,7 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
     const RtSmokeRigidTlasPlan& plan,
     std::vector<nvrhi::rt::InstanceDesc>& instanceDescs) const
 {
+    const size_t firstDesc = instanceDescs.size();
     for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
     {
         if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
@@ -3636,7 +3672,7 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
             continue;
         }
         const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
-        if (!record.valid || !record.rigidBlas)
+        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record) || !record.rigidBlas)
         {
             continue;
         }
@@ -3655,7 +3691,7 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
         instanceDescs.push_back(instanceDesc);
     }
 
-    return plan.emittedInstances;
+    return static_cast<int>(instanceDescs.size() - firstDesc);
 }
 
 int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
@@ -3687,18 +3723,21 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
         {
             ++build.stats.skippedMissingMesh;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
             continue;
         }
 
         const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
-        if (!record.valid)
+        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record))
         {
             ++build.stats.skippedMissingMesh;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
             continue;
         }
         if (!record.rigidBlas)
         {
             ++build.stats.skippedMissingBlas;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
             continue;
         }
 
@@ -3707,6 +3746,7 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         if (!BuildRigidLocalMeshData(record, localVertices, localIndexes))
         {
             ++build.stats.skippedMissingMesh;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
             continue;
         }
 
