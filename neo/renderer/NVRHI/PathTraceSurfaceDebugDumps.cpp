@@ -10,7 +10,6 @@
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceInstanceUniverse.h"
-#include "PathTraceMaterialClassifier.h"
 #include "PathTraceRestirPasses.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSurfaceClassification.h"
@@ -310,14 +309,7 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
     if (tableIndex >= 0 && tableIndex < static_cast<int>(table.materials.size()))
     {
         const PathTraceSmokeMaterial& rtMaterial = table.materials[tableIndex];
-        const uint32_t packedSurfaceClass = rtMaterial.padding1 & 0x0fu;
-        const uint32_t packedRoute = (rtMaterial.padding1 >> 10) & 0x0fu;
-        const uint32_t packedNormalDecode = (rtMaterial.padding1 >> 18) & 0x03u;
-        const float packedRoughness = static_cast<float>(rtMaterial.padding2 & 0xffu) / 255.0f;
-        const float packedMetallic = static_cast<float>((rtMaterial.padding2 >> 8) & 0xffu) / 255.0f;
-        const float packedTransmission = static_cast<float>((rtMaterial.padding2 >> 16) & 0xffu) / 255.0f;
-        const float packedF0 = static_cast<float>((rtMaterial.padding2 >> 24) & 0xffu) / 255.0f;
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair RT material debugAlbedo=(%.2f %.2f %.2f %.2f) flags=0x%08x overrideZeroRoughness=%d overrideFullMetal=%d materialPadding0=0x%08x materialPadding1=0x%08x materialPadding2=0x%08x packedRoute=%u packedSurface=%u packedNormal=%u packedRoughness=%.3f packedMetallic=%.3f packedTransmission=%.3f packedF0=%.3f diffuseSlot=%d alphaSlot=%d normalSlot=%d specSlot=%d emissiveSlot=%d alphaCutoff=%.3f\n",
+        common->Printf("PathTracePrimaryPass: RT smoke crosshair RT material debugAlbedo=(%.2f %.2f %.2f %.2f) flags=0x%08x overrideZeroRoughness=%d overrideFullMetal=%d materialPadding0=0x%08x diffuseSlot=%d alphaSlot=%d normalSlot=%d specSlot=%d emissiveSlot=%d alphaCutoff=%.3f\n",
             rtMaterial.debugAlbedo[0],
             rtMaterial.debugAlbedo[1],
             rtMaterial.debugAlbedo[2],
@@ -326,40 +318,12 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
             SmokeMaterialHasZeroRoughnessOverride(materialId) ? 1 : 0,
             SmokeMaterialHasFullMetalOverride(materialId) ? 1 : 0,
             rtMaterial.padding0,
-            rtMaterial.padding1,
-            rtMaterial.padding2,
-            packedRoute,
-            packedSurfaceClass,
-            packedNormalDecode,
-            packedRoughness,
-            packedMetallic,
-            packedTransmission,
-            packedF0,
             rtMaterial.diffuseTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.diffuseTextureIndex),
             rtMaterial.alphaTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.alphaTextureIndex),
             rtMaterial.normalTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.normalTextureIndex),
             rtMaterial.specularTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.specularTextureIndex),
             rtMaterial.emissiveTextureIndex == UINT32_MAX ? -1 : static_cast<int>(rtMaterial.emissiveTextureIndex),
             rtMaterial.alphaCutoff);
-    }
-
-    const RtMaterialRecord* classifierRecord = FindPathTraceMaterialRecord(materialId);
-    if (classifierRecord && classifierRecord->valid)
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair material-classifier route=%s routeReason=%s surface=%s surfaceReason=%s confidence=%s evidence='%s' bsdfEvidence='%s' dynamic=0x%08x\n",
-            RtMaterialBsdfRouteName(classifierRecord->route),
-            RtMaterialBsdfRouteReasonName(classifierRecord->routeReason),
-            RtMaterialSurfaceClassName(classifierRecord->surfaceClass),
-            RtMaterialSurfaceClassReasonName(classifierRecord->surfaceClassReason),
-            RtMaterialClassConfidenceName(classifierRecord->surfaceClassConfidence),
-            classifierRecord->surfaceClassEvidence.c_str(),
-            classifierRecord->bsdfEvidence.c_str(),
-            PackPathTraceMaterialClassifierDynamicFlags(*classifierRecord));
-    }
-    else
-    {
-        common->Printf("PathTracePrimaryPass: RT smoke crosshair material-classifier missing id=%u\n",
-            materialId);
     }
 
     const int indexBase = triangleIndex * 3;
