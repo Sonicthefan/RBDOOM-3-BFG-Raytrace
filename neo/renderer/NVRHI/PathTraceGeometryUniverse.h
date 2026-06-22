@@ -666,6 +666,7 @@ public:
         int gpuBlasIndexCount = 0;
         bool gpuBuffersUploaded = false;
         bool gpuBlasCreated = false;
+        bool gpuBlasBuildSubmitted = false;
         idStr materialName;
         idStr modelName;
     };

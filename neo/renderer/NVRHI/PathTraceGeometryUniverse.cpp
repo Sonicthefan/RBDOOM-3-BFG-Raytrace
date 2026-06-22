@@ -768,6 +768,7 @@ bool RigidMeshHasCachedRouteGpuReady(const RtSmokeGeometryUniverse::RigidMeshCan
         record.rigidBlas &&
         record.gpuBuffersUploaded &&
         record.gpuBlasCreated &&
+        record.gpuBlasBuildSubmitted &&
         record.gpuBlasVertexCount == static_cast<int>(record.cachedLocalVertices.size()) &&
         record.gpuBlasIndexCount == static_cast<int>(record.cachedLocalIndexes.size());
 }
@@ -2558,6 +2559,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                 record.rigidBlas = nullptr;
                 record.rigidBlasDesc = nvrhi::rt::AccelStructDesc();
                 record.gpuBlasCreated = false;
+                record.gpuBlasBuildSubmitted = false;
                 record.gpuBlasVertexCount = 0;
                 record.gpuBlasIndexCount = 0;
                 ++stats.blasRecreatedForInputChange;
@@ -2576,6 +2578,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
                 record.rigidBlasDesc = blasCreateResult.accelStructDesc;
                 record.rigidBlas = blasCreateResult.accelStruct;
                 record.gpuBlasCreated = true;
+                record.gpuBlasBuildSubmitted = false;
                 record.gpuBlasVertexCount = static_cast<int>(localVertices.size());
                 record.gpuBlasIndexCount = static_cast<int>(localIndexes.size());
                 ++stats.blasHandlesCreated;
@@ -2593,6 +2596,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         if (buildPlan.submitBuild && record.rigidBlas)
         {
             nvrhi::utils::BuildBottomLevelAccelStruct(commandList, record.rigidBlas, record.rigidBlasDesc);
+            record.gpuBlasBuildSubmitted = true;
             ++stats.blasBuildsSubmitted;
             builtThisFrame = true;
         }
@@ -2651,6 +2655,7 @@ void RtSmokeGeometryUniverse::ReleaseRigidBlasGpuScaffold()
         record.gpuBlasIndexCount = 0;
         record.gpuBuffersUploaded = false;
         record.gpuBlasCreated = false;
+        record.gpuBlasBuildSubmitted = false;
     }
 }
 
