@@ -3036,13 +3036,36 @@ void RtSmokeGeometryUniverse::BuildRigidRouteInstanceList(const RtPathTraceInsta
 
 void RtSmokeGeometryUniverse::AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady)
 {
-    if (m_rigidResidencyStats.sampleCount >= RT_PT_RIGID_RESIDENCY_SAMPLES)
+    int sampleSlot = m_rigidResidencyStats.sampleCount;
+    if (sampleSlot >= RT_PT_RIGID_RESIDENCY_SAMPLES)
     {
-        return;
+        if (routeReady)
+        {
+            return;
+        }
+
+        sampleSlot = -1;
+        for (int candidateSlot = 0; candidateSlot < RT_PT_RIGID_RESIDENCY_SAMPLES; ++candidateSlot)
+        {
+            if (m_rigidResidencyStats.samples[candidateSlot].valid &&
+                m_rigidResidencyStats.samples[candidateSlot].routeReady)
+            {
+                sampleSlot = candidateSlot;
+                break;
+            }
+        }
+        if (sampleSlot < 0)
+        {
+            return;
+        }
+    }
+    else
+    {
+        ++m_rigidResidencyStats.sampleCount;
     }
 
     const RtPathTraceRigidRouteInstanceObservation& instance = record.observation;
-    RtPathTraceRigidResidencySample& sample = m_rigidResidencyStats.samples[m_rigidResidencyStats.sampleCount++];
+    RtPathTraceRigidResidencySample& sample = m_rigidResidencyStats.samples[sampleSlot];
     sample.valid = true;
     sample.meshHash = instance.meshHash;
     sample.instanceId = instance.instanceId;
@@ -3220,9 +3243,45 @@ RtPathTraceRigidTlasPlanStats RtSmokeGeometryUniverse::BuildRigidTlasPlanStats(c
             }
         }
 
-        if (stats.sampleCount < RT_PT_RIGID_TLAS_PLAN_SAMPLES)
+        int sampleSlot = stats.sampleCount;
+        const bool routeFailureSample =
+            !hasMeshRecord ||
+            !meshAvailableForRoute ||
+            !hasGpuBuffers ||
+            !hasBlas;
+        if (sampleSlot >= RT_PT_RIGID_TLAS_PLAN_SAMPLES)
         {
-            RtPathTraceRigidTlasPlanSample& sample = stats.samples[stats.sampleCount++];
+            if (!routeFailureSample)
+            {
+                continue;
+            }
+
+            sampleSlot = -1;
+            for (int candidateSlot = 0; candidateSlot < RT_PT_RIGID_TLAS_PLAN_SAMPLES; ++candidateSlot)
+            {
+                const RtPathTraceRigidTlasPlanSample& candidate = stats.samples[candidateSlot];
+                if (candidate.valid &&
+                    candidate.hasMeshRecord &&
+                    candidate.meshSeenThisFrame &&
+                    candidate.hasGpuBuffers &&
+                    candidate.hasBlas)
+                {
+                    sampleSlot = candidateSlot;
+                    break;
+                }
+            }
+            if (sampleSlot < 0)
+            {
+                continue;
+            }
+        }
+        else
+        {
+            ++stats.sampleCount;
+        }
+
+        {
+            RtPathTraceRigidTlasPlanSample& sample = stats.samples[sampleSlot];
             sample.valid = true;
             sample.meshHash = instance.meshHash;
             sample.instanceId = instance.instanceId;
