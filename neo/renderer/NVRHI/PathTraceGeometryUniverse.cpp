@@ -397,6 +397,25 @@ bool RigidResidencyWithinDistance(
     return dx * dx + dy * dy + dz * dz <= maxDistance * maxDistance;
 }
 
+bool RigidRouteInstancePriorityLess(
+    const RtPathTraceRigidRouteInstanceObservation& a,
+    const RtPathTraceRigidRouteInstanceObservation& b)
+{
+    if (a.seenThisFrame != b.seenThisFrame)
+    {
+        return a.seenThisFrame;
+    }
+    if (a.isStable != b.isStable)
+    {
+        return a.isStable;
+    }
+    if (a.transformContinuous != b.transformContinuous)
+    {
+        return a.transformContinuous;
+    }
+    return false;
+}
+
 RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const RtPathTraceInstanceObservation& instance)
 {
     RtPathTraceRigidRouteInstanceObservation routeInstance;
@@ -2978,6 +2997,11 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         }
         AddRigidResidencySample(residentRecord, selectedArea, routeReady);
     }
+
+    std::stable_sort(
+        m_rigidResidentFrameInstances.begin(),
+        m_rigidResidentFrameInstances.end(),
+        RigidRouteInstancePriorityLess);
 
     return m_rigidResidencyStats;
 }
