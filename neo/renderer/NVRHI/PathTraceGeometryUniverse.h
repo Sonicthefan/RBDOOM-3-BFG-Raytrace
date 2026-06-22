@@ -438,6 +438,7 @@ struct RtPathTraceRigidResidencyStats
     int portalEdges = 0;
     int blockedPortalEdges = 0;
     int visibleRigidInstances = 0;
+    int visibleRigidStaleModel = 0;
     int areaWalkRigidInstances = 0;
     int cachedRigidInstances = 0;
     int residentInstances = 0;

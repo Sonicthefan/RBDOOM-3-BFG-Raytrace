@@ -2953,6 +2953,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         const RtPathTraceRigidRouteInstanceObservation routeInstance = MakeRigidRouteInstanceObservation(instance);
         if (!RigidResidentObservationMatchesCurrentModel(routeInstance))
         {
+            ++m_rigidResidencyStats.visibleRigidStaleModel;
             continue;
         }
 
@@ -3210,7 +3211,7 @@ const RtPathTraceRigidResidencyStats& RtSmokeGeometryUniverse::GetRigidResidency
 
 void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource) const
 {
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid=%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep=%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid/staleModel=%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep=%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         static_cast<unsigned long long>(stats.frameIndex),
@@ -3222,6 +3223,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.portalEdges,
         stats.blockedPortalEdges,
         stats.visibleRigidInstances,
+        stats.visibleRigidStaleModel,
         stats.areaWalkRigidInstances,
         stats.cachedRigidInstances,
         stats.residentInstances,
