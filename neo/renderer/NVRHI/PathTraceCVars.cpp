@@ -279,6 +279,30 @@ idCVar r_pathTracingGeometryLifecycleDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump one-shot render-def lifecycle counters, generation keys, and classification samples" );
 
+idCVar r_pathTracingGeometryResidencyV2(
+    "r_pathTracingGeometryResidencyV2",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Master gate for the Remix-style frame-age + frustum residency model. 0 = legacy behavior (byte-identical)." );
+
+idCVar r_pathTracingResidencyFramesToKeep(
+    "r_pathTracingResidencyFramesToKeep",
+    "60",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Frames a rigid resident instance / mesh candidate survives after it was last seen, before frame-age GC removes it" );
+
+idCVar r_pathTracingResidencyAntiCulling(
+    "r_pathTracingResidencyAntiCulling",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "When V2 is on: retain a not-seen instance only if its bounds are outside the view frustum (1) or keep all aged-in instances (0)" );
+
+idCVar r_pathTracingResidencyDebug(
+    "r_pathTracingResidencyDebug",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Dump residency V2 counts (live / retained-offscreen / aged-out)" );
+
 idCVar r_pathTracingStaticAreaPreload(
     "r_pathTracingStaticAreaPreload",
     "1",

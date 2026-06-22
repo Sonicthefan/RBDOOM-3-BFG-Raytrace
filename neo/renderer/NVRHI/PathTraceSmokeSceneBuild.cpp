@@ -2774,7 +2774,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             OPTICK_EVENT("PT DrawSurf Mirror");
             m_instanceUniverse.BeginFrame(m_smokeGeometryFrameIndex, viewDef);
             CapturePathTraceDrawSurfMirror(viewDef, useSceneUniverseStaticGeometry ? &m_sceneUniverse : nullptr, &m_smokeGeometryUniverse, m_instanceUniverse, &m_smokeBoundsOverlayLines);
-            if (rigidResidencyEnabled)
+            if (rigidResidencyEnabled && r_pathTracingGeometryResidencyV2.GetInteger() == 0)
             {
                 m_smokeGeometryUniverse.RefreshRigidResidencyAreaWalk(
                     viewDef,
@@ -2944,6 +2944,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 AppendRigidResidencyBoundsOverlayLines(residentBoundsBoxes, m_smokeBoundsOverlayLines);
             }
             m_smokeBoundsOverlayLineCount = static_cast<int>(m_smokeBoundsOverlayLines.size());
+        }
+        if (r_pathTracingResidencyDebug.GetInteger() != 0)
+        {
+            m_smokeGeometryUniverse.DumpRigidResidencyStats(rigidResidencyStats, sceneSource);
         }
         if (r_pathTracingRigidResidencyDump.GetInteger() != 0)
         {

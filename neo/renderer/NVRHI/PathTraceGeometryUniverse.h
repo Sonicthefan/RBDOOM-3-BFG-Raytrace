@@ -446,6 +446,12 @@ struct RtPathTraceRigidResidencyStats
     int residentRouteReady = 0;
     int residentMissingMesh = 0;
     int residentMissingBlas = 0;
+    int residentRetainedOffscreen = 0;
+    int residentAgedOut = 0;
+    int meshLive = 0;
+    int meshAgedOut = 0;
+    int residencyFramesToKeep = 0;
+    int residencyAntiCulling = 0;
     int skippedOutsideArea = 0;
     int skippedUnknownArea = 0;
     uint64 frameIndex = 0;
@@ -466,6 +472,9 @@ struct RtPathTraceRigidRouteInstanceObservation
     uint32_t materialOverrideId = 0;
     uint32_t sourceFlags = 0;
     bool seenThisFrame = true;
+    bool wasMovingWhenLastSeen = false;
+    bool isSkinnedOrDeforming = false;
+    bool isStable = false;
     bool hasPreviousObjectToWorld = false;
     bool transformContinuous = false;
     float objectToWorld[16] = {};
@@ -644,6 +653,10 @@ public:
         int instanceCountThisFrame = 0;
         bool seenThisFrame = false;
         bool newlyCreatedThisFrame = false;
+        idBounds localBounds;
+        bool localBoundsValid = false;
+        std::vector<PathTraceSmokeVertex> cachedLocalVertices;
+        std::vector<uint32_t> cachedLocalIndexes;
         nvrhi::BufferHandle rigidVertexBuffer;
         nvrhi::BufferHandle rigidIndexBuffer;
         nvrhi::rt::AccelStructDesc rigidBlasDesc;
@@ -662,6 +675,7 @@ private:
     {
         RtPathTraceRigidRouteInstanceObservation observation;
         uint64 lastSeenFrame = 0;
+        int seenCount = 0;
         bool seenThisFrame = false;
     };
 
@@ -672,7 +686,7 @@ private:
     void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
     void AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady);
     void RecordRigidResidentObservation(const RtPathTraceRigidRouteInstanceObservation& instance);
-    void PruneRigidCachesToCurrentFrame(const idRenderWorldLocal* renderWorld);
+    void PruneRigidCachesToCurrentFrame(const idRenderWorldLocal* renderWorld, const idRenderMatrix* viewMvp);
 
     uint64 m_currentFrameIndex = 0;
     bool m_frameActive = false;
