@@ -3683,6 +3683,11 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
     const size_t firstDesc = instanceDescs.size();
     for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
     {
+        if (!plannedInstance.sourceSeenThisFrame &&
+            r_pathTracingResidencyRouteCachedTlas.GetInteger() == 0)
+        {
+            continue;
+        }
         if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
         {
             continue;

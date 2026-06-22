@@ -303,6 +303,12 @@ idCVar r_pathTracingResidencyRouteCached(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental unsafe path: when V2 is on, emit retained off-screen rigid records into the rigid route TLAS/buffers. Keep 0 unless debugging cached route emission." );
 
+idCVar r_pathTracingResidencyRouteCachedTlas(
+    "r_pathTracingResidencyRouteCachedTlas",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic gate for r_pathTracingResidencyRouteCached: 1 allows cached off-screen rigid records into TLAS, 0 keeps cached route buffers but prevents cached BLAS hits." );
+
 idCVar r_pathTracingResidencyDebug(
     "r_pathTracingResidencyDebug",
     "0",
