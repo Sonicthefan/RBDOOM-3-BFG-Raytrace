@@ -297,6 +297,12 @@ idCVar r_pathTracingResidencyAntiCulling(
     CVAR_RENDERER | CVAR_INTEGER,
     "When V2 is on: retain a not-seen instance only if its bounds are outside the view frustum (1) or keep all aged-in instances (0)" );
 
+idCVar r_pathTracingResidencyRouteCached(
+    "r_pathTracingResidencyRouteCached",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "When V2 is on: emit validated retained off-screen rigid records into the rigid route TLAS/buffers; set 0 to keep cache retention diagnostics only" );
+
 idCVar r_pathTracingResidencyDebug(
     "r_pathTracingResidencyDebug",
     "0",

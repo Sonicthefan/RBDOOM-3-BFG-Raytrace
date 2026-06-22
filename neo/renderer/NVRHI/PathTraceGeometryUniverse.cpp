@@ -2755,7 +2755,24 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
 
         RtPathTraceRigidRouteInstanceObservation residentFrameInstance = instance;
         residentFrameInstance.seenThisFrame = residentRecord.seenThisFrame;
-        if (residentRecord.seenThisFrame)
+        bool emitRouteInstance = residentRecord.seenThisFrame;
+        if (!emitRouteInstance &&
+            v2 &&
+            r_pathTracingResidencyRouteCached.GetInteger() != 0 &&
+            routeReady &&
+            meshRecord &&
+            meshRecord->gpuBuffersUploaded &&
+            meshRecord->gpuBlasCreated &&
+            meshRecord->gpuBlasVertexCount == static_cast<int>(meshRecord->cachedLocalVertices.size()) &&
+            meshRecord->gpuBlasIndexCount == static_cast<int>(meshRecord->cachedLocalIndexes.size()) &&
+            static_cast<int>(meshRecord->cachedLocalVertices.size()) == meshRecord->sourceRange.vertices.count &&
+            static_cast<int>(meshRecord->cachedLocalIndexes.size()) == meshRecord->sourceRange.indexes.count &&
+            meshRecord->localBoundsValid &&
+            (instance.sourceFlags & RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE) == 0)
+        {
+            emitRouteInstance = true;
+        }
+        if (emitRouteInstance)
         {
             m_rigidResidentFrameInstances.push_back(residentFrameInstance);
         }
