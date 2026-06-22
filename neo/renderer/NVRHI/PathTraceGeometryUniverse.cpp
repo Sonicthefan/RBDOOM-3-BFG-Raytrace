@@ -3506,20 +3506,18 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
         liveResidentRecords.reserve(m_rigidResidentRecords.size());
         for (const RigidResidentInstanceRecord& record : m_rigidResidentRecords)
         {
-            bool keepRecord = record.seenThisFrame;
+            const PtRenderDefKey& renderDefKey = record.observation.renderDefKey;
+            const bool deletedEntity =
+                v2 &&
+                renderDefKey.world != nullptr &&
+                renderDefKey.index >= 0 &&
+                renderDefKey.generation != 0 &&
+                !PtGeometryLifecycle::IsEntityKeyAlive(renderDefKey);
+            bool keepRecord = !deletedEntity && record.seenThisFrame;
             bool retainedOffscreen = false;
-            bool deletedEntity = false;
-            if (v2 && !record.seenThisFrame)
+            if (v2 && !deletedEntity && !record.seenThisFrame)
             {
-                const PtRenderDefKey& renderDefKey = record.observation.renderDefKey;
-                deletedEntity =
-                    renderDefKey.world != nullptr &&
-                    renderDefKey.index >= 0 &&
-                    renderDefKey.generation != 0 &&
-                    !PtGeometryLifecycle::IsEntityKeyAlive(renderDefKey);
-                const bool withinWindow =
-                    !deletedEntity &&
-                    record.lastSeenFrame + framesToKeep >= m_currentFrameIndex;
+                const bool withinWindow = record.lastSeenFrame + framesToKeep >= m_currentFrameIndex;
                 const bool areaKnown = record.observation.currentArea >= 0;
                 const bool locallyRelevant =
                     (!areaKnown || RigidResidencyAreaSelected(record.observation.currentArea, selectedAreas)) &&
