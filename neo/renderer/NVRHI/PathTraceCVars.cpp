@@ -281,9 +281,9 @@ idCVar r_pathTracingGeometryLifecycleDump(
 
 idCVar r_pathTracingGeometryResidencyV2(
     "r_pathTracingGeometryResidencyV2",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Master gate for the Remix-style frame-age + frustum residency model. 0 = legacy behavior (byte-identical)." );
+    "Master gate for the Remix-style frame-age + frustum residency model. Set 0 for legacy behavior." );
 
 idCVar r_pathTracingResidencyFramesToKeep(
     "r_pathTracingResidencyFramesToKeep",
