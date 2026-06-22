@@ -1220,6 +1220,7 @@ void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex)
         record.seenThisFrame = false;
         record.newlyCreatedThisFrame = false;
         record.instanceCountThisFrame = 0;
+        record.tri = nullptr;
     }
     for (RigidResidentInstanceRecord& record : m_rigidResidentRecords)
     {
