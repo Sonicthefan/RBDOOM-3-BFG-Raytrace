@@ -16,6 +16,7 @@
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
+#include "../RenderWorld_local.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -69,6 +70,41 @@ uint32_t PtDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfTria
     hash = PtHashBytes(hash, &localTriangleIndex, sizeof(localTriangleIndex));
     const uint32_t folded = static_cast<uint32_t>(hash) ^ static_cast<uint32_t>(hash >> 32);
     return folded != 0u ? folded : 1u;
+}
+
+struct PtMirrorCapturedDynamicSurfaceKey
+{
+    int entityIndex = -1;
+    const srfTriangles_t* tri = nullptr;
+    uint32_t materialId = 0;
+};
+
+bool PtMirrorCapturedDynamicSurfaceMatches(const PtMirrorCapturedDynamicSurfaceKey& key, int entityIndex, const srfTriangles_t* tri, uint32_t materialId)
+{
+    return key.entityIndex == entityIndex && key.tri == tri && key.materialId == materialId;
+}
+
+bool PtMirrorDynamicSurfaceAlreadyCaptured(const std::vector<PtMirrorCapturedDynamicSurfaceKey>& capturedSurfaces, int entityIndex, const srfTriangles_t* tri, uint32_t materialId)
+{
+    for (const PtMirrorCapturedDynamicSurfaceKey& key : capturedSurfaces)
+    {
+        if (PtMirrorCapturedDynamicSurfaceMatches(key, entityIndex, tri, materialId))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+const idMaterial* PtMirrorResolveEntitySurfaceMaterial(const idRenderEntityLocal* entityDef, const modelSurface_t* surface)
+{
+    const idMaterial* shader = surface ? surface->shader : nullptr;
+    if (!entityDef || !shader)
+    {
+        return shader;
+    }
+
+    return R_RemapShaderBySkin(shader, entityDef->parms.customSkin, entityDef->parms.customShader);
 }
 
 void CopyDrawSurfObjectToWorld(const drawSurf_t* drawSurf, float objectToWorld[16])
@@ -458,6 +494,82 @@ int PtMirrorResolveDrawSurfArea(const viewDef_t* viewDef, const drawSurf_t* draw
     return renderWorld->PointInArea(worldCenter);
 }
 
+std::vector<bool> PtMirrorBuildSelectedAreas(const viewDef_t* viewDef, int portalSteps)
+{
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    const int areaCount = renderWorld ? renderWorld->NumAreas() : 0;
+    if (!renderWorld || areaCount <= 0)
+    {
+        return std::vector<bool>();
+    }
+
+    std::vector<bool> selectedAreas(static_cast<size_t>(areaCount), false);
+    std::vector<int> selectedDepth(static_cast<size_t>(areaCount), -1);
+    std::vector<int> queue;
+    queue.reserve(static_cast<size_t>(areaCount));
+
+    int currentArea = viewDef->areaNum;
+    if (currentArea < 0)
+    {
+        currentArea = renderWorld->PointInArea(viewDef->initialViewAreaOrigin);
+    }
+    if (currentArea < 0)
+    {
+        currentArea = renderWorld->PointInArea(viewDef->renderView.vieworg);
+    }
+    if (currentArea < 0 || currentArea >= areaCount)
+    {
+        return selectedAreas;
+    }
+
+    selectedAreas[static_cast<size_t>(currentArea)] = true;
+    selectedDepth[static_cast<size_t>(currentArea)] = 0;
+    queue.push_back(currentArea);
+
+    const int maxDepth = idMath::ClampInt(0, 8, portalSteps);
+    for (size_t queueIndex = 0; queueIndex < queue.size(); ++queueIndex)
+    {
+        const int area = queue[queueIndex];
+        const int depth = selectedDepth[static_cast<size_t>(area)];
+        if (depth >= maxDepth)
+        {
+            continue;
+        }
+
+        const int portalCount = renderWorld->NumPortalsInArea(area);
+        for (int portalIndex = 0; portalIndex < portalCount; ++portalIndex)
+        {
+            const exitPortal_t portal = renderWorld->GetPortal(area, portalIndex);
+            if (portal.blockingBits != PS_BLOCK_NONE)
+            {
+                continue;
+            }
+
+            int nextArea = -1;
+            if (portal.areas[0] == area)
+            {
+                nextArea = portal.areas[1];
+            }
+            else if (portal.areas[1] == area)
+            {
+                nextArea = portal.areas[0];
+            }
+            if (nextArea < 0 || nextArea >= areaCount)
+            {
+                continue;
+            }
+            if (!selectedAreas[static_cast<size_t>(nextArea)])
+            {
+                selectedAreas[static_cast<size_t>(nextArea)] = true;
+                selectedDepth[static_cast<size_t>(nextArea)] = depth + 1;
+                queue.push_back(nextArea);
+            }
+        }
+    }
+
+    return selectedAreas;
+}
+
 void PtMirrorAppendBoundsOverlayLines(
     const drawSurf_t* drawSurf,
     const srfTriangles_t* tri,
@@ -706,6 +818,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     int dynamicVerts = 0;
     int dynamicIndexes = 0;
     int dynamicSurfaces = 0;
+    std::vector<PtMirrorCapturedDynamicSurfaceKey> capturedDynamicSurfaces;
+    capturedDynamicSurfaces.reserve(static_cast<size_t>(viewDef->numDrawSurfs));
     int skippedRoutedRigidDynamicSurfaces = 0;
     int skippedRoutedRigidDynamicIndexes = 0;
     const int requestedDebugMode = r_pathTracingDebugMode.GetInteger();
@@ -851,8 +965,206 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         AddMirrorSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
         AddMirrorDynamicGeometryStats(dynamicStats, surfaceClass, drawSurf, tri, emittedIndexes);
         ++bucketRanges.buckets[bucketIndex].surfaceCount;
+        if (entityIndex >= 0)
+        {
+            PtMirrorCapturedDynamicSurfaceKey capturedKey;
+            capturedKey.entityIndex = entityIndex;
+            capturedKey.tri = tri;
+            capturedKey.materialId = baseMaterialId;
+            capturedDynamicSurfaces.push_back(capturedKey);
+        }
         dynamicVerts += tri->numVerts;
         dynamicIndexes += emittedIndexes;
+    }
+
+    if (routeLifecycleMode)
+    {
+        OPTICK_EVENT("PT Capture Lifecycle Deforming Area Feed");
+        idRenderWorldLocal* renderWorld = viewDef->renderWorld;
+        const std::vector<bool> selectedAreas = PtMirrorBuildSelectedAreas(viewDef, r_pathTracingRigidResidencyPortalSteps.GetInteger());
+        std::unordered_set<int> retainedEntities;
+        retainedEntities.reserve(128);
+
+        for (int areaIndex = 0; renderWorld && areaIndex < static_cast<int>(selectedAreas.size()); ++areaIndex)
+        {
+            if (!selectedAreas[static_cast<size_t>(areaIndex)])
+            {
+                continue;
+            }
+
+            portalArea_t* area = &renderWorld->portalAreas[areaIndex];
+            for (areaReference_t* ref = area->entityRefs.areaNext; ref != &area->entityRefs; ref = ref->areaNext)
+            {
+                idRenderEntityLocal* entityDef = ref ? ref->entity : nullptr;
+                const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
+                idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
+                if (!entityDef || !renderEntity || !model || model->IsStaticWorldModel())
+                {
+                    continue;
+                }
+                if (!PtGeometryLifecycle::IsEntityKeyAlive(PtGeometryLifecycle::MakeEntityKey(entityDef)))
+                {
+                    continue;
+                }
+                if (!retainedEntities.insert(entityDef->index).second)
+                {
+                    continue;
+                }
+                if (model->IsDynamicModel() != DM_CACHED)
+                {
+                    continue;
+                }
+                if (renderEntity->callback != nullptr && r_pathTracingSkipCallbackEntities.GetInteger() != 0)
+                {
+                    continue;
+                }
+
+                idRenderModel* dynamicModel = R_EntityDefDynamicModel(entityDef);
+                if (!dynamicModel || dynamicModel->IsStaticWorldModel())
+                {
+                    continue;
+                }
+
+                viewEntity_t retainedSpace = {};
+                retainedSpace.entityDef = entityDef;
+                retainedSpace.weaponDepthHack = renderEntity->weaponDepthHack;
+                retainedSpace.modelDepthHack = renderEntity->modelDepthHack;
+                memcpy(retainedSpace.modelMatrix, entityDef->modelMatrix, sizeof(retainedSpace.modelMatrix));
+                R_MatrixMultiply(entityDef->modelMatrix, viewDef->worldSpace.modelViewMatrix, retainedSpace.modelViewMatrix);
+
+                for (int surfaceIndex = 0; surfaceIndex < dynamicModel->NumSurfaces(); ++surfaceIndex)
+                {
+                    const modelSurface_t* surface = dynamicModel->Surface(surfaceIndex);
+                    const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
+                    const idMaterial* shader = PtMirrorResolveEntitySurfaceMaterial(entityDef, surface);
+                    if (!tri || !tri->verts || !tri->indexes || tri->numVerts < 3 || tri->numIndexes < 3 || !shader || !shader->IsDrawn())
+                    {
+                        continue;
+                    }
+                    if ((tri->numIndexes % 3) != 0)
+                    {
+                        ++skipStats.invalidIndexCount;
+                        continue;
+                    }
+
+                    const uint32_t baseMaterialId = SmokeMaterialId(shader);
+                    if (PtMirrorDynamicSurfaceAlreadyCaptured(capturedDynamicSurfaces, entityDef->index, tri, baseMaterialId))
+                    {
+                        continue;
+                    }
+
+                    drawSurf_t retainedDrawSurf = {};
+                    retainedDrawSurf.frontEndGeo = tri;
+                    retainedDrawSurf.numIndexes = tri->numIndexes;
+                    retainedDrawSurf.indexCache = tri->indexCache;
+                    retainedDrawSurf.ambientCache = tri->ambientCache;
+                    retainedDrawSurf.jointCache = 0;
+                    retainedDrawSurf.space = &retainedSpace;
+                    retainedDrawSurf.extraGLState = 0;
+                    R_SetupDrawSurfShader(&retainedDrawSurf, shader, renderEntity);
+
+                    const int classifyStartMs = Sys_Milliseconds();
+                    const RtSmokeSurfaceClass surfaceClass = ClassifySmokeSurface(viewDef, &retainedDrawSurf, tri);
+                    captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
+                    if (surfaceClass != RtSmokeSurfaceClass::SkinnedDeformed)
+                    {
+                        continue;
+                    }
+
+                    if (dynamicSurfaces >= RT_SMOKE_MAX_SURFACES ||
+                        dynamicVerts + tri->numVerts > RT_SMOKE_MAX_VERTS ||
+                        dynamicIndexes + tri->numIndexes > RT_SMOKE_MAX_INDEXES)
+                    {
+                        ++skipStats.limitExceeded;
+                        break;
+                    }
+
+                    const RtSmokeTranslucentSubtype translucentSubtype = RtSmokeTranslucentSubtype::Unknown;
+                    const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+                    const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(&retainedDrawSurf, baseMaterialId);
+                    const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
+
+                    std::vector<PathTraceSmokeVertex>& bucketVertices = bucketVertexData[bucketIndex];
+                    std::vector<uint32_t>& bucketIndexes = bucketIndexData[bucketIndex];
+                    std::vector<uint32_t>& bucketClasses = bucketTriangleClassData[bucketIndex];
+                    std::vector<uint32_t>& bucketMaterials = bucketTriangleMaterialData[bucketIndex];
+                    std::vector<uint32_t>& bucketInstances = bucketTriangleInstanceData[bucketIndex];
+                    std::vector<uint32_t>& bucketIdentities = bucketTriangleIdentityData[bucketIndex];
+                    const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
+                    const int bucketVertexStart = static_cast<int>(bucketVertices.size());
+                    const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
+                    const int bucketTriangleStart = static_cast<int>(bucketClasses.size());
+                    const int appendStartMs = Sys_Milliseconds();
+                    const int emittedIndexes = AppendSmokeSurfaceGeometry(
+                        &retainedDrawSurf,
+                        tri,
+                        surfaceClassId,
+                        materialId,
+                        RT_SMOKE_CLASS_COUNT,
+                        RT_SMOKE_TRIANGLE_CLASS_MASK,
+                        static_cast<uint32_t>(RtSmokeSurfaceClass::ParticleAlpha),
+                        RT_SMOKE_TRIANGLE_FORCE_GEOMETRIC_NORMAL,
+                        bucketVertices,
+                        bucketIndexes,
+                        bucketClasses,
+                        bucketMaterials,
+                        skipStats,
+                        attributeStats);
+                    const int appendMs = Sys_Milliseconds() - appendStartMs;
+                    captureTiming.dynamicAppendMs += appendMs;
+                    captureTiming.appendMs += appendMs;
+                    if (usesRtCpuSkinning)
+                    {
+                        captureTiming.rtCpuSkinningAppendMs += appendMs;
+                    }
+                    if (emittedIndexes <= 0)
+                    {
+                        continue;
+                    }
+
+                    const uint32_t dynamicInstanceId = static_cast<uint32_t>(Max(1, entityDef->index + 1));
+                    const int emittedTriangles = emittedIndexes / 3;
+                    bucketInstances.insert(bucketInstances.end(), emittedTriangles, dynamicInstanceId);
+                    for (int localTriangleIndex = 0; localTriangleIndex < emittedTriangles; ++localTriangleIndex)
+                    {
+                        bucketIdentities.push_back(PtDynamicTriangleIdentitySeed(&retainedDrawSurf, tri, baseMaterialId, static_cast<uint32_t>(localTriangleIndex)));
+                    }
+                    AddSmokeSkinnedSurfaceRecord(
+                        skinnedSurfaceRecords,
+                        &retainedDrawSurf,
+                        tri,
+                        surfaceClassId,
+                        materialId,
+                        bucketIndex,
+                        bucketVertexStart,
+                        bucketIndexStart,
+                        bucketTriangleStart,
+                        static_cast<int>(bucketVertices.size()) - bucketVertexStart,
+                        emittedIndexes,
+                        emittedIndexes / 3);
+
+                    AddMirrorMaterialStats(materialStats, shader, emittedIndexes, surfaceClass, translucentSubtype);
+                    AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, &retainedDrawSurf, emittedIndexes, materialId);
+                    ++sourceSurfaces;
+                    ++dynamicSurfaces;
+                    ++dynamicStats.retainedOccluderSurfaces;
+                    dynamicStats.retainedOccluderIndexes += emittedIndexes;
+                    sourceVerts += tri->numVerts;
+                    sourceIndexes += emittedIndexes;
+                    AddMirrorSurfaceClassStats(classStats, surfaceClass, tri->numVerts, emittedIndexes);
+                    AddMirrorDynamicGeometryStats(dynamicStats, surfaceClass, &retainedDrawSurf, tri, emittedIndexes);
+                    ++bucketRanges.buckets[bucketIndex].surfaceCount;
+                    dynamicVerts += tri->numVerts;
+                    dynamicIndexes += emittedIndexes;
+
+                    PtMirrorCapturedDynamicSurfaceKey capturedKey;
+                    capturedKey.entityIndex = entityDef->index;
+                    capturedKey.tri = tri;
+                    capturedKey.materialId = baseMaterialId;
+                    capturedDynamicSurfaces.push_back(capturedKey);
+                }
+            }
+        }
     }
 
     const int bucketMergeStartMs = Sys_Milliseconds();
