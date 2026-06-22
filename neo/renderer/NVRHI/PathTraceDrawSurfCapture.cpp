@@ -592,7 +592,12 @@ void CapturePathTraceDrawSurfMirror(
         if (geometryUniverse)
         {
             const uint32_t candidateBaseMaterialId = SmokeMaterialId(material);
-            if (SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, candidateBaseMaterialId) != candidateBaseMaterialId)
+            const bool lifecycleStaticCacheRigid =
+                r_pathTracingGeometryLifecycle.GetInteger() != 0 &&
+                surfaceClass == RtSmokeSurfaceClass::RigidEntity &&
+                (instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH) != 0;
+            if (SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, candidateBaseMaterialId) != candidateBaseMaterialId &&
+                !lifecycleStaticCacheRigid)
             {
                 continue;
             }
