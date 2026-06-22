@@ -2755,7 +2755,10 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
 
         RtPathTraceRigidRouteInstanceObservation residentFrameInstance = instance;
         residentFrameInstance.seenThisFrame = residentRecord.seenThisFrame;
-        m_rigidResidentFrameInstances.push_back(residentFrameInstance);
+        if (residentRecord.seenThisFrame)
+        {
+            m_rigidResidentFrameInstances.push_back(residentFrameInstance);
+        }
         AddRigidResidencySample(residentRecord, selectedArea, routeReady);
     }
 
