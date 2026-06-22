@@ -299,15 +299,15 @@ idCVar r_pathTracingResidencyAntiCulling(
 
 idCVar r_pathTracingResidencyRouteCached(
     "r_pathTracingResidencyRouteCached",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental unsafe path: when V2 is on, emit retained off-screen rigid records into the rigid route TLAS/buffers. Keep 0 unless debugging cached route emission." );
+    "When V2 is on, emit retained off-screen rigid records into the rigid route TLAS/buffers; set 0 to keep the residency cache CPU-only for diagnostics." );
 
 idCVar r_pathTracingResidencyRouteCachedTlas(
     "r_pathTracingResidencyRouteCachedTlas",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic gate for r_pathTracingResidencyRouteCached: 1 allows cached off-screen rigid records into TLAS, 0 keeps cached route buffers but prevents cached BLAS hits." );
+    "Diagnostic gate for cached route emission: 1 allows cached off-screen rigid records into TLAS, 0 keeps cached route buffers but prevents cached BLAS hits." );
 
 idCVar r_pathTracingResidencyRouteCachedTraceMask(
     "r_pathTracingResidencyRouteCachedTraceMask",
