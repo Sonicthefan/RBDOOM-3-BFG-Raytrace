@@ -14,6 +14,7 @@
 #include "../RenderWorld_local.h"
 
 #include <algorithm>
+#include <unordered_set>
 #include <nvrhi/utils.h>
 
 namespace {
@@ -3404,6 +3405,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
     const bool antiCulling = r_pathTracingResidencyAntiCulling.GetInteger() != 0;
     m_rigidResidencyStats.residencyFramesToKeep = static_cast<int>(framesToKeep);
     m_rigidResidencyStats.residencyAntiCulling = antiCulling ? 1 : 0;
+    std::unordered_set<uint64> residentMeshHashes;
 
     if (!m_rigidResidentRecords.empty())
     {
@@ -3449,6 +3451,10 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
             if (keepRecord)
             {
                 liveResidentRecords.push_back(record);
+                if (record.observation.meshHash != 0)
+                {
+                    residentMeshHashes.insert(record.observation.meshHash);
+                }
                 if (retainedOffscreen)
                 {
                     ++m_rigidResidencyStats.residentRetainedOffscreen;
@@ -3479,8 +3485,10 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
         liveMeshRecords.reserve(m_rigidMeshCandidateRecords.size());
         for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
         {
+            const bool referencedByResident =
+                residentMeshHashes.find(record.meshHash) != residentMeshHashes.end();
             const bool keepRecord = v2
-                ? record.valid && record.lastSeenFrame + framesToKeep >= m_currentFrameIndex
+                ? record.valid && (referencedByResident || record.lastSeenFrame + framesToKeep >= m_currentFrameIndex)
                 : record.valid && record.seenThisFrame;
             if (keepRecord)
             {

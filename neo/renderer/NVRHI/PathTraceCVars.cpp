@@ -287,9 +287,9 @@ idCVar r_pathTracingGeometryResidencyV2(
 
 idCVar r_pathTracingResidencyFramesToKeep(
     "r_pathTracingResidencyFramesToKeep",
-    "60",
+    "100000",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Frames a rigid resident instance / mesh candidate survives after it was last seen, before frame-age GC removes it" );
+    "Frames a rigid resident instance survives after it was last seen before frame-age GC removes it; default is long-lived Remix-style residency" );
 
 idCVar r_pathTracingResidencyAntiCulling(
     "r_pathTracingResidencyAntiCulling",
