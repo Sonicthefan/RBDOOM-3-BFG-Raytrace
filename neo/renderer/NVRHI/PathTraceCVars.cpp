@@ -293,7 +293,7 @@ idCVar r_pathTracingResidencyFramesToKeep(
 
 idCVar r_pathTracingResidencyMaxDistance(
     "r_pathTracingResidencyMaxDistance",
-    "4096",
+    "512",
     CVAR_RENDERER | CVAR_FLOAT,
     "Maximum world-space distance for cached rigid residency after an instance leaves the raster view; 0 disables distance pruning" );
 

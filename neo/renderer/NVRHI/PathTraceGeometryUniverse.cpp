@@ -2998,10 +2998,14 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         AddRigidResidencySample(residentRecord, selectedArea, routeReady);
     }
 
-    std::stable_sort(
-        m_rigidResidentFrameInstances.begin(),
-        m_rigidResidentFrameInstances.end(),
-        RigidRouteInstancePriorityLess);
+    const int rigidRouteMaxInstances = idMath::ClampInt(1, 510, r_pathTracingRigidRouteMaxInstances.GetInteger());
+    if (static_cast<int>(m_rigidResidentFrameInstances.size()) > rigidRouteMaxInstances)
+    {
+        std::stable_sort(
+            m_rigidResidentFrameInstances.begin(),
+            m_rigidResidentFrameInstances.end(),
+            RigidRouteInstancePriorityLess);
+    }
 
     return m_rigidResidencyStats;
 }
