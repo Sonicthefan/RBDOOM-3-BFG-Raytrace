@@ -200,6 +200,15 @@ void MarkLightAlive(const idRenderLightLocal* light)
     slot.alive = true;
 }
 
+void AdvanceSlotGeneration(PtGeometryLifecycleSlotState& slot)
+{
+    ++slot.generation;
+    if (slot.generation == 0)
+    {
+        slot.generation = 1;
+    }
+}
+
 }
 
 namespace PtGeometryLifecycle {
@@ -352,10 +361,13 @@ void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel*
     {
         return;
     }
-    MarkEntityAlive(entity);
+    PtGeometryLifecycleWorldState& state = EnsureWorldState(entity->world);
+    PtGeometryLifecycleSlotState& slot = EnsureSlot(state.entitySlots, entity->index);
+    slot.alive = true;
     ++g_lifecycleStats.entityUpdates;
     if (modelChanged)
     {
+        AdvanceSlotGeneration(slot);
         ++g_lifecycleStats.entityModelSwaps;
     }
     const PtGeometryLifecycleClass geometryClass = ClassifyEntity(entity);
@@ -384,11 +396,7 @@ void NotifyEntityFreed(const idRenderEntityLocal* entity)
     PtGeometryLifecycleSlotState& slot = EnsureSlot(state.entitySlots, entity->index);
     const PtRenderDefKey oldKey = MakeKey(entity->world, entity->index, state.entitySlots);
     slot.alive = false;
-    ++slot.generation;
-    if (slot.generation == 0)
-    {
-        slot.generation = 1;
-    }
+    AdvanceSlotGeneration(slot);
 
     ++g_lifecycleStats.entityFrees;
     PtGeometryLifecycleEventSample sample;
@@ -446,11 +454,7 @@ void NotifyLightFreed(const idRenderLightLocal* light)
     PtGeometryLifecycleSlotState& slot = EnsureSlot(state.lightSlots, light->index);
     const PtRenderDefKey oldKey = MakeKey(light->world, light->index, state.lightSlots);
     slot.alive = false;
-    ++slot.generation;
-    if (slot.generation == 0)
-    {
-        slot.generation = 1;
-    }
+    AdvanceSlotGeneration(slot);
 
     ++g_lifecycleStats.lightFrees;
     PtGeometryLifecycleEventSample sample;
