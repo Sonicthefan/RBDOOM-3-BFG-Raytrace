@@ -2930,6 +2930,10 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         {
             continue;
         }
+        if (instance.entity && instance.entity->lastModifiedFrameNum == tr.frameCount)
+        {
+            continue;
+        }
 
         if (instance.entity)
         {
