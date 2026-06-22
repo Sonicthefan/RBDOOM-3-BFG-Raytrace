@@ -746,7 +746,7 @@ uint32_t ValidateRigidBlasInputRecord(const RtSmokeGeometryUniverse::RigidMeshCa
 
 bool RigidMeshHasCachedRouteData(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
-    return
+    if (!(
         record.valid &&
         record.sourceRange.vertices.count > 0 &&
         record.sourceRange.indexes.count > 0 &&
@@ -756,7 +756,33 @@ bool RigidMeshHasCachedRouteData(const RtSmokeGeometryUniverse::RigidMeshCandida
         static_cast<int>(record.cachedLocalVertices.size()) == record.sourceRange.vertices.count &&
         static_cast<int>(record.cachedLocalIndexes.size()) == record.sourceRange.indexes.count &&
         record.localBoundsValid &&
-        !record.localBounds.IsCleared();
+        !record.localBounds.IsCleared()))
+    {
+        return false;
+    }
+
+    for (const PathTraceSmokeVertex& vertex : record.cachedLocalVertices)
+    {
+        const idVec3 position = SmokeVertexPosition(vertex);
+        if (!SmokeVec3IsFinite(position) ||
+            idMath::Fabs(position.x) >= 100000.0f ||
+            idMath::Fabs(position.y) >= 100000.0f ||
+            idMath::Fabs(position.z) >= 100000.0f)
+        {
+            return false;
+        }
+    }
+
+    const uint32_t vertexCount = static_cast<uint32_t>(record.cachedLocalVertices.size());
+    for (uint32_t index : record.cachedLocalIndexes)
+    {
+        if (index >= vertexCount)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool RigidMeshHasCachedRouteGpuReady(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
@@ -914,8 +940,7 @@ bool BuildRigidLocalMeshData(const RtSmokeGeometryUniverse::RigidMeshCandidateRe
 {
     if (record.tri == nullptr)
     {
-        if (static_cast<int>(record.cachedLocalVertices.size()) == record.sourceRange.vertices.count &&
-            static_cast<int>(record.cachedLocalIndexes.size()) == record.sourceRange.indexes.count)
+        if (RigidMeshHasCachedRouteData(record))
         {
             vertices = record.cachedLocalVertices;
             indexes = record.cachedLocalIndexes;
