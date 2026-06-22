@@ -3185,7 +3185,7 @@ const RtPathTraceRigidResidencyStats& RtSmokeGeometryUniverse::GetRigidResidency
 
 void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource) const
 {
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid=%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut=%d meshLive/agedOut=%d/%d keep=%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid=%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep=%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         static_cast<unsigned long long>(stats.frameIndex),
@@ -3204,6 +3204,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.residentFromCache,
         stats.residentRetainedOffscreen,
         stats.residentAgedOut,
+        stats.residentDeleted,
         stats.meshLive,
         stats.meshAgedOut,
         stats.residencyFramesToKeep,
@@ -3507,9 +3508,18 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
         {
             bool keepRecord = record.seenThisFrame;
             bool retainedOffscreen = false;
+            bool deletedEntity = false;
             if (v2 && !record.seenThisFrame)
             {
-                const bool withinWindow = record.lastSeenFrame + framesToKeep >= m_currentFrameIndex;
+                const PtRenderDefKey& renderDefKey = record.observation.renderDefKey;
+                deletedEntity =
+                    renderDefKey.world != nullptr &&
+                    renderDefKey.index >= 0 &&
+                    renderDefKey.generation != 0 &&
+                    !PtGeometryLifecycle::IsEntityKeyAlive(renderDefKey);
+                const bool withinWindow =
+                    !deletedEntity &&
+                    record.lastSeenFrame + framesToKeep >= m_currentFrameIndex;
                 const bool areaKnown = record.observation.currentArea >= 0;
                 const bool locallyRelevant =
                     (!areaKnown || RigidResidencyAreaSelected(record.observation.currentArea, selectedAreas)) &&
@@ -3558,6 +3568,10 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
             }
             else
             {
+                if (deletedEntity)
+                {
+                    ++m_rigidResidencyStats.residentDeleted;
+                }
                 ++m_rigidResidencyStats.residentAgedOut;
             }
         }

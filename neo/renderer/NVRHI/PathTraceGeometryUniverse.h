@@ -448,6 +448,7 @@ struct RtPathTraceRigidResidencyStats
     int residentMissingBlas = 0;
     int residentRetainedOffscreen = 0;
     int residentAgedOut = 0;
+    int residentDeleted = 0;
     int meshLive = 0;
     int meshAgedOut = 0;
     int residencyFramesToKeep = 0;
