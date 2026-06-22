@@ -165,11 +165,6 @@ RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* draw
         return RtSmokeTranslucentSubtype::GuiScreen;
     }
 
-    if (info.sortIsPostProcess || info.sortIsGuiOrSubview)
-    {
-        return RtSmokeTranslucentSubtype::PortalWindow;
-    }
-
     if (deform == DFRM_PARTICLE ||
         deform == DFRM_PARTICLE2 ||
         deform == DFRM_SPRITE ||
@@ -184,6 +179,11 @@ RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* draw
     if (info.nameLooksGlass)
     {
         return RtSmokeTranslucentSubtype::ObjectGlass;
+    }
+
+    if (info.sortIsPostProcess || info.sortIsGuiOrSubview)
+    {
+        return RtSmokeTranslucentSubtype::PortalWindow;
     }
 
     if (info.hasAddDefault0200Texture)

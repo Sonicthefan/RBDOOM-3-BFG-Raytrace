@@ -712,7 +712,9 @@ bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material)
     }
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    return classifier.sortIsGuiOrSubview || classifier.sortIsPostProcess || classifier.hasScreenTexgen;
+    return classifier.hasScreenTexgen ||
+        classifier.sortIsGuiOrSubview ||
+        (classifier.sortIsPostProcess && !classifier.nameLooksGlass);
 }
 
 bool IsSmokeObjectGlassFallbackMaterial(const idMaterial* material)
@@ -777,7 +779,8 @@ bool FindSmokeMaterialFallbackAlbedo(const idMaterial* material, idVec4& albedo)
         }
     }
 
-    if (!IsSmokePortalWindowFallbackMaterial(material))
+    if (!IsSmokePortalWindowFallbackMaterial(material) &&
+        !IsSmokeObjectGlassFallbackMaterial(material))
     {
         return false;
     }
