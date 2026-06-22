@@ -5065,12 +5065,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         smokeStaticIndexBuffer = m_smokeStaticIndexBuffer;
         smokeStaticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
         smokeStaticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
-        smokeStaticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
         smokeBuffers.staticVertexBuffer = smokeStaticVertexBuffer;
         smokeBuffers.staticIndexBuffer = smokeStaticIndexBuffer;
         smokeBuffers.staticTriangleClassBuffer = smokeStaticTriangleClassBuffer;
         smokeBuffers.staticTriangleMaterialBuffer = smokeStaticTriangleMaterialBuffer;
-        smokeBuffers.staticTriangleMaterialIndexBuffer = smokeStaticTriangleMaterialIndexBuffer;
+        // The material remap follows the current material table, not the cached BLAS.
+        // Keep the buffer handle selected by CreateSmokeSceneBuffers so it can grow.
     }
 
     if (!hasStaticBlas && !hasDynamicBlas)
