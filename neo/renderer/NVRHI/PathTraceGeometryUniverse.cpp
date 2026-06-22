@@ -780,6 +780,71 @@ bool RigidPlanInstanceMatchesRecord(
     return record.valid && record.meshHash == plannedInstance.meshHash;
 }
 
+bool RigidRouteTransformElementFinite(float value)
+{
+    return value == value && idMath::Fabs(value) < 100000.0f;
+}
+
+bool RigidRouteTransformUsable(const float objectToWorld[16])
+{
+    if (!objectToWorld)
+    {
+        return false;
+    }
+
+    for (int elementIndex = 0; elementIndex < 16; ++elementIndex)
+    {
+        if (!RigidRouteTransformElementFinite(objectToWorld[elementIndex]))
+        {
+            return false;
+        }
+    }
+
+    const float basis0 =
+        objectToWorld[0] * objectToWorld[0] +
+        objectToWorld[1] * objectToWorld[1] +
+        objectToWorld[2] * objectToWorld[2];
+    const float basis1 =
+        objectToWorld[4] * objectToWorld[4] +
+        objectToWorld[5] * objectToWorld[5] +
+        objectToWorld[6] * objectToWorld[6];
+    const float basis2 =
+        objectToWorld[8] * objectToWorld[8] +
+        objectToWorld[9] * objectToWorld[9] +
+        objectToWorld[10] * objectToWorld[10];
+    return
+        basis0 > 1.0e-8f && basis0 < 1000000.0f &&
+        basis1 > 1.0e-8f && basis1 < 1000000.0f &&
+        basis2 > 1.0e-8f && basis2 < 1000000.0f;
+}
+
+bool RigidCachedTlasInstanceValid(
+    const RtSmokePlanTlasInstance& plannedInstance,
+    const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
+{
+    if (plannedInstance.sourceSeenThisFrame)
+    {
+        return true;
+    }
+    if (!RigidMeshHasCachedRouteGpuReady(record) ||
+        !RigidRouteTransformUsable(plannedInstance.transform))
+    {
+        return false;
+    }
+
+    RtPathTraceRigidResidencyBoundsBox boundsBox;
+    boundsBox.valid = true;
+    for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex)
+    {
+        idVec3 localPoint;
+        localPoint.x = record.localBounds[(cornerIndex ^ (cornerIndex >> 1)) & 1].x;
+        localPoint.y = record.localBounds[(cornerIndex >> 1) & 1].y;
+        localPoint.z = record.localBounds[(cornerIndex >> 2) & 1].z;
+        TransformRigidResidencyBoundsPoint(plannedInstance.transform, localPoint, boundsBox.corners[cornerIndex]);
+    }
+    return ValidateRigidResidencyBoundsBox(boundsBox);
+}
+
 void AppendRigidRoutePlaceholder(
     RtPathTraceRigidRouteBuild& build,
     const RtSmokePlanTlasInstance& plannedInstance)
@@ -3601,7 +3666,9 @@ std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(cons
         }
 
         const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
-        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record) || !record.rigidBlas)
+        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record) ||
+            !record.rigidBlas ||
+            !RigidCachedTlasInstanceValid(plannedInstance, record))
         {
             continue;
         }
@@ -3693,7 +3760,9 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
             continue;
         }
         const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
-        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record) || !record.rigidBlas)
+        if (!RigidPlanInstanceMatchesRecord(plannedInstance, record) ||
+            !record.rigidBlas ||
+            !RigidCachedTlasInstanceValid(plannedInstance, record))
         {
             continue;
         }
