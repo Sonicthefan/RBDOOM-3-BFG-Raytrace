@@ -749,7 +749,9 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
 
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
         const bool staticCacheMatch = DrawSurfMirrorIsStaticMatch(geometryUniverse, sceneUniverseLegacyKeys, legacyStaticKey);
-        if (staticCacheMatch && !(routeLifecycleMode && surfaceClass == RtSmokeSurfaceClass::RigidEntity))
+        if (staticCacheMatch &&
+            surfaceClass == RtSmokeSurfaceClass::RigidEntity &&
+            !routeLifecycleMode)
         {
             continue;
         }
@@ -853,10 +855,6 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
 
         AddMirrorMaterialStats(materialStats, drawSurf->material, emittedIndexes, surfaceClass, translucentSubtype);
         AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, drawSurf, emittedIndexes, materialId);
-        if (surfaceClass == RtSmokeSurfaceClass::ParticleAlpha)
-        {
-            AddSmokeTranslucentDebugSample(materialStats, drawSurf, tri, surfaceIndex, translucentSubtype);
-        }
         ++sourceSurfaces;
         ++dynamicSurfaces;
         sourceVerts += tri->numVerts;
