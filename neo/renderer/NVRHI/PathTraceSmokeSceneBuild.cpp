@@ -2567,12 +2567,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int sceneSource = idMath::ClampInt(0, 3, r_pathTracingSceneSource.GetInteger());
     const bool useSceneUniverseStaticGeometry = sceneSource == 2;
     const bool useDrawSurfMirrorDynamicFrame = sceneSource == 3;
+    const bool lifecycleRigidRoute = r_pathTracingGeometryLifecycle.GetInteger() != 0;
     const bool enableRigidRouteForMode =
         useDrawSurfMirrorDynamicFrame &&
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0 &&
-        (requestedDebugMode == 23 || requestedDebugMode == 24 || requestedDebugMode == 25 ||
+        (lifecycleRigidRoute ||
+            requestedDebugMode == 23 || requestedDebugMode == 24 || requestedDebugMode == 25 ||
             requestedDebugMode == 39 ||
             requestedDebugMode == 40 ||
             requestedDebugMode == 41 ||

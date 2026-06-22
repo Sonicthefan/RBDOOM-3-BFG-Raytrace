@@ -31,6 +31,7 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "RenderCommon.h"
+#include "NVRHI/PathTraceGeometryLifecycle.h"
 
 
 /*
@@ -719,6 +720,8 @@ void idRenderWorldLocal::FreeDefs()
 		overlays[i].entityHandle = -1;
 		overlays[i].lastStartTime = 0;
 	}
+
+	PtGeometryLifecycle::ClearWorld( this );
 }
 
 /*
