@@ -3,14 +3,43 @@
 
 #include "PathTraceCVars.h"
 #include "PathTraceSurfaceDebugDumps.h"
+#include "PathTraceAcceleration.h"
 #include "PathTraceDebugDumps.h"
 #include "PathTraceDoomMaterialClassifier.h"
+#include "PathTraceGeometry.h"
+#include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTraceInstanceUniverse.h"
+#include "PathTraceRestirPasses.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
 
 #include <algorithm>
+
+namespace {
+
+uint64 CrosshairDebugHashBytes(uint64 hash, const void* data, size_t size)
+{
+    return HashSmokeBytes(hash, data, size);
+}
+
+uint64 CrosshairDebugMeshKeyHash(const RtPathTraceMeshKey& key)
+{
+    uint64 hash = 14695981039346656037ull;
+    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(key.tri);
+    hash = CrosshairDebugHashBytes(hash, &triPtr, sizeof(triPtr));
+    hash = CrosshairDebugHashBytes(hash, &key.vertexBufferIdentity, sizeof(key.vertexBufferIdentity));
+    hash = CrosshairDebugHashBytes(hash, &key.indexBufferIdentity, sizeof(key.indexBufferIdentity));
+    hash = CrosshairDebugHashBytes(hash, &key.numVerts, sizeof(key.numVerts));
+    hash = CrosshairDebugHashBytes(hash, &key.numIndexes, sizeof(key.numIndexes));
+    hash = CrosshairDebugHashBytes(hash, &key.vertexFormat, sizeof(key.vertexFormat));
+    hash = CrosshairDebugHashBytes(hash, &key.materialId, sizeof(key.materialId));
+    hash = CrosshairDebugHashBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
+    return hash;
+}
+
+}
 
 void ProcessSmokeCrosshairZeroRoughnessToggle(const viewDef_t* viewDef)
 {
@@ -101,7 +130,7 @@ void ProcessSmokeCrosshairFullMetalToggle(const viewDef_t* viewDef)
 }
 
 
-void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table)
+void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table, const RtSmokeGeometryUniverse* geometryUniverse)
 {
     idVec3 hitPoint = vec3_origin;
     int surfaceIndex = -1;
@@ -131,6 +160,7 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
     const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     const uint32_t materialId = SmokeMaterialId(material);
+    const uint32_t runtimeMaterialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, materialId);
     const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
 
     int tableIndex = -1;
@@ -160,6 +190,51 @@ void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMateri
         static_cast<int>(material->GetCullType()),
         material->GetNumStages(),
         IsSmokeGuiDrawSurface(drawSurf) ? 1 : 0);
+
+    const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
+    const bool staticCacheMatch = geometryUniverse && geometryUniverse->HasStaticSurface(legacyStaticKey);
+    RtPathTraceMeshKey meshKey;
+    meshKey.tri = tri;
+    meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
+    meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri ? tri->indexCache : 0);
+    meshKey.numVerts = tri ? tri->numVerts : 0;
+    meshKey.numIndexes = tri ? tri->numIndexes : 0;
+    meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
+    meshKey.materialId = materialId;
+    meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
+    const uint64 meshHash = CrosshairDebugMeshKeyHash(meshKey);
+    const bool rigidRouteReady = geometryUniverse && geometryUniverse->IsRigidRouteReady(meshHash);
+    const int requestedDebugMode = r_pathTracingDebugMode.GetInteger();
+    const bool routeMode18 = requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0;
+    const bool routeMode20 = requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0;
+    const bool routeRestirPTMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
+    const bool routeIntegratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
+    const bool removeRoutedRigidDynamic =
+        (requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 52 || requestedDebugMode == 42 || requestedDebugMode == 43 || routeMode18 || routeMode20 || routeRestirPTMode || routeIntegratorDebugMode) &&
+        r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 &&
+        r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
+        r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
+        r_pathTracingRigidBlasGpuBuild.GetInteger() != 0;
+    common->Printf("PathTracePrimaryPass: RT smoke crosshair capture gates staticKey=%llu staticCache=%d meshHash=%llu rigidRouteReady=%d removeRigidGate=%d routeRemove=%d routeTlas=%d routeBlasScaffold=%d routeBlasBuild=%d runtimeMaterial=%u variantChanged=%d ambientCache=%llu indexCache=%llu ambientStatic=%d indexStatic=%d ambientCurrent=%d indexCurrent=%d debugMode=%d lifecycle=%d\n",
+        static_cast<unsigned long long>(legacyStaticKey),
+        staticCacheMatch ? 1 : 0,
+        static_cast<unsigned long long>(meshHash),
+        rigidRouteReady ? 1 : 0,
+        removeRoutedRigidDynamic ? 1 : 0,
+        r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 ? 1 : 0,
+        r_pathTracingRigidTlasRoute.GetInteger() != 0 ? 1 : 0,
+        r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 ? 1 : 0,
+        r_pathTracingRigidBlasGpuBuild.GetInteger() != 0 ? 1 : 0,
+        runtimeMaterialId,
+        runtimeMaterialId != materialId ? 1 : 0,
+        static_cast<unsigned long long>(tri ? tri->ambientCache : 0),
+        static_cast<unsigned long long>(tri ? tri->indexCache : 0),
+        tri && idVertexCache::CacheIsStatic(tri->ambientCache) ? 1 : 0,
+        tri && idVertexCache::CacheIsStatic(tri->indexCache) ? 1 : 0,
+        tri && tri->ambientCache && vertexCache.CacheIsCurrent(tri->ambientCache) ? 1 : 0,
+        tri && tri->indexCache && vertexCache.CacheIsCurrent(tri->indexCache) ? 1 : 0,
+        requestedDebugMode,
+        r_pathTracingGeometryLifecycle.GetInteger() != 0 ? 1 : 0);
 
     common->Printf("PathTracePrimaryPass: RT smoke crosshair classifiers guiSort=%d decalSort=%d postSort=%d polyOffset=%d screenTex=%d addDefault0200=%d addBlend=%d ambient=%d ambientBlend=%d diffuse=%d nameGui=%d nameParticle=%d nameDecal=%d nameGlass=%d nameGlow=%d nameSignage=%d\n",
         classifier.sortIsGuiOrSubview ? 1 : 0,

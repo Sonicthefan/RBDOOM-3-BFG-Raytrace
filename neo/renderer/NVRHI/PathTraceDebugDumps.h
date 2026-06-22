@@ -18,6 +18,7 @@
 const int RT_SMOKE_DEBUG_TEXTURE_COVERAGE_CLASS_COUNT = 5;
 
 struct viewDef_t;
+class RtSmokeGeometryUniverse;
 
 struct RtPathTraceDebugModeInfo
 {
@@ -270,6 +271,7 @@ struct RtSmokeSceneBuildSummaryLogDesc
 struct RtSmokeMaterialDiagnosticTriggerDesc
 {
     const viewDef_t* viewDef = nullptr;
+    const RtSmokeGeometryUniverse* geometryUniverse = nullptr;
     const RtSmokeMaterialTableBuild* materialTable = nullptr;
     const RtSmokeMaterialStats* materialStats = nullptr;
     bool enableTextureProbe = false;
