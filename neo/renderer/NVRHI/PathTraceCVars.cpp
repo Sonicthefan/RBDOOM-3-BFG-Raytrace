@@ -241,13 +241,13 @@ idCVar r_pathTracingRigidRouteMaxInstances(
     "r_pathTracingRigidRouteMaxInstances",
     "256",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Maximum source3 rigid instances routed into material IDs, route buffers, and TLAS descriptors for experimental rigid route integration" );
+    "Maximum source3 rigid instances routed into material IDs, route buffers, and TLAS descriptors" );
 
 idCVar r_pathTracingRigidResidency(
     "r_pathTracingRigidResidency",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Keep cached source3 rigid instances resident for the current Doom area plus portal-adjacent areas instead of only raster-visible drawSurfs" );
+    "Keep source3 rigid instances resident through the geometry residency system instead of only raster-visible drawSurfs" );
 
 idCVar r_pathTracingRigidResidencyPortalSteps(
     "r_pathTracingRigidResidencyPortalSteps",
