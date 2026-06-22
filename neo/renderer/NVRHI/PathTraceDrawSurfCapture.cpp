@@ -748,10 +748,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         {
             continue;
         }
-        if (removeRoutedRigidDynamic &&
-            surfaceClass == RtSmokeSurfaceClass::RigidEntity &&
-            geometryUniverse &&
-            !(routeLifecycleMode && staticCacheMatch))
+        if (removeRoutedRigidDynamic && surfaceClass == RtSmokeSurfaceClass::RigidEntity && geometryUniverse)
         {
             RtPathTraceMeshKey meshKey;
             meshKey.tri = tri;
