@@ -249,10 +249,6 @@ bool RigidResidencyCanPromoteEmissiveCard(const idRenderEntityLocal* entity, con
     {
         return false;
     }
-    if (material->ConstantRegisters() == nullptr)
-    {
-        return false;
-    }
 
     const char* materialName = material->GetName();
     if (materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
@@ -346,10 +342,6 @@ bool RigidResidencyCanTrackSurface(const idRenderEntityLocal* entity, const srfT
     const uint32_t materialId = SmokeMaterialId(material);
     const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
     const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
-    if (facts.emissive && material->ConstantRegisters() == nullptr)
-    {
-        return false;
-    }
     if (material->Coverage() == MC_TRANSLUCENT || material->GetSort() >= SS_MEDIUM)
     {
         return facts.emissive || RigidResidencyCanPromoteEmissiveCard(entity, material);
