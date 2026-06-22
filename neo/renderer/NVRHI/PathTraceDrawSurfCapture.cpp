@@ -175,12 +175,6 @@ bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTr
         return false;
     }
 
-    const uint32_t baseMaterialId = SmokeMaterialId(material);
-    if (SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, baseMaterialId) != baseMaterialId)
-    {
-        return false;
-    }
-
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     if (classifier.hasScreenTexgen ||
         classifier.hasAddDefault0200Texture ||
@@ -537,7 +531,8 @@ void CapturePathTraceDrawSurfMirror(
         const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
         const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
         const char* modelName = renderEntity && renderEntity->hModel ? "<entity-model>" : "<none>";
-        const uint32_t materialId = SmokeMaterialId(material);
+        const uint32_t baseMaterialId = SmokeMaterialId(material);
+        const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
         const uint32_t sourceKind = SmokeSurfaceClassId(surfaceClass);
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
 
@@ -591,12 +586,6 @@ void CapturePathTraceDrawSurfMirror(
         }
         if (geometryUniverse)
         {
-            const uint32_t candidateBaseMaterialId = SmokeMaterialId(material);
-            if (SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, candidateBaseMaterialId) != candidateBaseMaterialId)
-            {
-                continue;
-            }
-
             RtPathTraceRigidMeshCandidateObservation candidateObservation;
             candidateObservation.tri = tri;
             candidateObservation.meshHash = meshObservation.stableHash;
@@ -755,7 +744,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             meshKey.numVerts = tri ? tri->numVerts : 0;
             meshKey.numIndexes = tri ? tri->numIndexes : 0;
             meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
-            meshKey.materialId = SmokeMaterialId(drawSurf->material);
+            const uint32_t baseMaterialId = SmokeMaterialId(drawSurf->material);
+            meshKey.materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
             meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
             if (geometryUniverse->IsRigidRouteReady(PtMeshKeyHash(meshKey)))
             {

@@ -2923,13 +2923,18 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
 
         RtPathTraceRigidRouteInstanceObservation residentFrameInstance = instance;
         residentFrameInstance.seenThisFrame = residentRecord.seenThisFrame;
+        const bool cachedMaterialOverrideCompatible =
+            (instance.sourceFlags & RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE) == 0 ||
+            (meshRecord &&
+                instance.materialOverrideId != 0 &&
+                meshRecord->materialId == instance.materialOverrideId);
         bool emitRouteInstance = residentRecord.seenThisFrame;
         if (!emitRouteInstance &&
             v2 &&
             r_pathTracingResidencyRouteCached.GetInteger() != 0 &&
             meshRecord &&
             RigidMeshHasCachedRouteGpuReady(*meshRecord) &&
-            (instance.sourceFlags & RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE) == 0)
+            cachedMaterialOverrideCompatible)
         {
             emitRouteInstance = true;
         }
