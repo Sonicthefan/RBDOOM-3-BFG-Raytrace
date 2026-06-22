@@ -340,14 +340,25 @@ bool RigidResidencyCanTrackSurface(const idRenderEntityLocal* entity, const srfT
     {
         return false;
     }
-    const uint32_t materialId = SmokeMaterialId(material);
-    const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
-    const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
+    if (deform != DFRM_NONE)
+    {
+        return false;
+    }
     if (material->Coverage() == MC_TRANSLUCENT || material->GetSort() >= SS_MEDIUM)
     {
-        return facts.emissive || RigidResidencyCanPromoteEmissiveCard(entity, material);
+        const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+        if (classifier.hasScreenTexgen ||
+            classifier.hasAddDefault0200Texture ||
+            classifier.nameLooksGui ||
+            classifier.nameLooksParticle ||
+            classifier.sortIsPostProcess ||
+            classifier.sortIsGuiOrSubview)
+        {
+            return false;
+        }
+        return true;
     }
-    return deform == DFRM_NONE && facts.emissive;
+    return true;
 }
 
 int CountRigidResidencySelectedAreas(const std::vector<bool>& selectedAreas)

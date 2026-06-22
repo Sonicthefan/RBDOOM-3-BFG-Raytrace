@@ -293,9 +293,9 @@ idCVar r_pathTracingResidencyFramesToKeep(
 
 idCVar r_pathTracingResidencyAntiCulling(
     "r_pathTracingResidencyAntiCulling",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "When V2 is on: retain a not-seen instance only if its bounds are outside the view frustum (1) or keep all aged-in instances (0)" );
+    "Diagnostic V2 selector: 1 retains not-seen instances only when primary-frustum culled; 0 keeps all aged-in rigid instances for path-traced secondary visibility" );
 
 idCVar r_pathTracingResidencyRouteCached(
     "r_pathTracingResidencyRouteCached",
