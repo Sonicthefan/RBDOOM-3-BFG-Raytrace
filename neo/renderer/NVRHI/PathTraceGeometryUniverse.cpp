@@ -3210,6 +3210,10 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
 {
     (void)renderWorld;
     const bool v2 = r_pathTracingGeometryResidencyV2.GetInteger() != 0;
+    if (!v2 && !m_frameActive)
+    {
+        return;
+    }
     const uint64 framesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyFramesToKeep.GetInteger()));
     const bool antiCulling = r_pathTracingResidencyAntiCulling.GetInteger() != 0;
     m_rigidResidencyStats.residencyFramesToKeep = static_cast<int>(framesToKeep);
