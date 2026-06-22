@@ -819,6 +819,27 @@ void FinalizeSmokeSkinnedSurfaceRecordOffsets(
     }
 }
 
+void AddSmokeTranslucentDebugSample(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeTranslucentSubtype subtype)
+{
+    if (stats.translucentDebugSampleCount >= RT_SMOKE_TRANSLUCENT_REASON_SAMPLES)
+    {
+        return;
+    }
+
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    RtSmokeTranslucentSubtypeDebugSample& sample = stats.translucentDebugSamples[stats.translucentDebugSampleCount++];
+    sample.valid = true;
+    sample.subtype = subtype;
+    sample.surfaceIndex = surfaceIndex;
+    sample.verts = tri ? tri->numVerts : 0;
+    sample.indexes = tri ? tri->numIndexes : 0;
+    sample.materialName = material ? material->GetName() : "<none>";
+    sample.coverage = material ? material->Coverage() : MC_BAD;
+    sample.sort = material ? material->GetSort() : SS_BAD;
+    sample.deform = material ? material->Deform() : DFRM_NONE;
+    sample.info = BuildSmokeTranslucentClassifierInfo(material);
+}
+
 namespace {
 
 void AddSmokeMaterialStats(RtSmokeMaterialStats& stats, const idMaterial* material, int indexes, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype translucentSubtype)
@@ -1230,27 +1251,6 @@ void AddSmokeDynamicMaterialEvalStatsInternal(RtSmokeMaterialStats& stats, const
         sample.triangles = indexes / 3;
     }
     SmokeDynamicEvalAddMaterialSample(stats, surfaceSample, indexes);
-}
-
-void AddSmokeTranslucentDebugSample(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeTranslucentSubtype subtype)
-{
-    if (stats.translucentDebugSampleCount >= RT_SMOKE_TRANSLUCENT_REASON_SAMPLES)
-    {
-        return;
-    }
-
-    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
-    RtSmokeTranslucentSubtypeDebugSample& sample = stats.translucentDebugSamples[stats.translucentDebugSampleCount++];
-    sample.valid = true;
-    sample.subtype = subtype;
-    sample.surfaceIndex = surfaceIndex;
-    sample.verts = tri ? tri->numVerts : 0;
-    sample.indexes = tri ? tri->numIndexes : 0;
-    sample.materialName = material ? material->GetName() : "<none>";
-    sample.coverage = material ? material->Coverage() : MC_BAD;
-    sample.sort = material ? material->GetSort() : SS_BAD;
-    sample.deform = material ? material->Deform() : DFRM_NONE;
-    sample.info = BuildSmokeTranslucentClassifierInfo(material);
 }
 
 RtSmokeSurfaceClassReason BuildSmokeSurfaceClassReason(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri, int surfaceIndex, RtSmokeSurfaceClass surfaceClass)
