@@ -860,6 +860,10 @@ void AppendRigidRoutePlaceholder(
     {
         routeInstance.flags |= PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
     }
+    if (!plannedInstance.sourceSeenThisFrame)
+    {
+        routeInstance.flags |= PT_RIGID_ROUTE_CACHED_SOURCE;
+    }
     CopyRigidRouteTransformRows(routeInstance.currentObjectToWorld, plannedInstance.transform);
     CopyRigidRouteTransformRows(routeInstance.previousObjectToWorld, plannedInstance.hasPreviousTransform ? plannedInstance.previousTransform : plannedInstance.transform);
     build.instances.push_back(routeInstance);
@@ -3874,6 +3878,10 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         {
             routeInstance.flags |= PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
             ++build.stats.transformContinuousInstances;
+        }
+        if (!plannedInstance.sourceSeenThisFrame)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_CACHED_SOURCE;
         }
         CopyRigidRouteTransformRows(routeInstance.currentObjectToWorld, plannedInstance.transform);
         CopyRigidRouteTransformRows(routeInstance.previousObjectToWorld, plannedInstance.hasPreviousTransform ? plannedInstance.previousTransform : plannedInstance.transform);

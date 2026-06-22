@@ -69,7 +69,8 @@ struct PathTraceSkinnedSurfaceDispatchRecord
 enum PathTraceRigidRouteInstanceFlags : uint32_t
 {
     PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM = 1u << 0,
-    PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS = 1u << 1
+    PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS = 1u << 1,
+    PT_RIGID_ROUTE_CACHED_SOURCE = 1u << 2
 };
 
 struct PathTraceRigidRouteInstance

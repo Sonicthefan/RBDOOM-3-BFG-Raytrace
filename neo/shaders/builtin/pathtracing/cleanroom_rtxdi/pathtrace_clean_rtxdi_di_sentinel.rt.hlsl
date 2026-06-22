@@ -326,6 +326,7 @@ static const uint CLEAN_RAB_DIAGNOSTIC_FORCE_EMISSIVE_VISIBILITY = 1u << 14u;
 static const uint CLEAN_RAB_DIAGNOSTIC_DISABLE_RIGID_EMISSIVE_TEMPORAL = 1u << 19u;
 static const uint PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM = 0x00000001u;
 static const uint PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS = 0x00000002u;
+static const uint PT_RIGID_ROUTE_CACHED_SOURCE = 0x00000004u;
 #define RB_RAB_LIGHT_SAMPLING_CORE_ONLY 1
 #define RB_RAB_CLEAN_RTXDI_DI_SENTINEL 1
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
@@ -850,6 +851,24 @@ bool PathTraceCleanRoomLoadSurfaceRecordSigned(int2 pixel, uint2 dimensions, boo
 }
 
 uint PathTraceCleanRoomLoadTriangleMaterialIndex(uint instanceId, uint primitiveIndex);
+
+bool PathTraceCleanRoomIsCachedRigidRouteHit(uint instanceId)
+{
+    if (instanceId < 2u)
+    {
+        return false;
+    }
+
+    const uint routeInstanceIndex = instanceId - 2u;
+    const uint rigidRouteInstanceCount = (uint)max(ToyPathInfo.w, 0.0);
+    if (routeInstanceIndex >= rigidRouteInstanceCount)
+    {
+        return false;
+    }
+
+    const PathTraceRigidRouteInstance routeInstance = SmokeRigidRouteInstances[routeInstanceIndex];
+    return (routeInstance.flags & PT_RIGID_ROUTE_CACHED_SOURCE) != 0u;
+}
 
 uint PathTraceCleanRoomResolveLiveMaterialIndex(PathTracePrimarySurfaceRecord record)
 {
@@ -3160,6 +3179,12 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
     if (payload.rayMode == 2u &&
         InstanceID() == payload.ignoreInstanceId)
     {
+        if (PathTraceCleanRoomIsCachedRigidRouteHit(payload.ignoreInstanceId))
+        {
+            IgnoreHit();
+            return;
+        }
+
         const uint primitiveIndex = PrimitiveIndex();
         const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(payload.ignoreInstanceId, primitiveIndex);
         if (primitiveIndex == payload.ignorePrimitiveIndex || materialIndex == payload.ignoreMaterialIndex)
@@ -3173,6 +3198,12 @@ void AnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectio
 void ShadowAnyHit(inout PathTraceCleanRtxdiPayload payload, BuiltInTriangleIntersectionAttributes attributes)
 {
     const uint instanceId = InstanceID();
+    if (PathTraceCleanRoomIsCachedRigidRouteHit(instanceId))
+    {
+        IgnoreHit();
+        return;
+    }
+
     const uint primitiveIndex = PrimitiveIndex();
     const uint materialIndex = PathTraceCleanRoomLoadTriangleMaterialIndex(instanceId, primitiveIndex);
     if (PathTraceCleanRoomMaterialDoesNotOccludeVisibility(materialIndex))
