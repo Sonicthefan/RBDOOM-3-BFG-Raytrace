@@ -46,8 +46,6 @@ namespace PtGeometryLifecycle
 
     bool IsEntityKeyAlive(const PtRenderDefKey& key);
     bool IsLightKeyAlive(const PtRenderDefKey& key);
-    void ClearWorld(const void* world);
-    void ClearAll();
 
     PtGeometryLifecycleClass ClassifyEntity(const idRenderEntityLocal* entity);
     const char* ClassName(PtGeometryLifecycleClass geometryClass);

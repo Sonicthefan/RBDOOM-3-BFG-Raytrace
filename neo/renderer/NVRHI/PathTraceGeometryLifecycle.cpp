@@ -266,21 +266,6 @@ bool IsLightKeyAlive(const PtRenderDefKey& key)
     return slot && slot->alive && slot->generation == key.generation;
 }
 
-void ClearWorld(const void* world)
-{
-    if (!world)
-    {
-        return;
-    }
-    g_lifecycleWorlds.erase(world);
-}
-
-void ClearAll()
-{
-    g_lifecycleWorlds.clear();
-    g_lifecycleStats = PtGeometryLifecycleStats();
-}
-
 PtGeometryLifecycleClass ClassifyEntity(const idRenderEntityLocal* entity)
 {
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;

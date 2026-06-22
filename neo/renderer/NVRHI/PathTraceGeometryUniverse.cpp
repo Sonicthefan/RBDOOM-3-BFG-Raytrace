@@ -285,7 +285,7 @@ bool RigidResidencyCanPromoteEmissiveCard(const idRenderEntityLocal* entity, con
         (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
 }
 
-bool RigidResidencyCanTrackEntity(const viewDef_t* viewDef, const idRenderEntityLocal* entity, bool allowUpdatedThisFrame)
+bool RigidResidencyCanTrackEntity(const viewDef_t* viewDef, const idRenderEntityLocal* entity)
 {
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
     const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
@@ -310,7 +310,7 @@ bool RigidResidencyCanTrackEntity(const viewDef_t* viewDef, const idRenderEntity
         !model->ModelHasDrawingSurfaces() ||
         model->IsDefaultModel() ||
         model->IsDynamicModel() != DM_STATIC ||
-        (!allowUpdatedThisFrame && entity->lastModifiedFrameNum == tr.frameCount) ||
+        entity->lastModifiedFrameNum == tr.frameCount ||
         renderEntity->callback != nullptr ||
         renderEntity->forceUpdate != 0 ||
         renderEntity->joints != nullptr ||
@@ -324,7 +324,7 @@ bool RigidResidencyCanTrackEntity(const viewDef_t* viewDef, const idRenderEntity
     return true;
 }
 
-bool RigidResidencyCanTrackSurface(const idRenderEntityLocal* entity, const srfTriangles_t* tri, const idMaterial* material, bool allowNonEmissiveRigid)
+bool RigidResidencyCanTrackSurface(const idRenderEntityLocal* entity, const srfTriangles_t* tri, const idMaterial* material)
 {
     if (!entity || !tri || !tri->verts || !tri->indexes || tri->numVerts <= 0 || tri->numIndexes <= 0 || (tri->numIndexes % 3) != 0 || !material)
     {
@@ -354,7 +354,7 @@ bool RigidResidencyCanTrackSurface(const idRenderEntityLocal* entity, const srfT
     {
         return facts.emissive || RigidResidencyCanPromoteEmissiveCard(entity, material);
     }
-    return deform == DFRM_NONE && (facts.emissive || allowNonEmissiveRigid);
+    return deform == DFRM_NONE && facts.emissive;
 }
 
 int CountRigidResidencySelectedAreas(const std::vector<bool>& selectedAreas)
@@ -2698,8 +2698,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
         for (areaReference_t* ref = area->entityRefs.areaNext; ref != &area->entityRefs; ref = ref->areaNext)
         {
             idRenderEntityLocal* entity = ref ? ref->entity : nullptr;
-            const bool lifecycleAreaFeed = r_pathTracingGeometryLifecycle.GetInteger() != 0;
-            if (!RigidResidencyCanTrackEntity(viewDef, entity, lifecycleAreaFeed))
+            if (!RigidResidencyCanTrackEntity(viewDef, entity))
             {
                 continue;
             }
@@ -2708,7 +2707,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
             const uint64 entityKey = RigidResidencyEntityKey(entity->index, renderEntity.entityNum);
             const std::unordered_map<uint64, int>::const_iterator visibleFrameIt = m_rigidVisibleEntityModifiedFrames.find(entityKey);
             const bool lifecycleAllowsDirectAreaFeed =
-                lifecycleAreaFeed &&
+                r_pathTracingGeometryLifecycle.GetInteger() != 0 &&
                 PtGeometryLifecycle::IsEntityKeyAlive(PtGeometryLifecycle::MakeEntityKey(entity));
             if (!lifecycleAllowsDirectAreaFeed &&
                 (visibleFrameIt == m_rigidVisibleEntityModifiedFrames.end() ||
@@ -2724,7 +2723,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
                 const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
                 const idMaterial* material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
-                if (!RigidResidencyCanTrackSurface(entity, tri, material, lifecycleAreaFeed))
+                if (!RigidResidencyCanTrackSurface(entity, tri, material))
                 {
                     continue;
                 }
