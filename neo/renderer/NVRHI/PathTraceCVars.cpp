@@ -299,9 +299,9 @@ idCVar r_pathTracingResidencyAntiCulling(
 
 idCVar r_pathTracingResidencyRouteCached(
     "r_pathTracingResidencyRouteCached",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "When V2 is on: emit validated retained off-screen rigid records into the rigid route TLAS/buffers; set 0 to keep cache retention diagnostics only" );
+    "Experimental unsafe path: when V2 is on, emit retained off-screen rigid records into the rigid route TLAS/buffers. Keep 0 unless debugging cached route emission." );
 
 idCVar r_pathTracingResidencyDebug(
     "r_pathTracingResidencyDebug",
