@@ -3259,7 +3259,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int materialMs = Sys_Milliseconds() - materialStartMs;
     RtSmokeMaterialDiagnosticTriggerDesc materialDiagnosticDesc;
     materialDiagnosticDesc.viewDef = viewDef;
-    materialDiagnosticDesc.geometryUniverse = &m_smokeGeometryUniverse;
     materialDiagnosticDesc.materialTable = &materialTable;
     materialDiagnosticDesc.materialStats = &materialStats;
     materialDiagnosticDesc.enableTextureProbe = enableTextureProbe;

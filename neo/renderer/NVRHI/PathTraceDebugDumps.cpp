@@ -1795,7 +1795,7 @@ void RunSmokeMaterialDiagnosticTriggers(const RtSmokeMaterialDiagnosticTriggerDe
     }
     if (r_pathTracingCrosshairMaterialDump.GetInteger() != 0)
     {
-        LogSmokeCrosshairMaterialDump(desc.viewDef, materialTable, desc.geometryUniverse);
+        LogSmokeCrosshairMaterialDump(desc.viewDef, materialTable);
         r_pathTracingCrosshairMaterialDump.SetInteger(0);
     }
     if (r_pathTracingGuiDump.GetInteger() != 0)

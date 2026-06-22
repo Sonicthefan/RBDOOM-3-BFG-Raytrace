@@ -8,9 +8,8 @@
 #include "PathTraceDynamicMaterialState.h"
 
 struct viewDef_t;
-class RtSmokeGeometryUniverse;
 
 void ProcessSmokeCrosshairZeroRoughnessToggle(const viewDef_t* viewDef);
 void ProcessSmokeCrosshairFullMetalToggle(const viewDef_t* viewDef);
-void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table, const RtSmokeGeometryUniverse* geometryUniverse = nullptr);
+void LogSmokeCrosshairMaterialDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table);
 void LogSmokeGuiSurfaceDump(const viewDef_t* viewDef, const RtSmokeMaterialTableBuild& table);
