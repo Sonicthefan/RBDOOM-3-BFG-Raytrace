@@ -744,6 +744,34 @@ uint32_t ValidateRigidBlasInputRecord(const RtSmokeGeometryUniverse::RigidMeshCa
     return invalidFlags;
 }
 
+bool RigidMeshHasCachedRouteData(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
+{
+    return
+        record.valid &&
+        record.sourceRange.vertices.count > 0 &&
+        record.sourceRange.indexes.count > 0 &&
+        (record.sourceRange.indexes.count % 3) == 0 &&
+        record.sourceRange.triangles.count > 0 &&
+        record.sourceRange.triangles.count * 3 == record.sourceRange.indexes.count &&
+        static_cast<int>(record.cachedLocalVertices.size()) == record.sourceRange.vertices.count &&
+        static_cast<int>(record.cachedLocalIndexes.size()) == record.sourceRange.indexes.count &&
+        record.localBoundsValid &&
+        !record.localBounds.IsCleared();
+}
+
+bool RigidMeshHasCachedRouteGpuReady(const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
+{
+    return
+        RigidMeshHasCachedRouteData(record) &&
+        record.rigidVertexBuffer &&
+        record.rigidIndexBuffer &&
+        record.rigidBlas &&
+        record.gpuBuffersUploaded &&
+        record.gpuBlasCreated &&
+        record.gpuBlasVertexCount == static_cast<int>(record.cachedLocalVertices.size()) &&
+        record.gpuBlasIndexCount == static_cast<int>(record.cachedLocalIndexes.size());
+}
+
 PathTraceSmokeVertex BuildRigidLocalSmokeVertex(const idDrawVert& drawVert)
 {
     idVec3 localNormal = drawVert.GetNormal();
@@ -2366,10 +2394,17 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
     std::vector<PathTraceSmokeVertex> localVertices;
     std::vector<uint32_t> localIndexes;
     const bool forceRebuild = r_pathTracingRigidBlasGpuForceRebuild.GetInteger() != 0;
+    const bool prepareCachedRouteRecords =
+        r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
+        r_pathTracingResidencyRouteCached.GetInteger() != 0;
 
     for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
     {
-        if (!record.valid || !record.seenThisFrame)
+        const bool cachedRouteCandidate =
+            prepareCachedRouteRecords &&
+            !record.seenThisFrame &&
+            RigidMeshHasCachedRouteData(record);
+        if (!record.valid || (!record.seenThisFrame && !cachedRouteCandidate))
         {
             continue;
         }
@@ -2759,15 +2794,8 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         if (!emitRouteInstance &&
             v2 &&
             r_pathTracingResidencyRouteCached.GetInteger() != 0 &&
-            routeReady &&
             meshRecord &&
-            meshRecord->gpuBuffersUploaded &&
-            meshRecord->gpuBlasCreated &&
-            meshRecord->gpuBlasVertexCount == static_cast<int>(meshRecord->cachedLocalVertices.size()) &&
-            meshRecord->gpuBlasIndexCount == static_cast<int>(meshRecord->cachedLocalIndexes.size()) &&
-            static_cast<int>(meshRecord->cachedLocalVertices.size()) == meshRecord->sourceRange.vertices.count &&
-            static_cast<int>(meshRecord->cachedLocalIndexes.size()) == meshRecord->sourceRange.indexes.count &&
-            meshRecord->localBoundsValid &&
+            RigidMeshHasCachedRouteGpuReady(*meshRecord) &&
             (instance.sourceFlags & RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE) == 0)
         {
             emitRouteInstance = true;
