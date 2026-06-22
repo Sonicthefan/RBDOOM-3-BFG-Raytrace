@@ -58,6 +58,7 @@ extern idCVar r_pathTracingResidencyFramesToKeep;
 extern idCVar r_pathTracingResidencyAntiCulling;
 extern idCVar r_pathTracingResidencyRouteCached;
 extern idCVar r_pathTracingResidencyRouteCachedTlas;
+extern idCVar r_pathTracingResidencyRouteCachedTraceMask;
 extern idCVar r_pathTracingResidencyDebug;
 extern idCVar r_pathTracingStaticAreaPreload;
 extern idCVar r_pathTracingStaticAreaPreloadPortalSteps;

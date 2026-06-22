@@ -3774,10 +3774,15 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
         nvrhi::rt::AffineTransform transform;
         BuildRigidTlasAffineTransform(plannedInstance.transform, transform);
 
+        const bool cachedSource = !plannedInstance.sourceSeenThisFrame;
+        const uint32_t instanceMask =
+            cachedSource && r_pathTracingResidencyRouteCachedTraceMask.GetInteger() == 0
+                ? 0u
+                : plannedInstance.instanceMask;
         nvrhi::rt::InstanceDesc instanceDesc;
         instanceDesc
             .setInstanceID(plannedInstance.instanceId)
-            .setInstanceMask(plannedInstance.instanceMask)
+            .setInstanceMask(instanceMask)
             .setInstanceContributionToHitGroupIndex(plannedInstance.hitGroupContribution)
             .setFlags(nvrhi::rt::InstanceFlags::TriangleCullDisable)
             .setTransform(transform)

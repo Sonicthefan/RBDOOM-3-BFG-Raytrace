@@ -309,6 +309,12 @@ idCVar r_pathTracingResidencyRouteCachedTlas(
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic gate for r_pathTracingResidencyRouteCached: 1 allows cached off-screen rigid records into TLAS, 0 keeps cached route buffers but prevents cached BLAS hits." );
 
+idCVar r_pathTracingResidencyRouteCachedTraceMask(
+    "r_pathTracingResidencyRouteCachedTraceMask",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Diagnostic gate for cached rigid TLAS descriptors: 1 uses the normal trace mask, 0 emits cached descriptors with mask 0 so TLAS build still references them but rays cannot hit them." );
+
 idCVar r_pathTracingResidencyDebug(
     "r_pathTracingResidencyDebug",
     "0",
