@@ -4,7 +4,38 @@
 #include "PathTraceAcceleration.h"
 #include "PathTraceAccelerationPlan.h"
 
+#include <algorithm>
 #include <nvrhi/utils.h>
+
+namespace
+{
+    void MarkSmokeTlasBlasesForRayTracing(nvrhi::ICommandList* commandList, const std::vector<nvrhi::rt::InstanceDesc>& instanceDescs)
+    {
+        if (!commandList || instanceDescs.empty())
+        {
+            return;
+        }
+
+        std::vector<nvrhi::rt::IAccelStruct*> markedBlases;
+        markedBlases.reserve(instanceDescs.size());
+        for (const nvrhi::rt::InstanceDesc& instanceDesc : instanceDescs)
+        {
+            nvrhi::rt::IAccelStruct* blas = instanceDesc.bottomLevelAS;
+            if (!blas || std::find(markedBlases.begin(), markedBlases.end(), blas) != markedBlases.end())
+            {
+                continue;
+            }
+
+            commandList->setAccelStructState(blas, nvrhi::ResourceStates::AccelStructRead);
+            markedBlases.push_back(blas);
+        }
+
+        if (!markedBlases.empty())
+        {
+            commandList->commitBarriers();
+        }
+    }
+}
 
 void InitSmokeTriangleGeometry(nvrhi::rt::GeometryTriangles& triangleGeometry, nvrhi::IBuffer* vertexBuffer, nvrhi::IBuffer* indexBuffer, int totalVertexCount, int indexOffset, int indexCount)
 {
@@ -168,6 +199,10 @@ bool SubmitSmokeAccelerationBuilds(const RtSmokeAccelSubmitDesc& desc, RtSmokeAc
     {
         OPTICK_GPU_EVENT("PT GPU Build TLAS");
         desc.commandList->buildTopLevelAccelStruct(desc.tlas, instanceDescs.data(), instanceDescs.size(), nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+    }
+    {
+        OPTICK_GPU_EVENT("PT GPU Mark TLAS BLAS For Ray Tracing");
+        MarkSmokeTlasBlasesForRayTracing(desc.commandList, instanceDescs);
     }
     timing.tlasSubmitMs = Sys_Milliseconds() - tlasSubmitStartMs;
     timing.accelSubmitMs = Sys_Milliseconds() - accelSubmitStartMs;
