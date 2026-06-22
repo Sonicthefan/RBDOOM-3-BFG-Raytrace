@@ -2658,7 +2658,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtPathTraceSceneUniverseBuildStats sceneUniverseStaticBuildStats;
     {
         OPTICK_EVENT("PT Capture Doom Surfaces");
-        m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex);
+        m_smokeGeometryUniverse.BeginFrame(++m_smokeGeometryFrameIndex, viewDef ? viewDef->renderWorld : nullptr);
         if (useSceneUniverseStaticGeometry)
         {
             OPTICK_EVENT("PT Build Scene Universe Static Geometry");

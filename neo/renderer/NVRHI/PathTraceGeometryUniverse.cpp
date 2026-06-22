@@ -1170,6 +1170,16 @@ void RtSmokeGeometryUniverse::Clear()
     m_previousStaticIndexCache.clear();
     m_previousStaticTriangleClassCache.clear();
     m_previousStaticTriangleMaterialCache.clear();
+    ClearRigidResidencyCaches();
+    m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
+    m_rigidResidencyEnabled = false;
+    m_rigidResidencyWorld = nullptr;
+    ResetRigidMeshCandidateFrameStats();
+    ++m_generation;
+}
+
+void RtSmokeGeometryUniverse::ClearRigidResidencyCaches()
+{
     m_rigidMeshCandidateRecords.clear();
     m_rigidMeshCandidateLookup.clear();
     m_frameRigidMeshCandidateHashes.clear();
@@ -1177,11 +1187,7 @@ void RtSmokeGeometryUniverse::Clear()
     m_rigidResidentLookup.clear();
     m_rigidVisibleEntityModifiedFrames.clear();
     m_rigidResidentFrameInstances.clear();
-    m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
     m_rigidResidencyAreaWalkInstancesThisFrame = 0;
-    m_rigidResidencyEnabled = false;
-    ResetRigidMeshCandidateFrameStats();
-    ++m_generation;
 }
 
 void RtSmokeGeometryUniverse::ReserveStaticSurfaceRecords(size_t surfaceCount)
@@ -1196,9 +1202,21 @@ void RtSmokeGeometryUniverse::ReserveStaticSurfaceRecords(size_t surfaceCount)
     m_staticSurfaceKeys.reserve(surfaceCount);
 }
 
-void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex)
+void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex, const idRenderWorldLocal* renderWorld)
 {
     PtGeometryLifecycle::MaybeDumpLifecycleStats(frameIndex);
+    if (r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
+        renderWorld != nullptr &&
+        m_rigidResidencyWorld != nullptr &&
+        m_rigidResidencyWorld != renderWorld)
+    {
+        ClearRigidResidencyCaches();
+        ++m_generation;
+    }
+    if (renderWorld != nullptr)
+    {
+        m_rigidResidencyWorld = renderWorld;
+    }
     m_previousStaticVertexCache = m_staticVertexCache;
     m_previousStaticIndexCache = m_staticIndexCache;
     m_previousStaticTriangleClassCache = m_staticTriangleClassCache;

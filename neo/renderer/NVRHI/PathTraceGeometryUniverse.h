@@ -537,7 +537,7 @@ class RtSmokeGeometryUniverse
 {
 public:
     void Clear();
-    void BeginFrame(uint64 frameIndex);
+    void BeginFrame(uint64 frameIndex, const idRenderWorldLocal* renderWorld = nullptr);
     void EndFrame();
     bool PruneMissingStaticSurfaces();
     void NotifyStaticCacheChanged();
@@ -683,6 +683,7 @@ private:
 
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
     RigidMeshCandidateRecord* FindOrCreateRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation, bool& cacheHit);
+    void ClearRigidResidencyCaches();
     void ResetRigidMeshCandidateFrameStats();
     void AddRigidMeshCandidateSample(const RtPathTraceRigidMeshCandidateObservation& observation, bool eligible, uint32_t rejectFlags, int seenCount);
     void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
@@ -720,4 +721,5 @@ private:
     RtPathTraceRigidResidencyStats m_rigidResidencyStats;
     int m_rigidResidencyAreaWalkInstancesThisFrame = 0;
     bool m_rigidResidencyEnabled = false;
+    const idRenderWorldLocal* m_rigidResidencyWorld = nullptr;
 };
