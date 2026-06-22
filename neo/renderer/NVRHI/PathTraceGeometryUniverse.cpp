@@ -3148,11 +3148,27 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(const idRenderWorld
 
     if (!m_rigidMeshCandidateRecords.empty())
     {
+        std::unordered_set<uint64> retainedResidentMeshHashes;
+        if (r_pathTracingGeometryLifecycle.GetInteger() != 0)
+        {
+            retainedResidentMeshHashes.reserve(m_rigidResidentRecords.size());
+            for (const RigidResidentInstanceRecord& record : m_rigidResidentRecords)
+            {
+                if (record.observation.meshHash != 0)
+                {
+                    retainedResidentMeshHashes.insert(record.observation.meshHash);
+                }
+            }
+        }
+
         std::vector<RigidMeshCandidateRecord> liveMeshRecords;
         liveMeshRecords.reserve(m_rigidMeshCandidateRecords.size());
         for (const RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
         {
-            if (record.valid && (record.seenThisFrame || r_pathTracingGeometryLifecycle.GetInteger() != 0))
+            const bool keepLifecycleMesh =
+                !retainedResidentMeshHashes.empty() &&
+                retainedResidentMeshHashes.find(record.meshHash) != retainedResidentMeshHashes.end();
+            if (record.valid && (record.seenThisFrame || keepLifecycleMesh))
             {
                 liveMeshRecords.push_back(record);
             }
