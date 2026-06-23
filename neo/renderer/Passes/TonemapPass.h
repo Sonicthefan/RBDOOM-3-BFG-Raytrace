@@ -37,6 +37,8 @@ struct ToneMappingParameters
 	float maxAdaptedLuminance = 0.5f;
 	float exposureBias = -0.5f;
 	float whitePoint = 3.f;
+	float contrast = 1.0f;
+	float saturation = 1.0f;
 	bool enableACES = true;
 	bool enableColorLUT = true;
 	bool useGlobalExposureSettings = true;

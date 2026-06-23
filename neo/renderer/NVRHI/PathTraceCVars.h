@@ -28,6 +28,8 @@ extern idCVar r_pathTracingPostMinLuminance;
 extern idCVar r_pathTracingPostMaxLuminance;
 extern idCVar r_pathTracingPostWhitePoint;
 extern idCVar r_pathTracingPostACES;
+extern idCVar r_pathTracingPostContrast;
+extern idCVar r_pathTracingPostSaturation;
 extern idCVar r_pathTracingEmissiveInventoryDump;
 extern idCVar r_pathTracingRigidRouteEmissiveDump;
 extern idCVar r_pathTracingEmissiveInventoryMaxTriangles;

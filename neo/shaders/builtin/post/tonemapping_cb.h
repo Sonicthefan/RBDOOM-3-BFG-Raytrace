@@ -49,6 +49,10 @@ struct ToneMappingConstants
 	uint padding0;
 	uint padding1;
 	uint padding2;
+	float contrast;
+	float saturation;
+	float padding3;
+	float padding4;
 };
 
 #endif // DEPTH_CB_H

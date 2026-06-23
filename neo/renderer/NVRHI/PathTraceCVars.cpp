@@ -129,6 +129,18 @@ idCVar r_pathTracingPostACES(
     CVAR_RENDERER | CVAR_INTEGER,
     "PT postprocess ACES curve toggle for A/B comparison" );
 
+idCVar r_pathTracingPostContrast(
+    "r_pathTracingPostContrast",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "PT postprocess contrast multiplier after tone mapping; 1.0 = neutral" );
+
+idCVar r_pathTracingPostSaturation(
+    "r_pathTracingPostSaturation",
+    "1.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "PT postprocess saturation multiplier after tone mapping; 1.0 = neutral" );
+
 idCVar r_pathTracingEmissiveInventoryDump(
     "r_pathTracingEmissiveInventoryDump",
     "0",

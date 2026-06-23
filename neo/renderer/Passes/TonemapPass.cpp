@@ -316,6 +316,8 @@ void TonemapPass::Render(
 		toneMappingConstants.maxAdaptedLuminance = maxAdaptedLuminance;
 		toneMappingConstants.sourceSlice = 0;
 		toneMappingConstants.enableACES = params.enableACES ? 1u : 0u;
+		toneMappingConstants.contrast = params.contrast;
+		toneMappingConstants.saturation = params.saturation;
 		toneMappingConstants.colorLUTTextureSize = enableColorLUT ? idVec2( colorLutSize * colorLutSize, colorLutSize ) : idVec2( 0.f, 0.f );
 		toneMappingConstants.colorLUTTextureSizeInv = enableColorLUT ? 1.f / toneMappingConstants.colorLUTTextureSize : idVec2( 0.f, 0.f );
 

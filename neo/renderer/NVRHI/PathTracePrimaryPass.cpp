@@ -463,6 +463,8 @@ void PathTracePrimaryPass::TonemapDebugOutput(TonemapPass* tonemapPass, const vi
     params.minAdaptedLuminance = Max(0.0001f, r_pathTracingPostMinLuminance.GetFloat());
     params.maxAdaptedLuminance = Max(params.minAdaptedLuminance + 0.0001f, r_pathTracingPostMaxLuminance.GetFloat());
     params.whitePoint = Max(0.001f, r_pathTracingPostWhitePoint.GetFloat());
+    params.contrast = Max(0.0f, r_pathTracingPostContrast.GetFloat());
+    params.saturation = Max(0.0f, r_pathTracingPostSaturation.GetFloat());
     params.enableACES = r_pathTracingPostACES.GetInteger() != 0;
     params.enableColorLUT = false;
     params.useGlobalExposureSettings = false;

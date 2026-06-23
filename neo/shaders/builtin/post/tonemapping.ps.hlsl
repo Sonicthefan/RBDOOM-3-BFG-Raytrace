@@ -102,6 +102,15 @@ float3 ApplyColorLUT( float3 color )
 	return lerp( c1, c2, frac( b ) );
 }
 
+float3 ApplyToneAdjustments( float3 color )
+{
+	color = saturate( color );
+	color = saturate( ( color - 0.5 ) * g_ToneMapping.contrast + 0.5 );
+
+	float luminance = Luminance( color );
+	color = lerp( luminance.xxx, color, g_ToneMapping.saturation );
+	return saturate( color );
+}
 
 void main(
 	in float4 pos : SV_Position,
@@ -128,6 +137,8 @@ void main(
 			o_rgba.rgb = ACESFilm( o_rgba.rgb );
 		}
 	}
+
+	o_rgba.rgb = ApplyToneAdjustments( o_rgba.rgb );
 
 	// Gamma correction since we are not rendering to an sRGB render target.
 	const float hdrGamma = 2.2;
