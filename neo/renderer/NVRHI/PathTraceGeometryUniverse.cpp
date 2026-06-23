@@ -2871,7 +2871,7 @@ void RtSmokeGeometryUniverse::ReleaseRigidBlasGpuScaffold()
 
 void RtSmokeGeometryUniverse::DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const
 {
-    common->Printf("PathTracePrimaryPass: PT rigid BLAS GPU scaffold source=%d frame=%llu generation=%llu scaffold=%d build=%d forceRebuild=%d meshRecords=%d valid=%d invalid=%d instances=%d verts/indexes/tris=%d/%d/%d bytes(v/i/upload)=%d/%d/%d buffers(v create/reuse uploads i create/reuse uploads)=%d/%d/%d %d/%d/%d blas(handles create/reuse builds/skips unchanged/recreated)=%d/%d/%d/%d/%d/%d skips noDevice/noCmd/invalid=%d/%d/%d renderPath=dynamicFallback tlasRoute=oldStaticPlusDynamic\n",
+    common->Printf("PathTracePrimaryPass: PT rigid BLAS GPU scaffold source=%d frame=%llu generation=%llu scaffold=%d build=%d forceRebuild=%d meshRecords=%d valid=%d invalid=%d instances=%d verts/indexes/tris=%d/%d/%d bytes(v/i/upload)=%d/%d/%d buffers(v create/reuse uploads i create/reuse uploads)=%d/%d/%d %d/%d/%d blas(handles create/reuse builds/skips unchanged/recreated)=%d/%d/%d/%d/%d/%d skips noDevice/noCmd/invalid=%d/%d/%d renderPath=dynamicFallback tlasRoute=rigidResidencyRoute\n",
         sceneSource,
         static_cast<unsigned long long>(stats.frameIndex),
         static_cast<unsigned long long>(stats.generation),
@@ -3846,7 +3846,7 @@ RtPathTraceRigidTlasPlanStats RtSmokeGeometryUniverse::BuildRigidTlasPlanStats(c
 
 void RtSmokeGeometryUniverse::DumpRigidTlasPlanStats(const RtPathTraceRigidTlasPlanStats& stats, int sceneSource) const
 {
-    common->Printf("PathTracePrimaryPass: PT rigid TLAS plan source=%d frame=%llu generation=%llu visibleInstances=%d rigidInstances=%d plannedInstances=%d uniqueMeshes=%d gpuBuffers=%d blas=%d missing(mesh/stale/buffers/blas)=%d/%d/%d/%d overrides=%d plannedRigidTris=%d bakedRigidSurfaces/tris=%d/%d remainingDynamicRigidTris=%d triangleDelta=%d renderPath=dynamicFallback tlasRoute=oldStaticPlusDynamic\n",
+    common->Printf("PathTracePrimaryPass: PT rigid TLAS plan source=%d frame=%llu generation=%llu visibleInstances=%d rigidInstances=%d plannedInstances=%d uniqueMeshes=%d gpuBuffers=%d blas=%d missing(mesh/stale/buffers/blas)=%d/%d/%d/%d overrides=%d plannedRigidTris=%d bakedRigidSurfaces/tris=%d/%d remainingDynamicRigidTris=%d triangleDelta=%d renderPath=dynamicFallback tlasRoute=rigidResidencyRoute\n",
         sceneSource,
         static_cast<unsigned long long>(stats.frameIndex),
         static_cast<unsigned long long>(stats.generation),
