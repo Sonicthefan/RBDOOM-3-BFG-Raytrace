@@ -733,16 +733,23 @@ PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* e
     const idDrawVert& drawVert = tri->verts[vertexIndex];
     idVec3 worldPosition;
     idVec3 worldNormal = drawVert.GetNormal();
+    idVec3 worldTangent = drawVert.GetTangent();
+    const float bitangentSign = drawVert.GetBiTangentSign();
     if (entity)
     {
         R_LocalPointToGlobal(entity->modelMatrix, drawVert.xyz, worldPosition);
         R_LocalVectorToGlobal(entity->modelMatrix, worldNormal, worldNormal);
+        R_LocalVectorToGlobal(entity->modelMatrix, worldTangent, worldTangent);
     }
     else
     {
         worldPosition = drawVert.xyz;
     }
     worldNormal.Normalize();
+    if (worldTangent.Normalize() == 0.0f)
+    {
+        worldTangent.Set(1.0f, 0.0f, 0.0f);
+    }
 
     const idVec2 texCoord = drawVert.GetTexCoord();
     PathTraceSmokeVertex vertex = {};
@@ -766,6 +773,10 @@ PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* e
     vertex.color2[1] = drawVert.color2[1] * (1.0f / 255.0f);
     vertex.color2[2] = drawVert.color2[2] * (1.0f / 255.0f);
     vertex.color2[3] = drawVert.color2[3] * (1.0f / 255.0f);
+    vertex.tangent[0] = worldTangent.x;
+    vertex.tangent[1] = worldTangent.y;
+    vertex.tangent[2] = worldTangent.z;
+    vertex.tangent[3] = bitangentSign;
     return vertex;
 }
 

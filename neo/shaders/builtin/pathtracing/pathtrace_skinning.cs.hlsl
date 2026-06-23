@@ -5,6 +5,7 @@ struct PathTraceSmokeVertex
     float4 texCoord;
     float4 color;
     float4 color2;
+    float4 tangent;
 };
 
 struct PathTraceSkinnedSourceVertex
@@ -131,6 +132,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         TransformJointNormal(joint2, sourceVertex.localNormal.xyz) * jointWeights.z +
         TransformJointNormal(joint3, sourceVertex.localNormal.xyz) * jointWeights.w;
     skinnedNormal = SafeNormalize(skinnedNormal, sourceVertex.localNormal.xyz);
+    float3 skinnedTangent =
+        TransformJointNormal(joint0, sourceVertex.localTangent.xyz) * jointWeights.x +
+        TransformJointNormal(joint1, sourceVertex.localTangent.xyz) * jointWeights.y +
+        TransformJointNormal(joint2, sourceVertex.localTangent.xyz) * jointWeights.z +
+        TransformJointNormal(joint3, sourceVertex.localTangent.xyz) * jointWeights.w;
+    skinnedTangent = SafeNormalize(skinnedTangent, sourceVertex.localTangent.xyz);
 
     const float3 worldPosition = TransformObjectPosition(
         dispatchRecord.currentObjectToWorld0,
@@ -142,6 +149,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         dispatchRecord.currentObjectToWorld1,
         dispatchRecord.currentObjectToWorld2,
         skinnedNormal), skinnedNormal);
+    const float3 worldTangent = SafeNormalize(TransformObjectNormal(
+        dispatchRecord.currentObjectToWorld0,
+        dispatchRecord.currentObjectToWorld1,
+        dispatchRecord.currentObjectToWorld2,
+        skinnedTangent), skinnedTangent);
 
     PathTraceSmokeVertex outputVertex;
     outputVertex.position = float4(worldPosition, 1.0);
@@ -149,6 +161,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     outputVertex.texCoord = sourceVertex.texCoord;
     outputVertex.color = sourceVertex.color;
     outputVertex.color2 = float4(sourceVertex.jointWeights.xyz, sourceVertex.jointWeights.w);
+    outputVertex.tangent = float4(worldTangent, sourceVertex.localTangent.w);
     SkinnedCurrentOutputVertices[dispatchRecord.outputVertexOffset + vertexIndex] = outputVertex;
 
     const bool hasPreviousPositionOutput =

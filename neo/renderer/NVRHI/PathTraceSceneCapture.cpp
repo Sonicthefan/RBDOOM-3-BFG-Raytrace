@@ -310,17 +310,26 @@ PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const s
     const idDrawVert& drawVert = tri->verts[vertexIndex];
     idVec3 localPosition = drawVert.xyz;
     idVec3 localNormal = drawVert.GetNormal();
+    idVec3 localTangent = drawVert.GetTangent();
+    const float bitangentSign = drawVert.GetBiTangentSign();
     if (rtCpuSkinningJoints)
     {
         localPosition = TransformSmokeSkinnedVertexPosition(drawVert, rtCpuSkinningJoints);
         localNormal = TransformSmokeSkinnedVertexNormal(drawVert, rtCpuSkinningJoints);
+        localTangent = TransformSmokeSkinnedVertexTangent(drawVert, rtCpuSkinningJoints);
     }
 
     idVec3 worldPosition;
     idVec3 worldNormal;
+    idVec3 worldTangent;
     TransformSurfacePointToWorld(drawSurf, localPosition, worldPosition);
     TransformSurfaceVectorToWorld(drawSurf, localNormal, worldNormal);
+    TransformSurfaceVectorToWorld(drawSurf, localTangent, worldTangent);
     worldNormal.Normalize();
+    if (worldTangent.Normalize() == 0.0f)
+    {
+        worldTangent.Set(1.0f, 0.0f, 0.0f);
+    }
 
     const idVec2 texCoord = drawVert.GetTexCoord();
     PathTraceSmokeVertex vertex = {};
@@ -344,6 +353,10 @@ PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const s
     vertex.color2[1] = drawVert.color2[1] * (1.0f / 255.0f);
     vertex.color2[2] = drawVert.color2[2] * (1.0f / 255.0f);
     vertex.color2[3] = drawVert.color2[3] * (1.0f / 255.0f);
+    vertex.tangent[0] = worldTangent.x;
+    vertex.tangent[1] = worldTangent.y;
+    vertex.tangent[2] = worldTangent.z;
+    vertex.tangent[3] = bitangentSign;
     return vertex;
 }
 
