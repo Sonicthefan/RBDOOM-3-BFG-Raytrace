@@ -19,20 +19,27 @@
 
 namespace {
 
+bool IsSmokeGeometryElementRangeValid(const RtSmokeGeometryElementRange& range, int elementCount)
+{
+    if (range.offset < 0 || range.count < 0 || elementCount < 0)
+    {
+        return false;
+    }
+
+    const int64_t begin = static_cast<int64_t>(range.offset);
+    const int64_t count = static_cast<int64_t>(range.count);
+    const int64_t end = begin + count;
+    return begin <= static_cast<int64_t>(elementCount) && end <= static_cast<int64_t>(elementCount);
+}
+
 bool IsSmokeGeometryRangeValid(const RtSmokeGeometryRangeRecord& range, int vertexCount, int indexCount, int triangleCount, int materialTriangleCount)
 {
     return
-        range.vertices.offset >= 0 &&
-        range.vertices.count >= 0 &&
-        range.vertices.offset + range.vertices.count <= vertexCount &&
-        range.indexes.offset >= 0 &&
-        range.indexes.count >= 0 &&
-        range.indexes.offset + range.indexes.count <= indexCount &&
-        range.triangles.offset >= 0 &&
-        range.triangles.count >= 0 &&
-        range.triangles.offset + range.triangles.count <= triangleCount &&
-        range.triangles.offset + range.triangles.count <= materialTriangleCount &&
-        range.indexes.count == range.triangles.count * 3;
+        IsSmokeGeometryElementRangeValid(range.vertices, vertexCount) &&
+        IsSmokeGeometryElementRangeValid(range.indexes, indexCount) &&
+        IsSmokeGeometryElementRangeValid(range.triangles, triangleCount) &&
+        IsSmokeGeometryElementRangeValid(range.triangles, materialTriangleCount) &&
+        static_cast<int64_t>(range.indexes.count) == static_cast<int64_t>(range.triangles.count) * 3;
 }
 
 bool SmokeGeometryRangesMatchCounts(const RtSmokeGeometryRangeRecord& a, const RtSmokeGeometryRangeRecord& b)
@@ -1362,6 +1369,8 @@ bool RtSmokeGeometryUniverse::PruneMissingStaticSurfaces()
     keptTriangleMaterials.reserve(m_staticTriangleMaterialCache.size());
 
     bool changed = false;
+    int invalidRangeLogCount = 0;
+    int invalidIndexLogCount = 0;
     for (const RtSmokePersistentStaticSurfaceRecord& record : m_staticSurfaceRecords)
     {
         if (!record.valid || !record.seenThisFrame)
@@ -1371,18 +1380,37 @@ bool RtSmokeGeometryUniverse::PruneMissingStaticSurfaces()
         }
         if (!IsSmokeGeometryRangeValid(record.currentRange, oldVertexCount, oldIndexCount, oldTriangleCount, oldMaterialTriangleCount))
         {
+            if (invalidRangeLogCount < 4)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: PT static geometry prune dropped invalid range key=%llu frame=%llu cache v/i/t/m=%d/%d/%d/%d range v=%d/%d i=%d/%d t=%d/%d\n",
+                    record.key,
+                    m_currentFrameIndex,
+                    oldVertexCount,
+                    oldIndexCount,
+                    oldTriangleCount,
+                    oldMaterialTriangleCount,
+                    record.currentRange.vertices.offset,
+                    record.currentRange.vertices.count,
+                    record.currentRange.indexes.offset,
+                    record.currentRange.indexes.count,
+                    record.currentRange.triangles.offset,
+                    record.currentRange.triangles.count);
+                ++invalidRangeLogCount;
+            }
             changed = true;
             continue;
         }
 
         const int oldVertexOffset = record.currentRange.vertices.offset;
         const int oldIndexOffset = record.currentRange.indexes.offset;
+        const uint32_t oldVertexBegin = static_cast<uint32_t>(oldVertexOffset);
+        const uint32_t oldVertexEnd = oldVertexBegin + static_cast<uint32_t>(record.currentRange.vertices.count);
         bool recordIndexesValid = true;
         for (int index = 0; index < record.currentRange.indexes.count; ++index)
         {
             const uint32_t oldIndex = m_staticIndexCache[oldIndexOffset + index];
-            if (oldIndex < static_cast<uint32_t>(oldVertexOffset) ||
-                oldIndex >= static_cast<uint32_t>(oldVertexOffset + record.currentRange.vertices.count))
+            if (oldIndex < oldVertexBegin || oldIndex >= oldVertexEnd)
             {
                 recordIndexesValid = false;
                 break;
@@ -1390,6 +1418,20 @@ bool RtSmokeGeometryUniverse::PruneMissingStaticSurfaces()
         }
         if (!recordIndexesValid)
         {
+            if (invalidIndexLogCount < 4)
+            {
+                common->Printf(
+                    "PathTracePrimaryPass: PT static geometry prune dropped invalid indexes key=%llu frame=%llu range v=%d/%d i=%d/%d t=%d/%d\n",
+                    record.key,
+                    m_currentFrameIndex,
+                    record.currentRange.vertices.offset,
+                    record.currentRange.vertices.count,
+                    record.currentRange.indexes.offset,
+                    record.currentRange.indexes.count,
+                    record.currentRange.triangles.offset,
+                    record.currentRange.triangles.count);
+                ++invalidIndexLogCount;
+            }
             changed = true;
             continue;
         }
