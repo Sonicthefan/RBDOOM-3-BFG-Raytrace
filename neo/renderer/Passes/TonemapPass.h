@@ -42,6 +42,7 @@ struct ToneMappingParameters
 	bool enableACES = true;
 	bool enableColorLUT = true;
 	bool useGlobalExposureSettings = true;
+	idImage* colorLUTOverride = nullptr;
 };
 
 class TonemapPass

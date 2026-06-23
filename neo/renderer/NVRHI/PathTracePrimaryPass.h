@@ -121,6 +121,9 @@ private:
     const void* m_smokeSceneRenderWorld = nullptr;
     idStr m_smokeSceneMapName;
     ID_TIME_T m_smokeSceneMapTimeStamp = 0;
+    idStr m_pathTracePostLutName;
+    idImage* m_pathTracePostLutImage = nullptr;
+    bool m_pathTracePostLutInvalidLogged = false;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokePreviousSkinnedSurfaceRecords;

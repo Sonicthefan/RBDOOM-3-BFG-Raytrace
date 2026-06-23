@@ -84,22 +84,40 @@ float3 ConvertToLDR( float3 color )
 
 float3 ApplyColorLUT( float3 color )
 {
-	const float size = g_ToneMapping.colorLUTTextureSize.y;
-
 	color = saturate( color );
 
-	float r = color.r * ( size - 1 ) + 0.5;
-	float g = color.g * ( size - 1 ) + 0.5;
+	const int size = max( 1, ( int )g_ToneMapping.colorLUTTextureSize.y );
+	const int maxIndex = size - 1;
+	float3 scaled = color * maxIndex;
+	int3 index0 = int3( floor( scaled ) );
+	int3 index1 = min( index0 + 1, int3( maxIndex, maxIndex, maxIndex ) );
+	float3 fracIndex = scaled - index0;
 
-	float b = color.b * ( size - 1 );
+	int x000 = index0.r + index0.b * size;
+	int x100 = index1.r + index0.b * size;
+	int x010 = index0.r + index0.b * size;
+	int x110 = index1.r + index0.b * size;
+	int x001 = index0.r + index1.b * size;
+	int x101 = index1.r + index1.b * size;
+	int x011 = index0.r + index1.b * size;
+	int x111 = index1.r + index1.b * size;
 
-	float2 uv1 = float2( ( floor( b ) + 0 ) * size + r, g ) * g_ToneMapping.colorLUTTextureSizeInv.xy;
-	float2 uv2 = float2( ( floor( b ) + 1 ) * size + r, g ) * g_ToneMapping.colorLUTTextureSizeInv.xy;
+	float3 c000 = t_ColorLUT.Load( int3( x000, index0.g, 0 ) ).rgb;
+	float3 c100 = t_ColorLUT.Load( int3( x100, index0.g, 0 ) ).rgb;
+	float3 c010 = t_ColorLUT.Load( int3( x010, index1.g, 0 ) ).rgb;
+	float3 c110 = t_ColorLUT.Load( int3( x110, index1.g, 0 ) ).rgb;
+	float3 c001 = t_ColorLUT.Load( int3( x001, index0.g, 0 ) ).rgb;
+	float3 c101 = t_ColorLUT.Load( int3( x101, index0.g, 0 ) ).rgb;
+	float3 c011 = t_ColorLUT.Load( int3( x011, index1.g, 0 ) ).rgb;
+	float3 c111 = t_ColorLUT.Load( int3( x111, index1.g, 0 ) ).rgb;
 
-	float3 c1 = t_ColorLUT.SampleLevel( s_ColorLUTSampler, uv1, 0 ).rgb;
-	float3 c2 = t_ColorLUT.SampleLevel( s_ColorLUTSampler, uv2, 0 ).rgb;
-
-	return lerp( c1, c2, frac( b ) );
+	float3 c00 = lerp( c000, c100, fracIndex.r );
+	float3 c10 = lerp( c010, c110, fracIndex.r );
+	float3 c01 = lerp( c001, c101, fracIndex.r );
+	float3 c11 = lerp( c011, c111, fracIndex.r );
+	float3 c0 = lerp( c00, c10, fracIndex.g );
+	float3 c1 = lerp( c01, c11, fracIndex.g );
+	return saturate( lerp( c0, c1, fracIndex.b ) );
 }
 
 float3 ApplyToneAdjustments( float3 color )
@@ -125,17 +143,16 @@ void main(
 	o_rgba.rgb = ConvertToLDR( HdrColor.rgb );
 	o_rgba.a = HdrColor.a;
 
+	// Tonemapping curve is applied after exposure. The LUT is a grading pass over
+	// the display-referred result, not a replacement for the tonemapper.
+	if( g_ToneMapping.enableACES != 0 )
+	{
+		o_rgba.rgb = ACESFilm( o_rgba.rgb );
+	}
+
 	if( g_ToneMapping.colorLUTTextureSize.x > 0 )
 	{
 		o_rgba.rgb = ApplyColorLUT( o_rgba.rgb );
-	}
-	else
-	{
-		// Tonemapping curve is applied after exposure.
-		if( g_ToneMapping.enableACES != 0 )
-		{
-			o_rgba.rgb = ACESFilm( o_rgba.rgb );
-		}
 	}
 
 	o_rgba.rgb = ApplyToneAdjustments( o_rgba.rgb );

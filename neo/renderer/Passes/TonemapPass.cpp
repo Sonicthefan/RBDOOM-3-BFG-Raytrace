@@ -249,12 +249,30 @@ void TonemapPass::Render(
 	nvrhi::ITexture* sourceTexture,
 	nvrhi::FramebufferHandle _targetFb )
 {
-	size_t renderHash = std::hash<nvrhi::ITexture*>()( sourceTexture );
+	idImage* renderColorLut = params.colorLUTOverride ? params.colorLUTOverride : colorLut;
+	int renderColorLutSize = 0;
+	if( renderColorLut )
+	{
+		const int lutWidth = renderColorLut->GetOpts().width;
+		const int lutHeight = renderColorLut->GetOpts().height;
+		if( lutHeight > 0 && lutWidth == lutHeight * lutHeight )
+		{
+			renderColorLutSize = lutHeight;
+		}
+	}
+	if( !renderColorLut || renderColorLutSize <= 0 )
+	{
+		renderColorLut = colorLut;
+		renderColorLutSize = colorLutSize;
+	}
+	nvrhi::ITexture* renderColorLutTexture = renderColorLut ? renderColorLut->GetTextureHandle().Get() : nullptr;
+	size_t renderHash = std::hash<nvrhi::ITexture*>()( sourceTexture ) ^ ( std::hash<nvrhi::ITexture*>()( renderColorLutTexture ) << 1 );
 	nvrhi::BindingSetHandle renderBindingSet;
 	for( int i = renderBindingHash.First( renderHash ); i != -1; i = renderBindingHash.Next( i ) )
 	{
 		nvrhi::BindingSetHandle bindingSet = renderBindingSets[i];
-		if( sourceTexture == bindingSet->getDesc()->bindings[1].resourceHandle )
+		if( sourceTexture == bindingSet->getDesc()->bindings[1].resourceHandle &&
+			renderColorLutTexture == bindingSet->getDesc()->bindings[3].resourceHandle )
 		{
 			renderBindingSet = bindingSet;
 			break;
@@ -271,7 +289,7 @@ void TonemapPass::Render(
 				nvrhi::BindingSetItem::PushConstants( 0, sizeof( ToneMappingConstants ) ),
 				nvrhi::BindingSetItem::Texture_SRV( 0, sourceTexture ),
 				nvrhi::BindingSetItem::TypedBuffer_SRV( 1, exposureBuffer ),
-				nvrhi::BindingSetItem::Texture_SRV( 2, colorLut->GetTextureHandle() ),
+				nvrhi::BindingSetItem::Texture_SRV( 2, renderColorLut->GetTextureHandle() ),
 				nvrhi::BindingSetItem::Sampler( 0, commonPasses->m_LinearClampSampler )
 			};
 		}
@@ -282,7 +300,7 @@ void TonemapPass::Render(
 				nvrhi::BindingSetItem::ConstantBuffer( 0, toneMappingCb ),
 				nvrhi::BindingSetItem::Texture_SRV( 0, sourceTexture ),
 				nvrhi::BindingSetItem::TypedBuffer_SRV( 1, exposureBuffer ),
-				nvrhi::BindingSetItem::Texture_SRV( 2, colorLut->GetTextureHandle() ),
+				nvrhi::BindingSetItem::Texture_SRV( 2, renderColorLut->GetTextureHandle() ),
 				nvrhi::BindingSetItem::Sampler( 0, commonPasses->m_LinearClampSampler )
 			};
 		}
@@ -304,7 +322,7 @@ void TonemapPass::Render(
 								  viewDef->viewport.zmax };
 		state.viewport.addViewportAndScissorRect( viewport );
 
-		bool enableColorLUT = params.enableColorLUT && colorLutSize > 0;
+		bool enableColorLUT = params.enableColorLUT && renderColorLutSize > 0;
 
 		ToneMappingConstants toneMappingConstants = {};
 		const float exposureBias = params.useGlobalExposureSettings ? r_exposure.GetFloat() : params.exposureBias;
@@ -318,7 +336,7 @@ void TonemapPass::Render(
 		toneMappingConstants.enableACES = params.enableACES ? 1u : 0u;
 		toneMappingConstants.contrast = params.contrast;
 		toneMappingConstants.saturation = params.saturation;
-		toneMappingConstants.colorLUTTextureSize = enableColorLUT ? idVec2( colorLutSize * colorLutSize, colorLutSize ) : idVec2( 0.f, 0.f );
+		toneMappingConstants.colorLUTTextureSize = enableColorLUT ? idVec2( renderColorLutSize * renderColorLutSize, renderColorLutSize ) : idVec2( 0.f, 0.f );
 		toneMappingConstants.colorLUTTextureSizeInv = enableColorLUT ? 1.f / toneMappingConstants.colorLUTTextureSize : idVec2( 0.f, 0.f );
 
 		if( !pcEnabledTonemap )

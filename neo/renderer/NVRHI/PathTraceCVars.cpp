@@ -141,6 +141,24 @@ idCVar r_pathTracingPostSaturation(
     CVAR_RENDERER | CVAR_FLOAT,
     "PT postprocess saturation multiplier after tone mapping; 1.0 = neutral" );
 
+idCVar r_pathTracingPostLUT(
+    "r_pathTracingPostLUT",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable PT postprocess PNG strip LUT: image width must equal height*height" );
+
+idCVar r_pathTracingPostLUTImage(
+    "r_pathTracingPostLUTImage",
+    "",
+    CVAR_RENDERER,
+    "PT postprocess LUT image path, e.g. textures/color_grading/my_lut.png" );
+
+idCVar r_pathTracingPostLUTReload(
+    "r_pathTracingPostLUTReload",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Reload the current PT postprocess LUT image once" );
+
 idCVar r_pathTracingEmissiveInventoryDump(
     "r_pathTracingEmissiveInventoryDump",
     "0",

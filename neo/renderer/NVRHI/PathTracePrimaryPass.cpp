@@ -469,6 +469,105 @@ void PathTracePrimaryPass::TonemapDebugOutput(TonemapPass* tonemapPass, const vi
     params.enableColorLUT = false;
     params.useGlobalExposureSettings = false;
 
+    const char* lutName = r_pathTracingPostLUTImage.GetString();
+    if (r_pathTracingPostLUT.GetInteger() != 0 && lutName && lutName[0] != '\0')
+    {
+        if (m_pathTracePostLutName.Icmp(lutName) != 0 || !m_pathTracePostLutImage)
+        {
+            m_pathTracePostLutName = lutName;
+            byte* lutPixels = nullptr;
+            int lutWidth = 0;
+            int lutHeight = 0;
+            ID_TIME_T lutTimestamp = FILE_NOT_FOUND_TIMESTAMP;
+            LoadSTB_RGBA8(lutName, &lutPixels, &lutWidth, &lutHeight, &lutTimestamp);
+            if (lutPixels && lutWidth > 0 && lutHeight > 0)
+            {
+                if (!m_pathTracePostLutImage)
+                {
+                    idImageOpts lutOpts;
+                    lutOpts.textureType = DTT_2D;
+                    lutOpts.format = FMT_RGBA8;
+                    lutOpts.width = lutWidth;
+                    lutOpts.height = lutHeight;
+                    lutOpts.numLevels = 1;
+                    lutOpts.samples = 1;
+                    m_pathTracePostLutImage = globalImages->ScratchImage("_pathTracePostLUT", lutOpts);
+                }
+                m_pathTracePostLutImage->UploadScratch(lutPixels, lutWidth, lutHeight, commandList);
+                commandList->setTextureState(m_pathTracePostLutImage->GetTextureHandle(), nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                commandList->commitBarriers();
+                R_StaticFree(lutPixels);
+            }
+            else
+            {
+                m_pathTracePostLutImage = nullptr;
+                if (lutPixels)
+                {
+                    R_StaticFree(lutPixels);
+                }
+            }
+            m_pathTracePostLutInvalidLogged = false;
+        }
+        if (r_pathTracingPostLUTReload.GetInteger() != 0)
+        {
+            byte* lutPixels = nullptr;
+            int lutWidth = 0;
+            int lutHeight = 0;
+            ID_TIME_T lutTimestamp = FILE_NOT_FOUND_TIMESTAMP;
+            LoadSTB_RGBA8(m_pathTracePostLutName.c_str(), &lutPixels, &lutWidth, &lutHeight, &lutTimestamp);
+            if (lutPixels && lutWidth > 0 && lutHeight > 0)
+            {
+                if (!m_pathTracePostLutImage ||
+                    m_pathTracePostLutImage->GetOpts().width != lutWidth ||
+                    m_pathTracePostLutImage->GetOpts().height != lutHeight)
+                {
+                    idImageOpts lutOpts;
+                    lutOpts.textureType = DTT_2D;
+                    lutOpts.format = FMT_RGBA8;
+                    lutOpts.width = lutWidth;
+                    lutOpts.height = lutHeight;
+                    lutOpts.numLevels = 1;
+                    lutOpts.samples = 1;
+                    m_pathTracePostLutImage = globalImages->ScratchImage("_pathTracePostLUT", lutOpts);
+                }
+                m_pathTracePostLutImage->UploadScratch(lutPixels, lutWidth, lutHeight, commandList);
+                commandList->setTextureState(m_pathTracePostLutImage->GetTextureHandle(), nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+                commandList->commitBarriers();
+                R_StaticFree(lutPixels);
+                m_pathTracePostLutInvalidLogged = false;
+            }
+            else if (lutPixels)
+            {
+                R_StaticFree(lutPixels);
+            }
+            r_pathTracingPostLUTReload.SetInteger(0);
+        }
+        if (m_pathTracePostLutImage && !m_pathTracePostLutImage->IsDefaulted())
+        {
+            const int lutWidth = m_pathTracePostLutImage->GetOpts().width;
+            const int lutHeight = m_pathTracePostLutImage->GetOpts().height;
+            if (lutHeight > 0 && lutWidth == lutHeight * lutHeight)
+            {
+                params.enableColorLUT = true;
+                params.colorLUTOverride = m_pathTracePostLutImage;
+            }
+            else if (!m_pathTracePostLutInvalidLogged)
+            {
+                m_pathTracePostLutInvalidLogged = true;
+                common->Printf("PathTracePrimaryPass: PT post LUT '%s' ignored, expected width=height*height but got %dx%d\n",
+                    m_pathTracePostLutName.c_str(),
+                    lutWidth,
+                    lutHeight);
+            }
+        }
+        else if (!m_pathTracePostLutInvalidLogged)
+        {
+            m_pathTracePostLutInvalidLogged = true;
+            common->Printf("PathTracePrimaryPass: PT post LUT '%s' failed to load\n",
+                m_pathTracePostLutName.c_str());
+        }
+    }
+
     tonemapPass->SimpleRender(commandList, params, viewDef, m_frameResources.outputTexture, targetFramebuffer);
 }
 
