@@ -3210,7 +3210,7 @@ const RtPathTraceRigidResidencyStats& RtSmokeGeometryUniverse::GetRigidResidency
     return m_rigidResidencyStats;
 }
 
-void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource) const
+void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource, bool includeSamples) const
 {
     const char* routeSource = !stats.enabled
         ? "visibleOnly"
@@ -3247,6 +3247,11 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.skippedOutsideArea,
         stats.skippedUnknownArea,
         routeSource);
+
+    if (!includeSamples)
+    {
+        return;
+    }
 
     for (int sampleIndex = 0; sampleIndex < stats.sampleCount; ++sampleIndex)
     {

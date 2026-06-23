@@ -2947,7 +2947,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         if (r_pathTracingResidencyDebug.GetInteger() != 0)
         {
-            m_smokeGeometryUniverse.DumpRigidResidencyStats(rigidResidencyStats, sceneSource);
+            m_smokeGeometryUniverse.DumpRigidResidencyStats(rigidResidencyStats, sceneSource, false);
         }
         if (r_pathTracingRigidResidencyDump.GetInteger() != 0)
         {
