@@ -421,6 +421,8 @@ struct RtPathTraceRigidResidencyBoundsBox
 {
     bool valid = false;
     bool seenThisFrame = false;
+    bool retainedOffscreen = false;
+    bool aboutToAgeOut = false;
     bool routeReady = false;
     bool missingBlas = false;
     int area = -1;

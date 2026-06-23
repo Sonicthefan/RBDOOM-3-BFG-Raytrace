@@ -527,13 +527,17 @@ bool ValidateRigidResidencyBoundsBox(const RtPathTraceRigidResidencyBoundsBox& b
     return extent.x <= 32768.0f && extent.y <= 32768.0f && extent.z <= 32768.0f;
 }
 
-idVec4 RigidResidencyBoundsColor(bool seenThisFrame, bool routeReady, bool missingBlas)
+idVec4 RigidResidencyBoundsColor(bool seenThisFrame, bool retainedOffscreen, bool aboutToAgeOut, bool routeReady, bool missingBlas)
 {
     if (!routeReady && missingBlas)
     {
         return idVec4(1.0f, 0.82f, 0.0f, 1.0f);
     }
-    if (!seenThisFrame && routeReady)
+    if (aboutToAgeOut)
+    {
+        return idVec4(1.0f, 0.45f, 0.0f, 1.0f);
+    }
+    if (retainedOffscreen && routeReady)
     {
         return idVec4(0.0f, 1.0f, 1.0f, 1.0f);
     }
@@ -3309,6 +3313,7 @@ void RtSmokeGeometryUniverse::CollectRigidResidencyBoundsBoxes(std::vector<RtPat
         return;
     }
 
+    const uint64 framesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyFramesToKeep.GetInteger()));
     for (const RigidResidentInstanceRecord& residentRecord : m_rigidResidentRecords)
     {
         if (static_cast<int>(boxes.size()) >= maxBoxes)
@@ -3345,10 +3350,15 @@ void RtSmokeGeometryUniverse::CollectRigidResidencyBoundsBoxes(std::vector<RtPat
         RtPathTraceRigidResidencyBoundsBox box;
         box.valid = true;
         box.seenThisFrame = residentRecord.seenThisFrame;
+        box.retainedOffscreen = !residentRecord.seenThisFrame;
+        box.aboutToAgeOut =
+            box.retainedOffscreen &&
+            framesToKeep > 0 &&
+            residentRecord.lastSeenFrame + framesToKeep <= m_currentFrameIndex + 30;
         box.routeReady = meshRecord.rigidBlas != nullptr;
         box.missingBlas = meshRecord.rigidBlas == nullptr;
         box.area = instance.currentArea;
-        box.color = RigidResidencyBoundsColor(box.seenThisFrame, box.routeReady, box.missingBlas);
+        box.color = RigidResidencyBoundsColor(box.seenThisFrame, box.retainedOffscreen, box.aboutToAgeOut, box.routeReady, box.missingBlas);
 
         for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex)
         {
