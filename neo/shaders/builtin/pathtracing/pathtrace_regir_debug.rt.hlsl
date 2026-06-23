@@ -82,6 +82,7 @@ struct PathTraceSmokeVertex
     float4 color;
     float4 color2;
     float4 tangent;
+    float4 bitangent;
 };
 
 struct PathTraceSmokeMaterial

@@ -16,4 +16,5 @@ const idJointMat* GetSmokeRtCpuSkinningJoints(const srfTriangles_t* tri);
 idVec3 TransformSmokeSkinnedVertexPosition(const idDrawVert& base, const idJointMat* joints);
 idVec3 TransformSmokeSkinnedVertexNormal(const idDrawVert& base, const idJointMat* joints);
 idVec3 TransformSmokeSkinnedVertexTangent(const idDrawVert& base, const idJointMat* joints);
+idVec3 TransformSmokeSkinnedVertexBitangent(const idDrawVert& base, const idJointMat* joints);
 bool SmokeSkinnedSurfaceLikelyBasePose(const drawSurf_t* drawSurf, const srfTriangles_t* tri);

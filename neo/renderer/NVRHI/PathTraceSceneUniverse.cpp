@@ -734,12 +734,14 @@ PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* e
     idVec3 worldPosition;
     idVec3 worldNormal = drawVert.GetNormal();
     idVec3 worldTangent = drawVert.GetTangent();
+    idVec3 worldBitangent = drawVert.GetBiTangent();
     const float bitangentSign = drawVert.GetBiTangentSign();
     if (entity)
     {
         R_LocalPointToGlobal(entity->modelMatrix, drawVert.xyz, worldPosition);
         R_LocalVectorToGlobal(entity->modelMatrix, worldNormal, worldNormal);
         R_LocalVectorToGlobal(entity->modelMatrix, worldTangent, worldTangent);
+        R_LocalVectorToGlobal(entity->modelMatrix, worldBitangent, worldBitangent);
     }
     else
     {
@@ -749,6 +751,12 @@ PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* e
     if (worldTangent.Normalize() == 0.0f)
     {
         worldTangent.Set(1.0f, 0.0f, 0.0f);
+    }
+    if (worldBitangent.Normalize() == 0.0f)
+    {
+        worldBitangent.Cross(worldNormal, worldTangent);
+        worldBitangent *= bitangentSign;
+        worldBitangent.Normalize();
     }
 
     const idVec2 texCoord = drawVert.GetTexCoord();
@@ -777,6 +785,10 @@ PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* e
     vertex.tangent[1] = worldTangent.y;
     vertex.tangent[2] = worldTangent.z;
     vertex.tangent[3] = bitangentSign;
+    vertex.bitangent[0] = worldBitangent.x;
+    vertex.bitangent[1] = worldBitangent.y;
+    vertex.bitangent[2] = worldBitangent.z;
+    vertex.bitangent[3] = 0.0f;
     return vertex;
 }
 

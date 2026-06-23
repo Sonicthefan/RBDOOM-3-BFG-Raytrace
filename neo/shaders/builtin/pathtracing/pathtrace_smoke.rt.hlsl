@@ -67,6 +67,7 @@ struct PathTraceSmokeVertex
     float4 color;
     float4 color2;
     float4 tangent;
+    float4 bitangent;
 };
 
 struct PathTraceSmokeMaterial
@@ -1087,6 +1088,7 @@ float ObjectToWorldHandednessSign()
 bool TryBuildCapturedTangentBasis(
     float3 normal,
     float4 capturedTangent,
+    float4 capturedBitangent,
     bool transformTangentToWorld,
     float handednessSign,
     out float3 tangent,
@@ -1105,8 +1107,18 @@ bool TryBuildCapturedTangentBasis(
     }
 
     tangent = projectedTangent * rsqrt(tangentLengthSquared);
-    const float bitangentSign = (capturedTangent.w < 0.0 ? -1.0 : 1.0) * handednessSign;
-    bitangent = SafeNormalize(cross(normal, tangent) * bitangentSign, bitangentFallback);
+    const float3 rawBitangent = transformTangentToWorld ? TransformObjectVectorToWorld(capturedBitangent.xyz) : capturedBitangent.xyz;
+    const float3 projectedBitangent = rawBitangent - normal * dot(normal, rawBitangent) - tangent * dot(tangent, rawBitangent);
+    const float bitangentLengthSquared = dot(projectedBitangent, projectedBitangent);
+    if (bitangentLengthSquared > 1.0e-8)
+    {
+        bitangent = projectedBitangent * rsqrt(bitangentLengthSquared);
+    }
+    else
+    {
+        const float bitangentSign = (capturedTangent.w < 0.0 ? -1.0 : 1.0) * handednessSign;
+        bitangent = SafeNormalize(cross(normal, tangent) * bitangentSign, bitangentFallback);
+    }
     return true;
 }
 
@@ -5510,6 +5522,9 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         const float4 t0 = v0.tangent;
         const float4 t1 = v1.tangent;
         const float4 t2 = v2.tangent;
+        const float4 b0 = v0.bitangent;
+        const float4 b1 = v1.bitangent;
+        const float4 b2 = v2.bitangent;
         const float2 uv0 = v0.texCoord.xy;
         const float2 uv1 = v1.texCoord.xy;
         const float2 uv2 = v2.texCoord.xy;
@@ -5533,7 +5548,8 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         const float3 tangentFallback = BuildPerpendicular(payload.normal);
         const float3 bitangentFallback = SafeNormalize(cross(payload.normal, tangentFallback), float3(0.0, 1.0, 0.0));
         const float4 capturedTangent = t0 * barycentrics.x + t1 * barycentrics.y + t2 * barycentrics.z;
-        if (!TryBuildCapturedTangentBasis(payload.normal, capturedTangent, true, ObjectToWorldHandednessSign(), payload.tangent, payload.bitangent))
+        const float4 capturedBitangent = b0 * barycentrics.x + b1 * barycentrics.y + b2 * barycentrics.z;
+        if (!TryBuildCapturedTangentBasis(payload.normal, capturedTangent, capturedBitangent, true, ObjectToWorldHandednessSign(), payload.tangent, payload.bitangent))
         {
             const float3 dp1 = p1 - p0;
             const float3 dp2 = p2 - p0;
@@ -5590,6 +5606,9 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     const float4 t0 = instanceId == 0 ? SmokeStaticVertices[i0].tangent : SmokeDynamicVertices[i0].tangent;
     const float4 t1 = instanceId == 0 ? SmokeStaticVertices[i1].tangent : SmokeDynamicVertices[i1].tangent;
     const float4 t2 = instanceId == 0 ? SmokeStaticVertices[i2].tangent : SmokeDynamicVertices[i2].tangent;
+    const float4 b0 = instanceId == 0 ? SmokeStaticVertices[i0].bitangent : SmokeDynamicVertices[i0].bitangent;
+    const float4 b1 = instanceId == 0 ? SmokeStaticVertices[i1].bitangent : SmokeDynamicVertices[i1].bitangent;
+    const float4 b2 = instanceId == 0 ? SmokeStaticVertices[i2].bitangent : SmokeDynamicVertices[i2].bitangent;
     const float2 uv0 = (instanceId == 0 ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).xy;
     const float2 uv1 = (instanceId == 0 ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).xy;
     const float2 uv2 = (instanceId == 0 ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).xy;
@@ -5612,7 +5631,8 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     const float3 tangentFallback = BuildPerpendicular(payload.normal);
     const float3 bitangentFallback = SafeNormalize(cross(payload.normal, tangentFallback), float3(0.0, 1.0, 0.0));
     const float4 capturedTangent = t0 * barycentrics.x + t1 * barycentrics.y + t2 * barycentrics.z;
-    if (!TryBuildCapturedTangentBasis(payload.normal, capturedTangent, false, 1.0, payload.tangent, payload.bitangent))
+    const float4 capturedBitangent = b0 * barycentrics.x + b1 * barycentrics.y + b2 * barycentrics.z;
+    if (!TryBuildCapturedTangentBasis(payload.normal, capturedTangent, capturedBitangent, false, 1.0, payload.tangent, payload.bitangent))
     {
         const float3 dp1 = p1 - p0;
         const float3 dp2 = p2 - p0;

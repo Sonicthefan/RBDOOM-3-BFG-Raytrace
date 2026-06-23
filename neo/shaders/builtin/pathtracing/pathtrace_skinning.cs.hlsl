@@ -6,6 +6,7 @@ struct PathTraceSmokeVertex
     float4 color;
     float4 color2;
     float4 tangent;
+    float4 bitangent;
 };
 
 struct PathTraceSkinnedSourceVertex
@@ -138,6 +139,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         TransformJointNormal(joint2, sourceVertex.localTangent.xyz) * jointWeights.z +
         TransformJointNormal(joint3, sourceVertex.localTangent.xyz) * jointWeights.w;
     skinnedTangent = SafeNormalize(skinnedTangent, sourceVertex.localTangent.xyz);
+    const float3 localBitangent = cross(sourceVertex.localNormal.xyz, sourceVertex.localTangent.xyz) * sourceVertex.localTangent.w;
+    float3 skinnedBitangent =
+        TransformJointNormal(joint0, localBitangent) * jointWeights.x +
+        TransformJointNormal(joint1, localBitangent) * jointWeights.y +
+        TransformJointNormal(joint2, localBitangent) * jointWeights.z +
+        TransformJointNormal(joint3, localBitangent) * jointWeights.w;
+    skinnedBitangent = SafeNormalize(skinnedBitangent, localBitangent);
 
     const float3 worldPosition = TransformObjectPosition(
         dispatchRecord.currentObjectToWorld0,
@@ -154,6 +162,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
         dispatchRecord.currentObjectToWorld1,
         dispatchRecord.currentObjectToWorld2,
         skinnedTangent), skinnedTangent);
+    const float3 worldBitangent = SafeNormalize(TransformObjectNormal(
+        dispatchRecord.currentObjectToWorld0,
+        dispatchRecord.currentObjectToWorld1,
+        dispatchRecord.currentObjectToWorld2,
+        skinnedBitangent), skinnedBitangent);
 
     PathTraceSmokeVertex outputVertex;
     outputVertex.position = float4(worldPosition, 1.0);
@@ -162,6 +175,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     outputVertex.color = sourceVertex.color;
     outputVertex.color2 = float4(sourceVertex.jointWeights.xyz, sourceVertex.jointWeights.w);
     outputVertex.tangent = float4(worldTangent, sourceVertex.localTangent.w);
+    outputVertex.bitangent = float4(worldBitangent, 0.0);
     SkinnedCurrentOutputVertices[dispatchRecord.outputVertexOffset + vertexIndex] = outputVertex;
 
     const bool hasPreviousPositionOutput =

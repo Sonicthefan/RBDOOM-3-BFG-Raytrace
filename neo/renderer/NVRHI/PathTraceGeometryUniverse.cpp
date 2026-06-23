@@ -988,6 +988,13 @@ PathTraceSmokeVertex BuildRigidLocalSmokeVertex(const idDrawVert& drawVert)
         localTangent.Set(1.0f, 0.0f, 0.0f);
     }
     const float bitangentSign = drawVert.GetBiTangentSign();
+    idVec3 localBitangent = drawVert.GetBiTangent();
+    if (localBitangent.Normalize() == 0.0f)
+    {
+        localBitangent.Cross(localNormal, localTangent);
+        localBitangent *= bitangentSign;
+        localBitangent.Normalize();
+    }
 
     const idVec2 texCoord = drawVert.GetTexCoord();
     PathTraceSmokeVertex vertex = {};
@@ -1015,6 +1022,10 @@ PathTraceSmokeVertex BuildRigidLocalSmokeVertex(const idDrawVert& drawVert)
     vertex.tangent[1] = localTangent.y;
     vertex.tangent[2] = localTangent.z;
     vertex.tangent[3] = bitangentSign;
+    vertex.bitangent[0] = localBitangent.x;
+    vertex.bitangent[1] = localBitangent.y;
+    vertex.bitangent[2] = localBitangent.z;
+    vertex.bitangent[3] = 0.0f;
     return vertex;
 }
 

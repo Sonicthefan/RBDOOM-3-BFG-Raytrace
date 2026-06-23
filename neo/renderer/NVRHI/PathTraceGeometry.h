@@ -14,6 +14,7 @@ struct PathTraceSmokeVertex
     float color[4];
     float color2[4];
     float tangent[4];
+    float bitangent[4];
 };
 
 // Source data for the future PT-owned GPU skinning path. This deliberately
