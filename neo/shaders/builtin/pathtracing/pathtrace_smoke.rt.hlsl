@@ -1077,6 +1077,39 @@ float3 TransformObjectNormalToWorld(float3 objectNormal, float3 fallback)
     return SafeNormalize(TransformObjectVectorToWorld(objectNormal), fallback);
 }
 
+float ObjectToWorldHandednessSign()
+{
+    const float3x4 objectToWorld = ObjectToWorld3x4();
+    const float determinant = dot(objectToWorld[0].xyz, cross(objectToWorld[1].xyz, objectToWorld[2].xyz));
+    return determinant < 0.0 ? -1.0 : 1.0;
+}
+
+bool TryBuildCapturedTangentBasis(
+    float3 normal,
+    float4 capturedTangent,
+    bool transformTangentToWorld,
+    float handednessSign,
+    out float3 tangent,
+    out float3 bitangent)
+{
+    const float3 tangentFallback = BuildPerpendicular(normal);
+    const float3 bitangentFallback = SafeNormalize(cross(normal, tangentFallback), float3(0.0, 1.0, 0.0));
+    const float3 rawTangent = transformTangentToWorld ? TransformObjectVectorToWorld(capturedTangent.xyz) : capturedTangent.xyz;
+    const float3 projectedTangent = rawTangent - normal * dot(normal, rawTangent);
+    const float tangentLengthSquared = dot(projectedTangent, projectedTangent);
+    if (tangentLengthSquared <= 1.0e-8 || abs(capturedTangent.w) < 0.5)
+    {
+        tangent = tangentFallback;
+        bitangent = bitangentFallback;
+        return false;
+    }
+
+    tangent = projectedTangent * rsqrt(tangentLengthSquared);
+    const float bitangentSign = (capturedTangent.w < 0.0 ? -1.0 : 1.0) * handednessSign;
+    bitangent = SafeNormalize(cross(normal, tangent) * bitangentSign, bitangentFallback);
+    return true;
+}
+
 float3 MaterialIdToColor(uint materialId)
 {
     uint hash = materialId;
@@ -5474,6 +5507,9 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         const float3 n0 = v0.normal.xyz;
         const float3 n1 = v1.normal.xyz;
         const float3 n2 = v2.normal.xyz;
+        const float4 t0 = v0.tangent;
+        const float4 t1 = v1.tangent;
+        const float4 t2 = v2.tangent;
         const float2 uv0 = v0.texCoord.xy;
         const float2 uv1 = v1.texCoord.xy;
         const float2 uv2 = v2.texCoord.xy;
@@ -5496,29 +5532,33 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
         payload.vertexColorAdd = saturate(v0.color2 * barycentrics.x + v1.color2 * barycentrics.y + v2.color2 * barycentrics.z);
         const float3 tangentFallback = BuildPerpendicular(payload.normal);
         const float3 bitangentFallback = SafeNormalize(cross(payload.normal, tangentFallback), float3(0.0, 1.0, 0.0));
-        const float3 dp1 = p1 - p0;
-        const float3 dp2 = p2 - p0;
-        const float2 duv1 = uv1 - uv0;
-        const float2 duv2 = uv2 - uv0;
-        const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
-        if (abs(uvDeterminant) > 1.0e-8)
+        const float4 capturedTangent = t0 * barycentrics.x + t1 * barycentrics.y + t2 * barycentrics.z;
+        if (!TryBuildCapturedTangentBasis(payload.normal, capturedTangent, true, ObjectToWorldHandednessSign(), payload.tangent, payload.bitangent))
         {
-            const float inverseDeterminant = 1.0 / uvDeterminant;
-            const float3 objectRawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
-            const float3 objectRawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
-            const float3 rawTangent = TransformObjectVectorToWorld(objectRawTangent);
-            const float3 rawBitangent = TransformObjectVectorToWorld(objectRawBitangent);
-            payload.tangent = SafeNormalize(rawTangent - payload.normal * dot(payload.normal, rawTangent), tangentFallback);
-            payload.bitangent = SafeNormalize(rawBitangent - payload.normal * dot(payload.normal, rawBitangent) - payload.tangent * dot(payload.tangent, rawBitangent), bitangentFallback);
-            if (dot(cross(payload.tangent, payload.bitangent), payload.normal) < 0.0)
+            const float3 dp1 = p1 - p0;
+            const float3 dp2 = p2 - p0;
+            const float2 duv1 = uv1 - uv0;
+            const float2 duv2 = uv2 - uv0;
+            const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
+            if (abs(uvDeterminant) > 1.0e-8)
             {
-                payload.bitangent = -payload.bitangent;
+                const float inverseDeterminant = 1.0 / uvDeterminant;
+                const float3 objectRawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
+                const float3 objectRawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
+                const float3 rawTangent = TransformObjectVectorToWorld(objectRawTangent);
+                const float3 rawBitangent = TransformObjectVectorToWorld(objectRawBitangent);
+                payload.tangent = SafeNormalize(rawTangent - payload.normal * dot(payload.normal, rawTangent), tangentFallback);
+                payload.bitangent = SafeNormalize(rawBitangent - payload.normal * dot(payload.normal, rawBitangent) - payload.tangent * dot(payload.tangent, rawBitangent), bitangentFallback);
+                if (dot(cross(payload.tangent, payload.bitangent), payload.normal) < 0.0)
+                {
+                    payload.bitangent = -payload.bitangent;
+                }
             }
-        }
-        else
-        {
-            payload.tangent = tangentFallback;
-            payload.bitangent = bitangentFallback;
+            else
+            {
+                payload.tangent = tangentFallback;
+                payload.bitangent = bitangentFallback;
+            }
         }
         payload.surfaceClass = 1u;
         payload.translucentSubtype = 0u;
@@ -5547,6 +5587,9 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     const float3 n0 = (instanceId == 0 ? SmokeStaticVertices[i0].normal : SmokeDynamicVertices[i0].normal).xyz;
     const float3 n1 = (instanceId == 0 ? SmokeStaticVertices[i1].normal : SmokeDynamicVertices[i1].normal).xyz;
     const float3 n2 = (instanceId == 0 ? SmokeStaticVertices[i2].normal : SmokeDynamicVertices[i2].normal).xyz;
+    const float4 t0 = instanceId == 0 ? SmokeStaticVertices[i0].tangent : SmokeDynamicVertices[i0].tangent;
+    const float4 t1 = instanceId == 0 ? SmokeStaticVertices[i1].tangent : SmokeDynamicVertices[i1].tangent;
+    const float4 t2 = instanceId == 0 ? SmokeStaticVertices[i2].tangent : SmokeDynamicVertices[i2].tangent;
     const float2 uv0 = (instanceId == 0 ? SmokeStaticVertices[i0].texCoord : SmokeDynamicVertices[i0].texCoord).xy;
     const float2 uv1 = (instanceId == 0 ? SmokeStaticVertices[i1].texCoord : SmokeDynamicVertices[i1].texCoord).xy;
     const float2 uv2 = (instanceId == 0 ? SmokeStaticVertices[i2].texCoord : SmokeDynamicVertices[i2].texCoord).xy;
@@ -5568,27 +5611,31 @@ void ClosestHit(inout PathTraceSmokePayload payload, BuiltInTriangleIntersection
     payload.normal = forceGeometricNormal ? payload.geometricNormal : interpolatedNormal;
     const float3 tangentFallback = BuildPerpendicular(payload.normal);
     const float3 bitangentFallback = SafeNormalize(cross(payload.normal, tangentFallback), float3(0.0, 1.0, 0.0));
-    const float3 dp1 = p1 - p0;
-    const float3 dp2 = p2 - p0;
-    const float2 duv1 = uv1 - uv0;
-    const float2 duv2 = uv2 - uv0;
-    const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
-    if (abs(uvDeterminant) > 1.0e-8)
+    const float4 capturedTangent = t0 * barycentrics.x + t1 * barycentrics.y + t2 * barycentrics.z;
+    if (!TryBuildCapturedTangentBasis(payload.normal, capturedTangent, false, 1.0, payload.tangent, payload.bitangent))
     {
-        const float inverseDeterminant = 1.0 / uvDeterminant;
-        const float3 rawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
-        const float3 rawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
-        payload.tangent = SafeNormalize(rawTangent - payload.normal * dot(payload.normal, rawTangent), tangentFallback);
-        payload.bitangent = SafeNormalize(rawBitangent - payload.normal * dot(payload.normal, rawBitangent) - payload.tangent * dot(payload.tangent, rawBitangent), bitangentFallback);
-        if (dot(cross(payload.tangent, payload.bitangent), payload.normal) < 0.0)
+        const float3 dp1 = p1 - p0;
+        const float3 dp2 = p2 - p0;
+        const float2 duv1 = uv1 - uv0;
+        const float2 duv2 = uv2 - uv0;
+        const float uvDeterminant = duv1.x * duv2.y - duv1.y * duv2.x;
+        if (abs(uvDeterminant) > 1.0e-8)
         {
-            payload.bitangent = -payload.bitangent;
+            const float inverseDeterminant = 1.0 / uvDeterminant;
+            const float3 rawTangent = (dp1 * duv2.y - dp2 * duv1.y) * inverseDeterminant;
+            const float3 rawBitangent = (dp2 * duv1.x - dp1 * duv2.x) * inverseDeterminant;
+            payload.tangent = SafeNormalize(rawTangent - payload.normal * dot(payload.normal, rawTangent), tangentFallback);
+            payload.bitangent = SafeNormalize(rawBitangent - payload.normal * dot(payload.normal, rawBitangent) - payload.tangent * dot(payload.tangent, rawBitangent), bitangentFallback);
+            if (dot(cross(payload.tangent, payload.bitangent), payload.normal) < 0.0)
+            {
+                payload.bitangent = -payload.bitangent;
+            }
         }
-    }
-    else
-    {
-        payload.tangent = tangentFallback;
-        payload.bitangent = bitangentFallback;
+        else
+        {
+            payload.tangent = tangentFallback;
+            payload.bitangent = bitangentFallback;
+        }
     }
     payload.texCoord = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
     payload.vertexColor = saturate(c0 * barycentrics.x + c1 * barycentrics.y + c2 * barycentrics.z);
