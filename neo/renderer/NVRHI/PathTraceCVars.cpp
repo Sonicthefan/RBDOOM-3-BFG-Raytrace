@@ -265,13 +265,13 @@ idCVar r_pathTracingGeometryLifecycle(
     "r_pathTracingGeometryLifecycle",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Experimental PT geometry lifecycle gate: 0 = legacy drawSurf-mirror pruning, 1 = keep rigid identity from render-def lifecycle and evict on free/reuse" );
+    "Legacy PT geometry lifecycle diagnostic sampling gate; residency behavior is controlled by r_pathTracingGeometryResidencyV2" );
 
 idCVar r_pathTracingGeometryLifecycleStage(
     "r_pathTracingGeometryLifecycleStage",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "PT geometry lifecycle diagnostic stage: 0 = baseline, 1 = lifecycle existence, 2 = dual-key shadow, 3 = classification overlay, 4 = residency/existence overlay" );
+    "Legacy PT geometry lifecycle diagnostic stage tag; records/dumps only, no longer selects geometry residency behavior" );
 
 idCVar r_pathTracingGeometryLifecycleDump(
     "r_pathTracingGeometryLifecycleDump",
