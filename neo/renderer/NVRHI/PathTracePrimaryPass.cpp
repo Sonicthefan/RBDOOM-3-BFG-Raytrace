@@ -12,6 +12,7 @@
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
 #include "../Passes/CommonPasses.h"
+#include "../Passes/TonemapPass.h"
 #include "../../framework/Common_local.h"
 #include "../../sys/DeviceManager.h"
 
@@ -433,6 +434,40 @@ void PathTracePrimaryPass::BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffe
         OPTICK_GPU_EVENT("PT GPU Blit Debug Output");
         m_backend->GetCommonPasses().BlitTexture(commandList, blitParms, nullptr);
     }
+}
+
+void PathTracePrimaryPass::TonemapDebugOutput(TonemapPass* tonemapPass, const viewDef_t* viewDef, nvrhi::IFramebuffer* targetFramebuffer)
+{
+    OPTICK_EVENT("PT Tonemap Debug Output");
+
+    if (!m_smokeTestDispatched || !m_frameResources.outputTexture || !m_backend || !tonemapPass || !viewDef || !targetFramebuffer)
+    {
+        return;
+    }
+
+    nvrhi::ICommandList* commandList = m_backend->GL_GetCommandList();
+    if (!commandList)
+    {
+        return;
+    }
+    OPTICK_GPU_CONTEXT((void*)commandList->getNativeObject(GetPathTraceCommandObjectType()));
+
+    {
+        OPTICK_GPU_EVENT("PT GPU Tonemap Output Barriers");
+        commandList->setTextureState(m_frameResources.outputTexture, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+        commandList->commitBarriers();
+    }
+
+    ToneMappingParameters params;
+    params.exposureBias = r_pathTracingPostExposure.GetFloat();
+    params.minAdaptedLuminance = Max(0.0001f, r_pathTracingPostMinLuminance.GetFloat());
+    params.maxAdaptedLuminance = Max(params.minAdaptedLuminance + 0.0001f, r_pathTracingPostMaxLuminance.GetFloat());
+    params.whitePoint = Max(0.001f, r_pathTracingPostWhitePoint.GetFloat());
+    params.enableACES = r_pathTracingPostACES.GetInteger() != 0;
+    params.enableColorLUT = false;
+    params.useGlobalExposureSettings = false;
+
+    tonemapPass->SimpleRender(commandList, params, viewDef, m_frameResources.outputTexture, targetFramebuffer);
 }
 
 void PathTracePrimaryPass::DrawBoundsOverlayRaster(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport)

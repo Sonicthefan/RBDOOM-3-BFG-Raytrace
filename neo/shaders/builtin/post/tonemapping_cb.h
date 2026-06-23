@@ -45,6 +45,10 @@ struct ToneMappingConstants
 
 	float2 colorLUTTextureSize;
 	float2 colorLUTTextureSizeInv;
+	uint enableACES;
+	uint padding0;
+	uint padding1;
+	uint padding2;
 };
 
 #endif // DEPTH_CB_H

@@ -31,6 +31,7 @@
 #include <vector>
 
 class idRenderBackend;
+class TonemapPass;
 struct viewDef_t;
 
 struct RtRetiredSmokeScenePackage
@@ -61,6 +62,7 @@ public:
     void InvalidateForBackBufferResize();
     void PresentDebugOutput();
     void BlitDebugOutput(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport);
+    void TonemapDebugOutput(TonemapPass* tonemapPass, const viewDef_t* viewDef, nvrhi::IFramebuffer* targetFramebuffer);
     void DrawBoundsOverlayRaster(nvrhi::IFramebuffer* targetFramebuffer, const nvrhi::Viewport& targetViewport);
 
 private:

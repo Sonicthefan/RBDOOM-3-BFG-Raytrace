@@ -37,7 +37,9 @@ struct ToneMappingParameters
 	float maxAdaptedLuminance = 0.5f;
 	float exposureBias = -0.5f;
 	float whitePoint = 3.f;
+	bool enableACES = true;
 	bool enableColorLUT = true;
+	bool useGlobalExposureSettings = true;
 };
 
 class TonemapPass
@@ -68,7 +70,7 @@ public:
 private:
 	void ResetExposure( nvrhi::ICommandList* commandList, float initialExposure );
 	void ResetHistogram( nvrhi::ICommandList* commandList );
-	void AddFrameToHistogram( nvrhi::ICommandList* commandList, const viewDef_t* viewDef, nvrhi::ITexture* sourceTexture );
+	void AddFrameToHistogram( nvrhi::ICommandList* commandList, const ToneMappingParameters& params, const viewDef_t* viewDef, nvrhi::ITexture* sourceTexture );
 	void ComputeExposure( nvrhi::ICommandList* commandList, const ToneMappingParameters& params );
 
 	bool                            isLoaded;

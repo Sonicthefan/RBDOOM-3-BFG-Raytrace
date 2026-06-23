@@ -5549,19 +5549,35 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 	const bool timerQueryAvailable = glConfig.timerQueryAvailable;
 	drawView3D = false;
 	bool pathTraceDebugPresentPending = false;
+	const viewDef_t* pathTraceDebugPresentView = nullptr;
 	auto PresentPathTraceDebugIfPending = [&]()
 	{
 		if( pathTraceDebugPresentPending && pathTraceOutputRequested && !s_pathTraceSkipThisBackendFrame )
 		{
-			renderLog.OpenBlock( "Blit_PathTraceSmokeDebugToLDR", colorYellow );
-			RB_GetPathTracePrimaryPass( this ).BlitDebugOutput(
-				RB_GetPathTraceLdrColorFramebuffer(),
-				nvrhi::Viewport( renderSystem->GetWidth(), renderSystem->GetHeight() ) );
+			const bool pathTracePostProcess = r_pathTracingPostProcess.GetInteger() != 0;
+			nvrhi::IFramebuffer* pathTraceLdrFramebuffer = pathTracePostProcess
+				? globalFramebuffers.ldrFBO->GetApiObject()
+				: RB_GetPathTraceLdrColorFramebuffer();
+			renderLog.OpenBlock( pathTracePostProcess ? "Tonemap_PathTraceSmokeDebugToLDR" : "Blit_PathTraceSmokeDebugToLDR", colorYellow );
+			if( pathTracePostProcess )
+			{
+				RB_GetPathTracePrimaryPass( this ).TonemapDebugOutput(
+					toneMapPass,
+					pathTraceDebugPresentView,
+					pathTraceLdrFramebuffer );
+			}
+			else
+			{
+				RB_GetPathTracePrimaryPass( this ).BlitDebugOutput(
+					pathTraceLdrFramebuffer,
+					nvrhi::Viewport( renderSystem->GetWidth(), renderSystem->GetHeight() ) );
+			}
 			RB_GetPathTracePrimaryPass( this ).DrawBoundsOverlayRaster(
-				RB_GetPathTraceLdrColorFramebuffer(),
+				pathTraceLdrFramebuffer,
 				nvrhi::Viewport( renderSystem->GetWidth(), renderSystem->GetHeight() ) );
 			renderLog.CloseBlock();
 			pathTraceDebugPresentPending = false;
+			pathTraceDebugPresentView = nullptr;
 		}
 	};
 
@@ -5600,6 +5616,7 @@ void idRenderBackend::ExecuteBackEndCommands( const emptyCommand_t* cmds )
 				drawView3D = true;
 				DrawView( cmds, 0 );
 				pathTraceDebugPresentPending = true;
+				pathTraceDebugPresentView = ( ( const drawSurfsCommand_t* )cmds )->viewDef;
 				c_draw3d++;
 				break;
 

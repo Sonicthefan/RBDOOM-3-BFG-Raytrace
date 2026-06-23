@@ -307,11 +307,15 @@ void TonemapPass::Render(
 		bool enableColorLUT = params.enableColorLUT && colorLutSize > 0;
 
 		ToneMappingConstants toneMappingConstants = {};
-		toneMappingConstants.exposureScale = ::exp2f( r_exposure.GetFloat() );
+		const float exposureBias = params.useGlobalExposureSettings ? r_exposure.GetFloat() : params.exposureBias;
+		const float minAdaptedLuminance = params.useGlobalExposureSettings ? r_hdrMinLuminance.GetFloat() : params.minAdaptedLuminance;
+		const float maxAdaptedLuminance = params.useGlobalExposureSettings ? r_hdrMaxLuminance.GetFloat() : params.maxAdaptedLuminance;
+		toneMappingConstants.exposureScale = ::exp2f( exposureBias );
 		toneMappingConstants.whitePointInvSquared = 1.f / powf( params.whitePoint, 2.f );
-		toneMappingConstants.minAdaptedLuminance = r_hdrMinLuminance.GetFloat();
-		toneMappingConstants.maxAdaptedLuminance = r_hdrMaxLuminance.GetFloat();
+		toneMappingConstants.minAdaptedLuminance = minAdaptedLuminance;
+		toneMappingConstants.maxAdaptedLuminance = maxAdaptedLuminance;
 		toneMappingConstants.sourceSlice = 0;
+		toneMappingConstants.enableACES = params.enableACES ? 1u : 0u;
 		toneMappingConstants.colorLUTTextureSize = enableColorLUT ? idVec2( colorLutSize * colorLutSize, colorLutSize ) : idVec2( 0.f, 0.f );
 		toneMappingConstants.colorLUTTextureSizeInv = enableColorLUT ? 1.f / toneMappingConstants.colorLUTTextureSize : idVec2( 0.f, 0.f );
 
@@ -338,7 +342,7 @@ void TonemapPass::SimpleRender( nvrhi::ICommandList* commandList, const ToneMapp
 {
 	commandList->beginMarker( "ToneMapping" );
 	ResetHistogram( commandList );
-	AddFrameToHistogram( commandList, viewDef, sourceTexture );
+	AddFrameToHistogram( commandList, params, viewDef, sourceTexture );
 	ComputeExposure( commandList, params );
 	Render( commandList, params, viewDef, sourceTexture, _fbHandle );
 	commandList->endMarker();
@@ -355,7 +359,7 @@ void TonemapPass::ResetHistogram( nvrhi::ICommandList* commandList )
 	commandList->clearBufferUInt( histogramBuffer, 0 );
 }
 
-void TonemapPass::AddFrameToHistogram( nvrhi::ICommandList* commandList, const viewDef_t* viewDef, nvrhi::ITexture* sourceTexture )
+void TonemapPass::AddFrameToHistogram( nvrhi::ICommandList* commandList, const ToneMappingParameters& params, const viewDef_t* viewDef, nvrhi::ITexture* sourceTexture )
 {
 	size_t renderHash = std::hash<nvrhi::ITexture*>()( sourceTexture );
 	nvrhi::BindingSetHandle bindingSet;
@@ -408,8 +412,10 @@ void TonemapPass::AddFrameToHistogram( nvrhi::ICommandList* commandList, const v
 	for( uint viewportIndex = 0; viewportIndex < viewportState.scissorRects.size(); viewportIndex++ )
 	{
 		ToneMappingConstants toneMappingConstants = {};
-		toneMappingConstants.logLuminanceScale = 1.0f / ( r_hdrMinLuminance.GetFloat() - r_hdrMaxLuminance.GetFloat() );
-		toneMappingConstants.logLuminanceBias = -r_hdrMinLuminance.GetFloat() * toneMappingConstants.logLuminanceScale;
+		const float minAdaptedLuminance = params.useGlobalExposureSettings ? r_hdrMinLuminance.GetFloat() : params.minAdaptedLuminance;
+		const float maxAdaptedLuminance = params.useGlobalExposureSettings ? r_hdrMaxLuminance.GetFloat() : params.maxAdaptedLuminance;
+		toneMappingConstants.logLuminanceScale = 1.0f / ( minAdaptedLuminance - maxAdaptedLuminance );
+		toneMappingConstants.logLuminanceBias = -minAdaptedLuminance * toneMappingConstants.logLuminanceScale;
 
 		nvrhi::Rect& scissor = viewportState.scissorRects[viewportIndex];
 		toneMappingConstants.viewOrigin = idVec2i( scissor.minX, scissor.minY );
@@ -446,10 +452,10 @@ void TonemapPass::ComputeExposure( nvrhi::ICommandList* commandList, const ToneM
 	toneMappingConstants.logLuminanceBias = minLuminance;
 	toneMappingConstants.histogramLowPercentile = Min( 0.99f, Max( 0.f, params.histogramLowPercentile ) );
 	toneMappingConstants.histogramHighPercentile = Min( 1.f, Max( toneMappingConstants.histogramLowPercentile, params.histogramHighPercentile ) );
-	toneMappingConstants.eyeAdaptationSpeedUp = r_hdrAdaptionRate.GetFloat();
-	toneMappingConstants.eyeAdaptationSpeedDown = r_hdrAdaptionRate.GetFloat() / 2.f;
-	toneMappingConstants.minAdaptedLuminance = r_hdrMinLuminance.GetFloat();
-	toneMappingConstants.maxAdaptedLuminance = r_hdrMaxLuminance.GetFloat();
+	toneMappingConstants.eyeAdaptationSpeedUp = params.useGlobalExposureSettings ? r_hdrAdaptionRate.GetFloat() : params.eyeAdaptationSpeedUp;
+	toneMappingConstants.eyeAdaptationSpeedDown = params.useGlobalExposureSettings ? r_hdrAdaptionRate.GetFloat() / 2.f : params.eyeAdaptationSpeedDown;
+	toneMappingConstants.minAdaptedLuminance = params.useGlobalExposureSettings ? r_hdrMinLuminance.GetFloat() : params.minAdaptedLuminance;
+	toneMappingConstants.maxAdaptedLuminance = params.useGlobalExposureSettings ? r_hdrMaxLuminance.GetFloat() : params.maxAdaptedLuminance;
 	toneMappingConstants.frameTime = Sys_Milliseconds() / 1000.0f;
 
 	if( !pcEnabledExposure )

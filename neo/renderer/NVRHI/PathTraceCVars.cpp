@@ -93,6 +93,42 @@ idCVar r_pathTracingGuiDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump captured RT smoke in-world GUI draw surfaces once" );
 
+idCVar r_pathTracingPostProcess(
+    "r_pathTracingPostProcess",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable PT HDR postprocess presentation path: 0 direct blit, 1 TonemapPass preview" );
+
+idCVar r_pathTracingPostExposure(
+    "r_pathTracingPostExposure",
+    "-0.5",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "PT postprocess exposure bias in stops, independent of raster r_exposure" );
+
+idCVar r_pathTracingPostMinLuminance(
+    "r_pathTracingPostMinLuminance",
+    "0.02",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "PT postprocess minimum adapted luminance clamp" );
+
+idCVar r_pathTracingPostMaxLuminance(
+    "r_pathTracingPostMaxLuminance",
+    "0.5",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "PT postprocess maximum adapted luminance clamp" );
+
+idCVar r_pathTracingPostWhitePoint(
+    "r_pathTracingPostWhitePoint",
+    "3.0",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "PT postprocess tonemap white point" );
+
+idCVar r_pathTracingPostACES(
+    "r_pathTracingPostACES",
+    "1",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "PT postprocess ACES curve toggle for A/B comparison" );
+
 idCVar r_pathTracingEmissiveInventoryDump(
     "r_pathTracingEmissiveInventoryDump",
     "0",

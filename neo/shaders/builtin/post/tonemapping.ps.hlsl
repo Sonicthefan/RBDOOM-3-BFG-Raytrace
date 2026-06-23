@@ -123,7 +123,10 @@ void main(
 	else
 	{
 		// Tonemapping curve is applied after exposure.
-		o_rgba.rgb = ACESFilm( o_rgba.rgb );
+		if( g_ToneMapping.enableACES != 0 )
+		{
+			o_rgba.rgb = ACESFilm( o_rgba.rgb );
+		}
 	}
 
 	// Gamma correction since we are not rendering to an sRGB render target.

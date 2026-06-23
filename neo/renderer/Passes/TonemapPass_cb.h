@@ -44,4 +44,8 @@ struct ToneMappingConstants
 
 	idVec2 colorLUTTextureSize;
 	idVec2 colorLUTTextureSizeInv;
+	uint enableACES;
+	uint padding0;
+	uint padding1;
+	uint padding2;
 };
