@@ -2331,6 +2331,12 @@ idCVar r_pathTracingDLSSRR(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental DLSS Ray Reconstruction evaluation gate for mode 56 primary-prepass output" );
 
+idCVar r_pathTracingDLSSRRInputDump(
+    "r_pathTracingDLSSRRInputDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "One-shot HDR EXR dump of the next DLSS RR input color buffer under the basepath screenshots/dlssrr_input_*.exr" );
+
 idCVar r_pathTracingDLSSRRColorBuffersHDR(
     "r_pathTracingDLSSRRColorBuffersHDR",
     "1",

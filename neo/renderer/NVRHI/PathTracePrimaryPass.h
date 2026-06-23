@@ -76,6 +76,8 @@ private:
     void BuildRayTracingSmokeTestScene(const viewDef_t* viewDef);
     void ExecuteRayTracingSmokeTest(const viewDef_t* viewDef);
     void ReadBackRayTracingSmokeTest();
+    void ReadBackDLSSRRInputColorDump();
+    void QueueDLSSRRInputColorDump(nvrhi::ICommandList* commandList, nvrhi::ITexture* inputColor, int source, uint32_t frameIndex);
 
     idRenderBackend* m_backend;
     bool m_reportedMode;

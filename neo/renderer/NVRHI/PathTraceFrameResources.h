@@ -106,6 +106,7 @@ struct RtPathTraceFrameResources
     nvrhi::TextureHandle rrGuideResetMaskTexture;
     nvrhi::TextureHandle rrGuidePositionTexture;
     nvrhi::StagingTextureHandle readbackTexture;
+    nvrhi::StagingTextureHandle rrInputColorDumpReadbackTexture;
     int width = 0;
     int height = 0;
 
@@ -140,6 +141,10 @@ struct RtPathTraceFrameResources
     bool readbackLogged = false;
     int readbackDelayFrames = 0;
     int readbackCooldownFrames = 0;
+    bool rrInputColorDumpQueued = false;
+    int rrInputColorDumpDelayFrames = 0;
+    int rrInputColorDumpSource = 0;
+    uint32_t rrInputColorDumpFrameIndex = 0;
 
     RtPathTraceFrameSettings settings;
     RtPathTraceFrameResourceDiagnostics diagnostics;

@@ -119,6 +119,7 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         rrGuideResetMaskTexture &&
         rrGuidePositionTexture &&
         readbackTexture &&
+        rrInputColorDumpReadbackTexture &&
         smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight) &&
         restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
         restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
@@ -147,6 +148,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         rrGuideResetMaskTexture ||
         rrGuidePositionTexture ||
         readbackTexture ||
+        rrInputColorDumpReadbackTexture ||
         smokeReservoirBuffers.current ||
         smokeReservoirBuffers.previous ||
         smokeReservoirBuffers.spatialScratch ||
@@ -347,6 +349,14 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
+    readbackDesc.debugName = "PathTraceRRInputColorDumpReadback";
+    nvrhi::StagingTextureHandle newRrInputColorDumpReadbackTexture = device->createStagingTexture(readbackDesc, nvrhi::CpuAccessMode::Read);
+    if (!newRrInputColorDumpReadbackTexture)
+    {
+        common->Printf("PathTraceFrameResources: failed to create PT RR input-color dump readback texture (%dx%d)\n", requestedWidth, requestedHeight);
+        return false;
+    }
+
     const bool smokeReservoirWasValid = smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight);
     const bool restirReservoirWasValid = restirPTReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode);
     const bool restirDiReservoirWasValid = restirPTDiReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode);
@@ -369,13 +379,14 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     rrGuideResetMaskTexture = newRrGuideResetMaskTexture;
     rrGuidePositionTexture = newRrGuidePositionTexture;
     readbackTexture = newReadbackTexture;
+    rrInputColorDumpReadbackTexture = newRrInputColorDumpReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
     diagnostics.outputTexturesCreated += 5;
     diagnostics.motionVectorTexturesCreated += 2;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.rrGuideTexturesCreated += 7;
-    diagnostics.diagnosticReadbackResourcesCreated++;
+    diagnostics.diagnosticReadbackResourcesCreated += 2;
     diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 5ull;
     diagnostics.motionVectorBytes = EstimateRgba16FloatTextureBytes(width, height) + EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
@@ -586,6 +597,7 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     rrGuideResetMaskTexture = nullptr;
     rrGuidePositionTexture = nullptr;
     readbackTexture = nullptr;
+    rrInputColorDumpReadbackTexture = nullptr;
     width = 0;
     height = 0;
     smokeReservoirBuffers.Reset();
@@ -645,6 +657,10 @@ void RtPathTraceFrameResources::ResetReadbackQueue()
     readbackQueued = false;
     readbackDelayFrames = 0;
     readbackCooldownFrames = 0;
+    rrInputColorDumpQueued = false;
+    rrInputColorDumpDelayFrames = 0;
+    rrInputColorDumpSource = 0;
+    rrInputColorDumpFrameIndex = 0;
 }
 
 void RtPathTraceFrameResources::MarkResetReason(uint32_t reasonFlags)
