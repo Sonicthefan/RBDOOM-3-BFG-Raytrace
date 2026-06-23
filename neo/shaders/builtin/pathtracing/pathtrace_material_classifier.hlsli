@@ -144,7 +144,8 @@ float2 SmokeMatClassNormalXY(PathTraceSmokeMaterial material, float4 bump, float
     }
     if (normalDecodeMode == RT_MATCLASS_NORMAL_DECODE_COMPRESSED_WY)
     {
-        return float2(bump.w, -bump.y);
+        const float normalY = globalFlipGreen > 0.5 ? -bump.y : bump.y;
+        return float2(bump.w, normalY);
     }
 
     const float normalY = globalFlipGreen > 0.5 ? -bump.y : bump.y;
