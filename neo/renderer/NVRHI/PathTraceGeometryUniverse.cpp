@@ -3924,56 +3924,98 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
     const int normalizedMaxInstances = maxInstances > 0 ? maxInstances : 0;
     if (normalizedMaxInstances > 0 && static_cast<int>(instances.size()) > normalizedMaxInstances)
     {
-        const auto routeReadyCountForRange = [this, &instances](size_t begin, size_t end) -> int
+        struct RigidRouteSelectionGroup
         {
+            std::vector<size_t> indices;
             int readyCount = 0;
-            for (size_t instanceIndex = begin; instanceIndex < end; ++instanceIndex)
-            {
-                const RtPathTraceRigidRouteInstanceObservation& instance = instances[instanceIndex];
-                if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
-                {
-                    continue;
-                }
-                const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
-                if (it == m_rigidMeshCandidateLookup.end() || it->second >= m_rigidMeshCandidateRecords.size())
-                {
-                    continue;
-                }
-                const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
-                if (!record.valid || !record.rigidBlas)
-                {
-                    continue;
-                }
-                if (!m_rigidResidencyEnabled && !record.seenThisFrame)
-                {
-                    continue;
-                }
-                ++readyCount;
-            }
-            return readyCount;
+            bool seenThisFrame = false;
+            bool stable = false;
+            bool transformContinuous = false;
+            size_t firstIndex = 0;
         };
 
-        const auto appendPartialGroup = [this, &instances, normalizedMaxInstances](std::vector<RtPathTraceRigidRouteInstanceObservation>& selected, size_t begin, size_t end, int& remaining) -> void
+        const auto routeReadyForInstance = [this, &instances](size_t instanceIndex) -> bool
         {
-            for (size_t instanceIndex = begin; instanceIndex < end && remaining > 0; ++instanceIndex)
+            const RtPathTraceRigidRouteInstanceObservation& instance = instances[instanceIndex];
+            if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
             {
-                const RtPathTraceRigidRouteInstanceObservation& instance = instances[instanceIndex];
-                bool consumesBudget = false;
-                if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) != 0)
+                return false;
+            }
+            const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
+            if (it == m_rigidMeshCandidateLookup.end() || it->second >= m_rigidMeshCandidateRecords.size())
+            {
+                return false;
+            }
+            const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
+            return record.valid &&
+                record.rigidBlas &&
+                (m_rigidResidencyEnabled || record.seenThisFrame);
+        };
+
+        std::vector<RigidRouteSelectionGroup> groups;
+        for (size_t instanceIndex = 0; instanceIndex < instances.size(); ++instanceIndex)
+        {
+            size_t groupIndex = groups.size();
+            for (size_t testIndex = 0; testIndex < groups.size(); ++testIndex)
+            {
+                if (!groups[testIndex].indices.empty() &&
+                    RigidRouteEntityKeyEqual(instances[groups[testIndex].indices.front()], instances[instanceIndex]))
                 {
-                    const std::unordered_map<uint64, size_t>::const_iterator it = m_rigidMeshCandidateLookup.find(instance.meshHash);
-                    if (it != m_rigidMeshCandidateLookup.end() && it->second < m_rigidMeshCandidateRecords.size())
-                    {
-                        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
-                        consumesBudget = record.valid &&
-                            record.rigidBlas &&
-                            (m_rigidResidencyEnabled || record.seenThisFrame);
-                    }
+                    groupIndex = testIndex;
+                    break;
                 }
-                selected.push_back(instance);
+            }
+            if (groupIndex == groups.size())
+            {
+                RigidRouteSelectionGroup group;
+                group.firstIndex = instanceIndex;
+                groups.push_back(group);
+            }
+
+            RigidRouteSelectionGroup& group = groups[groupIndex];
+            group.indices.push_back(instanceIndex);
+            group.seenThisFrame = group.seenThisFrame || instances[instanceIndex].seenThisFrame;
+            group.stable = group.stable || instances[instanceIndex].isStable;
+            group.transformContinuous = group.transformContinuous || instances[instanceIndex].transformContinuous;
+            if (routeReadyForInstance(instanceIndex))
+            {
+                ++group.readyCount;
+            }
+        }
+
+        std::stable_sort(
+            groups.begin(),
+            groups.end(),
+            [](const RigidRouteSelectionGroup& a, const RigidRouteSelectionGroup& b)
+            {
+                if (a.seenThisFrame != b.seenThisFrame)
+                {
+                    return a.seenThisFrame;
+                }
+                if (a.stable != b.stable)
+                {
+                    return a.stable;
+                }
+                if (a.transformContinuous != b.transformContinuous)
+                {
+                    return a.transformContinuous;
+                }
+                return a.firstIndex < b.firstIndex;
+            });
+
+        const auto appendPartialGroup = [&instances, &routeReadyForInstance, normalizedMaxInstances](std::vector<RtPathTraceRigidRouteInstanceObservation>& selected, const RigidRouteSelectionGroup& group, int& remaining) -> void
+        {
+            for (size_t instanceIndex : group.indices)
+            {
+                const bool consumesBudget = routeReadyForInstance(instanceIndex);
+                selected.push_back(instances[instanceIndex]);
                 if (consumesBudget)
                 {
                     --remaining;
+                    if (remaining <= 0)
+                    {
+                        break;
+                    }
                 }
                 if (static_cast<int>(selected.size()) >= normalizedMaxInstances)
                 {
@@ -3985,26 +4027,25 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
         std::vector<RtPathTraceRigidRouteInstanceObservation> selectedInstances;
         selectedInstances.reserve(normalizedMaxInstances);
         int remainingRouteBudget = normalizedMaxInstances;
-        for (size_t groupBegin = 0; groupBegin < instances.size() && remainingRouteBudget > 0;)
+        for (const RigidRouteSelectionGroup& group : groups)
         {
-            size_t groupEnd = groupBegin + 1;
-            while (groupEnd < instances.size() && RigidRouteEntityKeyEqual(instances[groupBegin], instances[groupEnd]))
+            if (remainingRouteBudget <= 0)
             {
-                ++groupEnd;
+                break;
             }
 
-            const int groupReadyCount = routeReadyCountForRange(groupBegin, groupEnd);
-            if (groupReadyCount <= remainingRouteBudget)
+            if (group.readyCount <= remainingRouteBudget)
             {
-                selectedInstances.insert(selectedInstances.end(), instances.begin() + groupBegin, instances.begin() + groupEnd);
-                remainingRouteBudget -= groupReadyCount;
+                for (size_t instanceIndex : group.indices)
+                {
+                    selectedInstances.push_back(instances[instanceIndex]);
+                }
+                remainingRouteBudget -= group.readyCount;
             }
             else if (selectedInstances.empty())
             {
-                appendPartialGroup(selectedInstances, groupBegin, groupEnd, remainingRouteBudget);
+                appendPartialGroup(selectedInstances, group, remainingRouteBudget);
             }
-
-            groupBegin = groupEnd;
         }
         instances.swap(selectedInstances);
     }
