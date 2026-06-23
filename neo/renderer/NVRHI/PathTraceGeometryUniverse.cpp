@@ -2920,6 +2920,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     m_rigidResidentFrameInstances.clear();
     m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
     m_rigidResidencyStats.enabled = enabled ? 1 : 0;
+    m_rigidResidencyStats.residencyV2 = r_pathTracingGeometryResidencyV2.GetInteger() != 0 ? 1 : 0;
     m_rigidResidencyStats.frameIndex = m_currentFrameIndex;
     m_rigidResidencyStats.generation = m_generation;
     m_rigidResidencyStats.portalSteps = idMath::ClampInt(0, 8, portalSteps);
@@ -3211,9 +3212,13 @@ const RtPathTraceRigidResidencyStats& RtSmokeGeometryUniverse::GetRigidResidency
 
 void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource) const
 {
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid/staleModel=%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep=%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
+    const char* routeSource = !stats.enabled
+        ? "visibleOnly"
+        : (stats.residencyV2 ? "residencyV2" : "legacyAreaWalk");
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid/staleModel=%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep=%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
+        stats.residencyV2,
         static_cast<unsigned long long>(stats.frameIndex),
         static_cast<unsigned long long>(stats.generation),
         stats.currentArea,
@@ -3241,7 +3246,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.residentMissingBlas,
         stats.skippedOutsideArea,
         stats.skippedUnknownArea,
-        stats.enabled ? "portalResident" : "visibleOnly");
+        routeSource);
 
     for (int sampleIndex = 0; sampleIndex < stats.sampleCount; ++sampleIndex)
     {

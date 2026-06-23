@@ -431,6 +431,7 @@ struct RtPathTraceRigidResidencyBoundsBox
 struct RtPathTraceRigidResidencyStats
 {
     int enabled = 0;
+    int residencyV2 = 0;
     int currentArea = -1;
     int totalAreas = 0;
     int portalSteps = 1;
