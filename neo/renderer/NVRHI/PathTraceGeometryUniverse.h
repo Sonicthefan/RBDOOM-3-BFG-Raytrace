@@ -383,6 +383,7 @@ struct RtPathTraceRigidRouteBuildStats
     int missingMaterialTableIndex = 0;
     int emittedSeenThisFrame = 0;
     int emittedFromCache = 0;
+    int emittedUniqueMeshes = 0;
     int previousTransformInstances = 0;
     int transformContinuousInstances = 0;
 };

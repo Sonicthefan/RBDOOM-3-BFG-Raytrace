@@ -175,6 +175,11 @@ struct RtSmokeSceneBuildSummaryLogDesc
     int dynamicVertexCount = 0;
     int instanceCount = 0;
     int rigidTlasInstanceCount = 0;
+    int rigidRouteInstanceCount = 0;
+    int rigidRouteUniqueMeshes = 0;
+    int rigidRouteVertexCount = 0;
+    int rigidRouteIndexCount = 0;
+    int rigidRouteTriangleCount = 0;
     int staticBvhResidentBuckets = 0;
     int staticBvhActiveBuckets = 0;
     int staticBvhInactiveResidentBuckets = 0;
@@ -213,6 +218,9 @@ struct RtSmokeSceneBuildSummaryLogDesc
     uint64 previousStaticUploadSkippedBytes = 0;
     uint64 dynamicUploadBytes = 0;
     uint64 rigidRouteUploadBytes = 0;
+    uint64 rigidRouteGeometryBytes = 0;
+    uint64 rigidRouteInstanceBytes = 0;
+    int rigidRouteBuildMs = 0;
     int bvhFramePlanMs = 0;
     int bufferUploadMs = 0;
     int accelSubmitMs = 0;
@@ -306,6 +314,11 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     int dynamicVertexCount = 0;
     int instanceCount = 0;
     int rigidTlasInstanceCount = 0;
+    int rigidRouteInstanceCount = 0;
+    int rigidRouteUniqueMeshes = 0;
+    int rigidRouteVertexCount = 0;
+    int rigidRouteIndexCount = 0;
+    int rigidRouteTriangleCount = 0;
     int staticBvhResidentBuckets = 0;
     int staticBvhActiveBuckets = 0;
     int staticBvhInactiveResidentBuckets = 0;
@@ -345,6 +358,9 @@ struct RtSmokeSceneBuildDiagnosticLogDesc
     uint64 previousStaticUploadSkippedBytes = 0;
     uint64 dynamicUploadBytes = 0;
     uint64 rigidRouteUploadBytes = 0;
+    uint64 rigidRouteGeometryBytes = 0;
+    uint64 rigidRouteInstanceBytes = 0;
+    int rigidRouteBuildMs = 0;
     int bvhFramePlanMs = 0;
     bool staticBlasBuildSubmitted = false;
     bool staticBlasBuildSkipped = false;

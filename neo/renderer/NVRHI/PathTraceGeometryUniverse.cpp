@@ -4235,6 +4235,7 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
     RtPathTraceRigidRouteBuild build;
     std::vector<PathTraceSmokeVertex> localVertices;
     std::vector<uint32_t> localIndexes;
+    std::unordered_set<uint64> emittedMeshHashes;
 
     build.stats.visibleInstances = plan.visibleInstances;
     build.stats.skippedNonRigid = plan.rejectedNonRigid;
@@ -4323,6 +4324,10 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         build.instanceObjectToWorld.push_back(objectToWorld);
 
         ++build.stats.emittedInstances;
+        if (emittedMeshHashes.insert(record.meshHash).second)
+        {
+            ++build.stats.emittedUniqueMeshes;
+        }
         if (plannedInstance.sourceSeenThisFrame)
         {
             ++build.stats.emittedSeenThisFrame;

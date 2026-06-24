@@ -3270,13 +3270,23 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
 
     const bool buildRigidRouteBuffers = enableRigidRouteForMode;
     RtPathTraceRigidRouteBuild rigidRouteBuild;
+    int rigidRouteBuildMs = 0;
     if (buildRigidRouteBuffers)
     {
+        const int rigidRouteBuildStartMs = Sys_Milliseconds();
         rigidRouteBuild = m_smokeGeometryUniverse.BuildRigidRouteBuffers(rigidTlasPlan, materialTable.materialIds);
+        rigidRouteBuildMs = Sys_Milliseconds() - rigidRouteBuildStartMs;
         if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
         {
-            common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
+            const uint64_t rigidRouteGeometryBytes =
+                rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex) +
+                rigidRouteBuild.indexes.size() * sizeof(uint32_t) +
+                rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t) +
+                rigidRouteBuild.triangleMaterialIndexes.size() * sizeof(uint32_t);
+            const uint64_t rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
+            common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst)=%llu/%llu buildMs=%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
                 rigidRouteBuild.stats.emittedInstances,
+                rigidRouteBuild.stats.emittedUniqueMeshes,
                 rigidRouteMaxInstances,
                 rigidRouteBuild.stats.emittedSeenThisFrame,
                 rigidRouteBuild.stats.emittedFromCache,
@@ -3285,6 +3295,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 rigidRouteBuild.stats.vertices,
                 rigidRouteBuild.stats.indexes,
                 rigidRouteBuild.stats.triangles,
+                static_cast<unsigned long long>(rigidRouteGeometryBytes),
+                static_cast<unsigned long long>(rigidRouteInstanceBytes),
+                rigidRouteBuildMs,
                 rigidRouteBuild.stats.skippedNonRigid,
                 rigidRouteBuild.stats.skippedMissingMesh,
                 rigidRouteBuild.stats.skippedMissingBlas,
@@ -5512,6 +5525,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 2);
     const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 17, 17);
     const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 34, 5);
+    const uint64_t rigidRouteGeometryBytes =
+        rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex) +
+        rigidRouteBuild.indexes.size() * sizeof(uint32_t) +
+        rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t) +
+        rigidRouteBuild.triangleMaterialIndexes.size() * sizeof(uint32_t);
+    const uint64_t rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;
@@ -5949,6 +5968,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.dynamicVertexCount = dynamicVertexCount;
     sceneLogDesc.instanceCount = instanceCount;
     sceneLogDesc.rigidTlasInstanceCount = static_cast<int>(rigidTlasRouteInstances.size());
+    sceneLogDesc.rigidRouteInstanceCount = rigidRouteBuild.stats.emittedInstances;
+    sceneLogDesc.rigidRouteUniqueMeshes = rigidRouteBuild.stats.emittedUniqueMeshes;
+    sceneLogDesc.rigidRouteVertexCount = rigidRouteBuild.stats.vertices;
+    sceneLogDesc.rigidRouteIndexCount = rigidRouteBuild.stats.indexes;
+    sceneLogDesc.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
     std::vector<RtSmokeStaticTlasBucketObservation> staticActiveBuckets;
     m_smokeGeometryUniverse.BuildStaticTlasBucketObservations(
         staticActiveBuckets,
@@ -6059,6 +6083,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.previousStaticUploadSkippedBytes = previousStaticUploadSkippedBytes;
     sceneLogDesc.dynamicUploadBytes = dynamicUploadBytes;
     sceneLogDesc.rigidRouteUploadBytes = rigidRouteUploadBytes;
+    sceneLogDesc.rigidRouteGeometryBytes = rigidRouteGeometryBytes;
+    sceneLogDesc.rigidRouteInstanceBytes = rigidRouteInstanceBytes;
+    sceneLogDesc.rigidRouteBuildMs = rigidRouteBuildMs;
     sceneLogDesc.staticBlasBuildSubmitted = accelSubmitTiming.staticBlasBuildSubmitted;
     sceneLogDesc.staticBlasBuildSkipped = accelSubmitTiming.staticBlasBuildSkipped;
     sceneLogDesc.dynamicBlasBuildSubmitted = accelSubmitTiming.dynamicBlasBuildSubmitted;

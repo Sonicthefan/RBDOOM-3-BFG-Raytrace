@@ -505,7 +505,7 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
 {
     common->Printf("PathTracePrimaryPass: RT smoke BLAS split static-world=%d indexes, dynamic-candidate=%d indexes, TLAS instances=%d\n",
         desc.staticIndexCount, desc.dynamicIndexCount, desc.instanceCount);
-    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d staticBuckets(active/resident/inactive/emitted)=%d/%d/%d/%d staticBucketBlas(records/skipInactive/skipInvalid/overflow)=%d/%d/%d/%d staticBucketShader(routeRequired/compatible/exactMono/nonZeroOffsets)=%d/%d/%d/%d routeNs(staticBlocked/staticFirst/rigidFirst/staticCount/rigidShift)=%d/%u/%u/%d/%d staticPolicy(monolithicIncludesInactive/requiresBuckets)=%d/%d dynamicActive(v/i)=%d/%d tlas(base+rigid/total)=%d+%d/%d dirty(prev geom/activeGeom/resident/material/active/tlas blas/tlas)=%d %d/%d/%d/%d/%d/%d %d/%d sig(active/resident/geom/activeBlas/tlas)=%llu/%llu/%llu/%llu/%llu blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/bvhPlan/upload/blas/tlas/accel)=%d/%d/%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT BVH active AS staticActive(surf/v/i)=%d/%d/%d staticRetained(surf/v/i)=%d/%d/%d staticBuckets(active/resident/inactive/emitted)=%d/%d/%d/%d staticBucketBlas(records/skipInactive/skipInvalid/overflow)=%d/%d/%d/%d staticBucketShader(routeRequired/compatible/exactMono/nonZeroOffsets)=%d/%d/%d/%d routeNs(staticBlocked/staticFirst/rigidFirst/staticCount/rigidShift)=%d/%u/%u/%d/%d staticPolicy(monolithicIncludesInactive/requiresBuckets)=%d/%d dynamicActive(v/i)=%d/%d rigidRoute(inst/unique/v/i/t geomBytes/instBytes)=%d/%d/%d/%d/%d %llu/%llu tlas(base+rigid/total)=%d+%d/%d dirty(prev geom/activeGeom/resident/material/active/tlas blas/tlas)=%d %d/%d/%d/%d/%d/%d %d/%d sig(active/resident/geom/activeBlas/tlas)=%llu/%llu/%llu/%llu/%llu blasBuild(static/dynamic submit skip)=%d/%d %d/%d uploadBytes(static/prev/prevSkip/dynamic/rigidRoute)=%llu/%llu/%llu/%llu/%llu timings(sig/routeBuild/bvhPlan/upload/blas/tlas/accel)=%d/%d/%d/%d/%d/%d/%d\n",
         desc.classStats.staticWorldSurfaces,
         desc.staticVertexCount,
         desc.staticIndexCount,
@@ -533,6 +533,13 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         desc.staticRequiresBucketedBlas ? 1 : 0,
         desc.dynamicVertexCount,
         desc.dynamicIndexCount,
+        desc.rigidRouteInstanceCount,
+        desc.rigidRouteUniqueMeshes,
+        desc.rigidRouteVertexCount,
+        desc.rigidRouteIndexCount,
+        desc.rigidRouteTriangleCount,
+        static_cast<unsigned long long>(desc.rigidRouteGeometryBytes),
+        static_cast<unsigned long long>(desc.rigidRouteInstanceBytes),
         desc.instanceCount - desc.rigidTlasInstanceCount,
         desc.rigidTlasInstanceCount,
         desc.instanceCount,
@@ -560,6 +567,7 @@ static void LogSmokeSceneBuildCommonSummary(const RtSmokeSceneBuildSummaryLogDes
         static_cast<unsigned long long>(desc.dynamicUploadBytes),
         static_cast<unsigned long long>(desc.rigidRouteUploadBytes),
         desc.staticBlasSignatureMs,
+        desc.rigidRouteBuildMs,
         desc.bvhFramePlanMs,
         desc.bufferUploadMs,
         desc.blasSubmitMs,
@@ -1928,6 +1936,11 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.dynamicVertexCount = desc.dynamicVertexCount;
     sceneSummaryLog.instanceCount = desc.instanceCount;
     sceneSummaryLog.rigidTlasInstanceCount = desc.rigidTlasInstanceCount;
+    sceneSummaryLog.rigidRouteInstanceCount = desc.rigidRouteInstanceCount;
+    sceneSummaryLog.rigidRouteUniqueMeshes = desc.rigidRouteUniqueMeshes;
+    sceneSummaryLog.rigidRouteVertexCount = desc.rigidRouteVertexCount;
+    sceneSummaryLog.rigidRouteIndexCount = desc.rigidRouteIndexCount;
+    sceneSummaryLog.rigidRouteTriangleCount = desc.rigidRouteTriangleCount;
     sceneSummaryLog.staticBvhResidentBuckets = desc.staticBvhResidentBuckets;
     sceneSummaryLog.staticBvhActiveBuckets = desc.staticBvhActiveBuckets;
     sceneSummaryLog.staticBvhInactiveResidentBuckets = desc.staticBvhInactiveResidentBuckets;
@@ -1966,6 +1979,9 @@ void RunSmokeSceneBuildDiagnosticLogs(const RtSmokeSceneBuildDiagnosticLogDesc& 
     sceneSummaryLog.previousStaticUploadSkippedBytes = desc.previousStaticUploadSkippedBytes;
     sceneSummaryLog.dynamicUploadBytes = desc.dynamicUploadBytes;
     sceneSummaryLog.rigidRouteUploadBytes = desc.rigidRouteUploadBytes;
+    sceneSummaryLog.rigidRouteGeometryBytes = desc.rigidRouteGeometryBytes;
+    sceneSummaryLog.rigidRouteInstanceBytes = desc.rigidRouteInstanceBytes;
+    sceneSummaryLog.rigidRouteBuildMs = desc.rigidRouteBuildMs;
     sceneSummaryLog.bvhFramePlanMs = desc.bvhFramePlanMs;
     sceneSummaryLog.bufferUploadMs = desc.bufferUploadMs;
     sceneSummaryLog.accelSubmitMs = desc.accelSubmitMs;
