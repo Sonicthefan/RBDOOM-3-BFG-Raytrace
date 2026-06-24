@@ -4255,9 +4255,22 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
     const RtSmokeRigidTlasPlan& plan,
     const std::vector<uint32_t>& materialTableIds) const
 {
+    struct RigidRouteGeometryRange
+    {
+        uint32_t vertexOffset = 0;
+        uint32_t indexOffset = 0;
+        uint32_t triangleOffset = 0;
+        uint32_t vertexCount = 0;
+        uint32_t indexCount = 0;
+        uint32_t triangleCount = 0;
+        uint32_t materialId = 0;
+        uint32_t materialIndex = 0;
+    };
+
     RtPathTraceRigidRouteBuild build;
     std::vector<PathTraceSmokeVertex> localVertices;
     std::vector<uint32_t> localIndexes;
+    std::unordered_map<uint64, RigidRouteGeometryRange> emittedGeometryRanges;
     std::unordered_set<uint64> emittedMeshHashes;
 
     build.stats.visibleInstances = plan.visibleInstances;
@@ -4287,38 +4300,57 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
             continue;
         }
 
-        localVertices.clear();
-        localIndexes.clear();
-        if (!BuildRigidLocalMeshData(record, localVertices, localIndexes))
+        const RigidRouteGeometryRange* sharedGeometry = nullptr;
+        const std::unordered_map<uint64, RigidRouteGeometryRange>::const_iterator sharedIt = emittedGeometryRanges.find(record.meshHash);
+        if (sharedIt != emittedGeometryRanges.end())
         {
-            ++build.stats.skippedMissingMesh;
-            AppendRigidRoutePlaceholder(build, plannedInstance);
-            continue;
+            sharedGeometry = &sharedIt->second;
         }
 
-        const uint32_t vertexOffset = static_cast<uint32_t>(build.vertices.size());
-        const uint32_t indexOffset = static_cast<uint32_t>(build.indexes.size());
-        const uint32_t triangleOffset = static_cast<uint32_t>(build.triangleMaterials.size());
-        build.vertices.insert(build.vertices.end(), localVertices.begin(), localVertices.end());
-        build.indexes.insert(build.indexes.end(), localIndexes.begin(), localIndexes.end());
-
-        const uint32_t materialIndex = FindRigidRouteMaterialTableIndex(materialTableIds, record.materialId, build.stats.missingMaterialTableIndex);
-        const int triangleCount = static_cast<int>(localIndexes.size() / 3);
-        for (int triangleIndex = 0; triangleIndex < triangleCount; ++triangleIndex)
+        RigidRouteGeometryRange geometryRange;
+        if (sharedGeometry)
         {
-            build.triangleMaterials.push_back(record.materialId);
-            build.triangleMaterialIndexes.push_back(materialIndex);
+            geometryRange = *sharedGeometry;
+        }
+        else
+        {
+            localVertices.clear();
+            localIndexes.clear();
+            if (!BuildRigidLocalMeshData(record, localVertices, localIndexes))
+            {
+                ++build.stats.skippedMissingMesh;
+                AppendRigidRoutePlaceholder(build, plannedInstance);
+                continue;
+            }
+
+            geometryRange.vertexOffset = static_cast<uint32_t>(build.vertices.size());
+            geometryRange.indexOffset = static_cast<uint32_t>(build.indexes.size());
+            geometryRange.triangleOffset = static_cast<uint32_t>(build.triangleMaterials.size());
+            geometryRange.vertexCount = static_cast<uint32_t>(localVertices.size());
+            geometryRange.indexCount = static_cast<uint32_t>(localIndexes.size());
+            geometryRange.triangleCount = static_cast<uint32_t>(localIndexes.size() / 3);
+            geometryRange.materialId = record.materialId;
+            geometryRange.materialIndex = FindRigidRouteMaterialTableIndex(materialTableIds, record.materialId, build.stats.missingMaterialTableIndex);
+
+            build.vertices.insert(build.vertices.end(), localVertices.begin(), localVertices.end());
+            build.indexes.insert(build.indexes.end(), localIndexes.begin(), localIndexes.end());
+            for (uint32_t triangleIndex = 0; triangleIndex < geometryRange.triangleCount; ++triangleIndex)
+            {
+                build.triangleMaterials.push_back(geometryRange.materialId);
+                build.triangleMaterialIndexes.push_back(geometryRange.materialIndex);
+            }
+            emittedGeometryRanges[record.meshHash] = geometryRange;
         }
 
         PathTraceRigidRouteInstance routeInstance;
-        routeInstance.vertexOffset = vertexOffset;
-        routeInstance.indexOffset = indexOffset;
-        routeInstance.triangleOffset = triangleOffset;
-        routeInstance.materialId = record.materialId;
-        routeInstance.materialIndex = materialIndex;
-        routeInstance.vertexCount = static_cast<uint32_t>(localVertices.size());
-        routeInstance.indexCount = static_cast<uint32_t>(localIndexes.size());
-        routeInstance.triangleCount = static_cast<uint32_t>(triangleCount);
+        routeInstance.vertexOffset = geometryRange.vertexOffset;
+        routeInstance.indexOffset = geometryRange.indexOffset;
+        routeInstance.triangleOffset = geometryRange.triangleOffset;
+        routeInstance.materialId = geometryRange.materialId;
+        routeInstance.materialIndex = geometryRange.materialIndex;
+        routeInstance.vertexCount = geometryRange.vertexCount;
+        routeInstance.indexCount = geometryRange.indexCount;
+        routeInstance.triangleCount = geometryRange.triangleCount;
         routeInstance.instanceIdLo = static_cast<uint32_t>(plannedInstance.sourceInstanceId & 0xffffffffull);
         routeInstance.instanceIdHi = static_cast<uint32_t>((plannedInstance.sourceInstanceId >> 32) & 0xffffffffull);
         if (plannedInstance.hasPreviousTransform)
@@ -4359,9 +4391,12 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         {
             ++build.stats.emittedFromCache;
         }
-        build.stats.vertices += static_cast<int>(localVertices.size());
-        build.stats.indexes += static_cast<int>(localIndexes.size());
-        build.stats.triangles += triangleCount;
+        if (!sharedGeometry)
+        {
+            build.stats.vertices += static_cast<int>(geometryRange.vertexCount);
+            build.stats.indexes += static_cast<int>(geometryRange.indexCount);
+            build.stats.triangles += static_cast<int>(geometryRange.triangleCount);
+        }
     }
 
     return build;
