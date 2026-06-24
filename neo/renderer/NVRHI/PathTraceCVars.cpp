@@ -159,6 +159,12 @@ idCVar r_pathTracingPostLUTReload(
     CVAR_RENDERER | CVAR_INTEGER,
     "Reload the current PT postprocess LUT image once" );
 
+idCVar r_pathTracingPostLUTDebug(
+    "r_pathTracingPostLUTDebug",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Debug PT post LUT path: 0 normal, 1 bypass LUT sample, 2 show LUT white corner" );
+
 idCVar r_pathTracingEmissiveInventoryDump(
     "r_pathTracingEmissiveInventoryDump",
     "0",

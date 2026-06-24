@@ -46,8 +46,8 @@ struct ToneMappingConstants
 	float2 colorLUTTextureSize;
 	float2 colorLUTTextureSizeInv;
 	uint enableACES;
-	uint padding0;
-	uint padding1;
+	uint colorLUTDebugMode;
+	uint colorLUTUseOverride;
 	uint padding2;
 	float contrast;
 	float saturation;

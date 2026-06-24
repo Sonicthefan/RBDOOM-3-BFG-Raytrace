@@ -41,8 +41,12 @@ struct ToneMappingParameters
 	float saturation = 1.0f;
 	bool enableACES = true;
 	bool enableColorLUT = true;
+	uint colorLUTDebugMode = 0;
+	uint colorLUTUseOverride = 0;
+	int colorLUTTextureOverrideSize = 0;
 	bool useGlobalExposureSettings = true;
 	idImage* colorLUTOverride = nullptr;
+	nvrhi::TextureHandle colorLUTTextureOverride = nullptr;
 };
 
 class TonemapPass

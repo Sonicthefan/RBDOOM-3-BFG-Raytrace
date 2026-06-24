@@ -82,11 +82,20 @@ float3 ConvertToLDR( float3 color )
 	return color * ( mappedLuminance / srcLuminance );
 }
 
+float3 ReadColorLUTTexel( int x, int y )
+{
+	return t_ColorLUT.Load( int3( x, y, 0 ) ).rgb;
+}
+
 float3 ApplyColorLUT( float3 color )
 {
 	color = saturate( color );
 
-	const int size = max( 1, ( int )g_ToneMapping.colorLUTTextureSize.y );
+	uint lutWidth = 0;
+	uint lutHeight = 0;
+	t_ColorLUT.GetDimensions( lutWidth, lutHeight );
+
+	const int size = max( 1, ( int )lutHeight );
 	const int maxIndex = size - 1;
 	float3 scaled = color * maxIndex;
 	int3 index0 = int3( floor( scaled ) );
@@ -102,14 +111,14 @@ float3 ApplyColorLUT( float3 color )
 	int x011 = index0.r + index1.b * size;
 	int x111 = index1.r + index1.b * size;
 
-	float3 c000 = t_ColorLUT.Load( int3( x000, index0.g, 0 ) ).rgb;
-	float3 c100 = t_ColorLUT.Load( int3( x100, index0.g, 0 ) ).rgb;
-	float3 c010 = t_ColorLUT.Load( int3( x010, index1.g, 0 ) ).rgb;
-	float3 c110 = t_ColorLUT.Load( int3( x110, index1.g, 0 ) ).rgb;
-	float3 c001 = t_ColorLUT.Load( int3( x001, index0.g, 0 ) ).rgb;
-	float3 c101 = t_ColorLUT.Load( int3( x101, index0.g, 0 ) ).rgb;
-	float3 c011 = t_ColorLUT.Load( int3( x011, index1.g, 0 ) ).rgb;
-	float3 c111 = t_ColorLUT.Load( int3( x111, index1.g, 0 ) ).rgb;
+	float3 c000 = ReadColorLUTTexel( x000, index0.g );
+	float3 c100 = ReadColorLUTTexel( x100, index0.g );
+	float3 c010 = ReadColorLUTTexel( x010, index1.g );
+	float3 c110 = ReadColorLUTTexel( x110, index1.g );
+	float3 c001 = ReadColorLUTTexel( x001, index0.g );
+	float3 c101 = ReadColorLUTTexel( x101, index0.g );
+	float3 c011 = ReadColorLUTTexel( x011, index1.g );
+	float3 c111 = ReadColorLUTTexel( x111, index1.g );
 
 	float3 c00 = lerp( c000, c100, fracIndex.r );
 	float3 c10 = lerp( c010, c110, fracIndex.r );
@@ -143,16 +152,11 @@ void main(
 	o_rgba.rgb = ConvertToLDR( HdrColor.rgb );
 	o_rgba.a = HdrColor.a;
 
-	// Tonemapping curve is applied after exposure. The LUT is a grading pass over
-	// the display-referred result, not a replacement for the tonemapper.
+	// Tonemapping curve is applied after exposure. User strip LUTs are authored
+	// for the display-encoded result, so LUT sampling happens after gamma encode.
 	if( g_ToneMapping.enableACES != 0 )
 	{
 		o_rgba.rgb = ACESFilm( o_rgba.rgb );
-	}
-
-	if( g_ToneMapping.colorLUTTextureSize.x > 0 )
-	{
-		o_rgba.rgb = ApplyColorLUT( o_rgba.rgb );
 	}
 
 	o_rgba.rgb = ApplyToneAdjustments( o_rgba.rgb );
@@ -163,4 +167,32 @@ void main(
 	o_rgba.r = pow( o_rgba.r, gamma );
 	o_rgba.g = pow( o_rgba.g, gamma );
 	o_rgba.b = pow( o_rgba.b, gamma );
+
+	if( g_ToneMapping.colorLUTTextureSize.x > 0 )
+	{
+		if( g_ToneMapping.colorLUTDebugMode == 1 )
+		{
+			o_rgba.rgb = saturate( o_rgba.rgb );
+		}
+		else if( g_ToneMapping.colorLUTDebugMode == 2 )
+		{
+			uint lutWidth = 0;
+			uint lutHeight = 0;
+			t_ColorLUT.GetDimensions( lutWidth, lutHeight );
+			o_rgba.rgb = ReadColorLUTTexel( ( int )lutWidth - 1, ( int )lutHeight - 1 );
+		}
+		else if( g_ToneMapping.colorLUTDebugMode == 3 )
+		{
+			o_rgba.rgb = ( g_ToneMapping.colorLUTUseOverride != 0 ) ? float3( 0.0, 1.0, 0.0 ) : float3( 1.0, 0.0, 1.0 );
+		}
+		else if( g_ToneMapping.colorLUTDebugMode == 4 )
+		{
+			float size01 = saturate( g_ToneMapping.colorLUTTextureSize.y / 64.0 );
+			o_rgba.rgb = float3( size01, g_ToneMapping.colorLUTUseOverride != 0 ? 1.0 : 0.0, g_ToneMapping.colorLUTTextureSize.x > 0 ? 1.0 : 0.0 );
+		}
+		else
+		{
+			o_rgba.rgb = ApplyColorLUT( o_rgba.rgb );
+		}
+	}
 }

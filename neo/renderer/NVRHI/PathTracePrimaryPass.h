@@ -120,9 +120,11 @@ private:
     bool m_smokeBvhDirtyPreviousTokenValid = false;
     const void* m_smokeSceneRenderWorld = nullptr;
     idStr m_smokeSceneMapName;
-    ID_TIME_T m_smokeSceneMapTimeStamp = 0;
-    idStr m_pathTracePostLutName;
-    idImage* m_pathTracePostLutImage = nullptr;
+	ID_TIME_T m_smokeSceneMapTimeStamp = 0;
+	idStr m_pathTracePostLutName;
+	nvrhi::TextureHandle m_pathTracePostLutTexture;
+	int m_pathTracePostLutWidth = 0;
+	int m_pathTracePostLutHeight = 0;
     bool m_pathTracePostLutInvalidLogged = false;
     RtSmokeGeometryUniverse m_smokeGeometryUniverse;
     std::vector<RtSmokeSkinnedSurfaceRecord> m_smokeSkinnedSurfaceRecords;

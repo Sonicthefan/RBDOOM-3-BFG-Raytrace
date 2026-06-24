@@ -265,7 +265,15 @@ void TonemapPass::Render(
 		renderColorLut = colorLut;
 		renderColorLutSize = colorLutSize;
 	}
-	nvrhi::ITexture* renderColorLutTexture = renderColorLut ? renderColorLut->GetTextureHandle().Get() : nullptr;
+	nvrhi::ITexture* renderColorLutTexture = params.colorLUTTextureOverride.Get();
+	if( renderColorLutTexture && params.colorLUTTextureOverrideSize > 0 )
+	{
+		renderColorLutSize = params.colorLUTTextureOverrideSize;
+	}
+	else
+	{
+		renderColorLutTexture = renderColorLut ? renderColorLut->GetTextureHandle().Get() : nullptr;
+	}
 	size_t renderHash = std::hash<nvrhi::ITexture*>()( sourceTexture ) ^ ( std::hash<nvrhi::ITexture*>()( renderColorLutTexture ) << 1 );
 	nvrhi::BindingSetHandle renderBindingSet;
 	for( int i = renderBindingHash.First( renderHash ); i != -1; i = renderBindingHash.Next( i ) )
@@ -289,7 +297,7 @@ void TonemapPass::Render(
 				nvrhi::BindingSetItem::PushConstants( 0, sizeof( ToneMappingConstants ) ),
 				nvrhi::BindingSetItem::Texture_SRV( 0, sourceTexture ),
 				nvrhi::BindingSetItem::TypedBuffer_SRV( 1, exposureBuffer ),
-				nvrhi::BindingSetItem::Texture_SRV( 2, renderColorLut->GetTextureHandle() ),
+				nvrhi::BindingSetItem::Texture_SRV( 2, renderColorLutTexture ),
 				nvrhi::BindingSetItem::Sampler( 0, commonPasses->m_LinearClampSampler )
 			};
 		}
@@ -300,7 +308,7 @@ void TonemapPass::Render(
 				nvrhi::BindingSetItem::ConstantBuffer( 0, toneMappingCb ),
 				nvrhi::BindingSetItem::Texture_SRV( 0, sourceTexture ),
 				nvrhi::BindingSetItem::TypedBuffer_SRV( 1, exposureBuffer ),
-				nvrhi::BindingSetItem::Texture_SRV( 2, renderColorLut->GetTextureHandle() ),
+				nvrhi::BindingSetItem::Texture_SRV( 2, renderColorLutTexture ),
 				nvrhi::BindingSetItem::Sampler( 0, commonPasses->m_LinearClampSampler )
 			};
 		}
@@ -334,6 +342,8 @@ void TonemapPass::Render(
 		toneMappingConstants.maxAdaptedLuminance = maxAdaptedLuminance;
 		toneMappingConstants.sourceSlice = 0;
 		toneMappingConstants.enableACES = params.enableACES ? 1u : 0u;
+		toneMappingConstants.colorLUTDebugMode = params.colorLUTDebugMode;
+		toneMappingConstants.colorLUTUseOverride = params.colorLUTUseOverride;
 		toneMappingConstants.contrast = params.contrast;
 		toneMappingConstants.saturation = params.saturation;
 		toneMappingConstants.colorLUTTextureSize = enableColorLUT ? idVec2( renderColorLutSize * renderColorLutSize, renderColorLutSize ) : idVec2( 0.f, 0.f );
