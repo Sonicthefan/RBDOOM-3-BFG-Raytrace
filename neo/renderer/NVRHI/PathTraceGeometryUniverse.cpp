@@ -3585,6 +3585,14 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
     {
         return true;
     }
+    if (m_rigidResidencyWorld != nullptr && renderDefKey.world != m_rigidResidencyWorld)
+    {
+        return false;
+    }
+    if (!RigidRouteEntityKeyKnownAlive(renderDefKey))
+    {
+        return false;
+    }
 
     const idRenderWorldLocal* world = static_cast<const idRenderWorldLocal*>(renderDefKey.world);
     if (renderDefKey.index >= world->entityDefs.Num())
