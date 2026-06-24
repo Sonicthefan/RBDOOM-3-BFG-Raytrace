@@ -369,12 +369,6 @@ idCVar r_pathTracingResidencyAntiCulling(
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic V2 selector: 1 retains not-seen instances only when primary-frustum culled; 0 keeps all aged-in rigid instances for path-traced secondary visibility" );
 
-idCVar r_pathTracingResidencyMovingGraceFrames(
-    "r_pathTracingResidencyMovingGraceFrames",
-    "5",
-    CVAR_RENDERER | CVAR_INTEGER,
-    "Frames after an entity modification that rigid residency still treats the instance as moving, preventing frozen moving-object retention" );
-
 idCVar r_pathTracingResidencyRouteCached(
     "r_pathTracingResidencyRouteCached",
     "1",

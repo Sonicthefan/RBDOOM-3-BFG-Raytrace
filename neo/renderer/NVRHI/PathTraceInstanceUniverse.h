@@ -8,7 +8,6 @@
 
 #include "PathTraceSceneCapture.h"
 #include "PathTraceGeometryLifecycle.h"
-#include "PathTraceAcceleration.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -45,29 +44,6 @@ struct RtPathTraceMeshKey
     uint32_t materialId = 0;
     uint32_t sourceKind = 0;
 };
-
-inline uint64 PtMeshKeyHash(const RtPathTraceMeshKey& key)
-{
-    uint64 hash = 14695981039346656037ull;
-    hash = HashSmokeBytes(hash, &key.vertexBufferIdentity, sizeof(key.vertexBufferIdentity));
-    hash = HashSmokeBytes(hash, &key.indexBufferIdentity, sizeof(key.indexBufferIdentity));
-    hash = HashSmokeBytes(hash, &key.numVerts, sizeof(key.numVerts));
-    hash = HashSmokeBytes(hash, &key.numIndexes, sizeof(key.numIndexes));
-    hash = HashSmokeBytes(hash, &key.vertexFormat, sizeof(key.vertexFormat));
-    hash = HashSmokeBytes(hash, &key.materialId, sizeof(key.materialId));
-    hash = HashSmokeBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
-    return hash;
-}
-
-inline uint64 PtInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, uint32_t materialId)
-{
-    uint64 hash = 14695981039346656037ull;
-    hash = HashSmokeBytes(hash, &meshHash, sizeof(meshHash));
-    hash = HashSmokeBytes(hash, &entityIndex, sizeof(entityIndex));
-    hash = HashSmokeBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
-    hash = HashSmokeBytes(hash, &materialId, sizeof(materialId));
-    return hash;
-}
 
 struct RtPathTraceMeshObservation
 {
