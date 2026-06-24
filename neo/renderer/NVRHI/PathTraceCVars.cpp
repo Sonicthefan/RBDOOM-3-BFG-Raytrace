@@ -369,6 +369,12 @@ idCVar r_pathTracingResidencyFramesToKeep(
     CVAR_RENDERER | CVAR_INTEGER,
     "Frames a rigid resident instance survives after it was last seen before frame-age GC removes it; default is long-lived Remix-style residency" );
 
+idCVar r_pathTracingResidencyMeshFramesToKeep(
+    "r_pathTracingResidencyMeshFramesToKeep",
+    "900",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Frames an unreferenced rigid mesh/BLAS cache record survives after it was last seen; resident instances keep their mesh regardless of this window" );
+
 idCVar r_pathTracingResidencyMaxDistance(
     "r_pathTracingResidencyMaxDistance",
     "512",

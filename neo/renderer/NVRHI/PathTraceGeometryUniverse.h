@@ -457,6 +457,7 @@ struct RtPathTraceRigidResidencyStats
     int meshLive = 0;
     int meshAgedOut = 0;
     int residencyFramesToKeep = 0;
+    int residencyMeshFramesToKeep = 0;
     int residencyAntiCulling = 0;
     int skippedOutsideArea = 0;
     int skippedUnknownArea = 0;

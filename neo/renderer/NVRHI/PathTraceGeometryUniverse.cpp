@@ -2709,7 +2709,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
         r_pathTracingResidencyRouteCached.GetInteger() != 0;
     const uint64 cachedRouteFramesToKeep = prepareCachedRouteRecords
-        ? static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyFramesToKeep.GetInteger()))
+        ? static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyMeshFramesToKeep.GetInteger()))
         : 0ull;
 
     for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
@@ -3302,7 +3302,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
     const char* routeSource = !stats.enabled
         ? "visibleOnly"
         : (stats.residencyV2 ? "residencyV2" : "legacyAreaWalk");
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid/staleModel=%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep=%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid/staleModel=%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         stats.residencyV2,
@@ -3327,6 +3327,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.meshLive,
         stats.meshAgedOut,
         stats.residencyFramesToKeep,
+        stats.residencyMeshFramesToKeep,
         stats.residencyAntiCulling,
         stats.residentRouteReady,
         stats.residentMissingMesh,
@@ -3670,9 +3671,11 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
         return;
     }
     const uint64 framesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyFramesToKeep.GetInteger()));
+    const uint64 meshFramesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyMeshFramesToKeep.GetInteger()));
     const float maxDistance = idMath::ClampFloat(0.0f, 100000.0f, r_pathTracingResidencyMaxDistance.GetFloat());
     const bool antiCulling = r_pathTracingResidencyAntiCulling.GetInteger() != 0;
     m_rigidResidencyStats.residencyFramesToKeep = static_cast<int>(framesToKeep);
+    m_rigidResidencyStats.residencyMeshFramesToKeep = static_cast<int>(meshFramesToKeep);
     m_rigidResidencyStats.residencyAntiCulling = antiCulling ? 1 : 0;
     std::unordered_set<uint64> residentMeshHashes;
 
@@ -3772,7 +3775,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
             const bool referencedByResident =
                 residentMeshHashes.find(record.meshHash) != residentMeshHashes.end();
             const bool keepRecord = v2
-                ? record.valid && (referencedByResident || record.lastSeenFrame + framesToKeep >= m_currentFrameIndex)
+                ? record.valid && (referencedByResident || record.seenThisFrame || record.lastSeenFrame + meshFramesToKeep >= m_currentFrameIndex)
                 : record.valid && record.seenThisFrame;
             if (keepRecord)
             {
