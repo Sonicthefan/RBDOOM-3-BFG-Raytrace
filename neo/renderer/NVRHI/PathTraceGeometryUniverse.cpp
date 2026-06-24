@@ -289,11 +289,34 @@ bool RigidResidencyCanPromoteEmissiveCard(const idRenderEntityLocal* entity, con
         (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
 }
 
+bool RigidRouteEntityKeyKnownAlive(const PtRenderDefKey& key)
+{
+    return
+        key.world != nullptr &&
+        key.index >= 0 &&
+        key.generation != 0 &&
+        PtGeometryLifecycle::IsEntityKeyAlive(key);
+}
+
+bool RigidRouteSourceFlagsDeforming(uint32_t sourceFlags)
+{
+    const uint32_t deformingFlags =
+        RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING |
+        RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT |
+        RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED;
+    return (sourceFlags & deformingFlags) != 0;
+}
+
 bool RigidResidencyCanTrackEntity(const viewDef_t* viewDef, const idRenderEntityLocal* entity)
 {
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
     const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
     if (!entity || !renderEntity || !model)
+    {
+        return false;
+    }
+    const PtRenderDefKey entityKey = PtGeometryLifecycle::MakeEntityKey(entity);
+    if (entityKey.generation != 0 && !RigidRouteEntityKeyKnownAlive(entityKey))
     {
         return false;
     }
@@ -461,11 +484,11 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.renderDefKey = instance.renderDefKey;
     routeInstance.materialOverrideId = instance.materialOverrideId;
     routeInstance.sourceFlags = instance.sourceFlags;
-    routeInstance.wasMovingWhenLastSeen = instance.entity && instance.entity->lastModifiedFrameNum == tr.frameCount;
-    const PtGeometryLifecycleClass geometryClass = PtGeometryLifecycle::ClassifyEntity(instance.entity);
-    routeInstance.isSkinnedOrDeforming =
-        geometryClass == PtGeometryLifecycleClass::Deforming ||
-        geometryClass == PtGeometryLifecycleClass::Transient;
+    routeInstance.wasMovingWhenLastSeen =
+        instance.entity &&
+        RigidRouteEntityKeyKnownAlive(instance.renderDefKey) &&
+        instance.entity->lastModifiedFrameNum == tr.frameCount;
+    routeInstance.isSkinnedOrDeforming = RigidRouteSourceFlagsDeforming(instance.sourceFlags);
     routeInstance.hasPreviousObjectToWorld = instance.hasPreviousObjectToWorld;
     routeInstance.transformContinuous = instance.transformContinuous;
     for (int elementIndex = 0; elementIndex < 16; ++elementIndex)
@@ -3258,10 +3281,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 residentInstance.sourceFlags = candidateObservation.sourceFlags;
                 residentInstance.seenThisFrame = true;
                 residentInstance.wasMovingWhenLastSeen = entity->lastModifiedFrameNum == tr.frameCount;
-                const PtGeometryLifecycleClass geometryClass = PtGeometryLifecycle::ClassifyEntity(entity);
-                residentInstance.isSkinnedOrDeforming =
-                    geometryClass == PtGeometryLifecycleClass::Deforming ||
-                    geometryClass == PtGeometryLifecycleClass::Transient;
+                residentInstance.isSkinnedOrDeforming = RigidRouteSourceFlagsDeforming(residentInstance.sourceFlags);
                 memcpy(residentInstance.objectToWorld, entity->modelMatrix, sizeof(residentInstance.objectToWorld));
                 residentInstance.materialName = candidateObservation.materialName;
                 residentInstance.modelName = candidateObservation.modelName;
