@@ -55,6 +55,7 @@ extern idCVar r_pathTracingRigidTlasPlanDump;
 extern idCVar r_pathTracingRigidTlasRoute;
 extern idCVar r_pathTracingRigidRouteMode18;
 extern idCVar r_pathTracingRigidRouteMode20;
+extern idCVar r_pathTracingRigidRouteDump;
 extern idCVar r_pathTracingRigidRouteOverlapDump;
 extern idCVar r_pathTracingRigidRouteRemoveDynamic;
 extern idCVar r_pathTracingRigidRouteEmissiveCards;

@@ -5531,6 +5531,32 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t) +
         rigidRouteBuild.triangleMaterialIndexes.size() * sizeof(uint32_t);
     const uint64_t rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
+    if (r_pathTracingRigidRouteDump.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload)=%llu/%llu/%llu buildMs=%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
+            sceneSource,
+            static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
+            buildRigidRouteBuffers ? 1 : 0,
+            rigidRouteBuild.stats.emittedInstances,
+            rigidRouteBuild.stats.emittedUniqueMeshes,
+            rigidRouteMaxInstances,
+            rigidRouteBuild.stats.emittedSeenThisFrame,
+            rigidRouteBuild.stats.emittedFromCache,
+            rigidRouteBuild.stats.previousTransformInstances,
+            rigidRouteBuild.stats.transformContinuousInstances,
+            rigidRouteBuild.stats.vertices,
+            rigidRouteBuild.stats.indexes,
+            rigidRouteBuild.stats.triangles,
+            static_cast<unsigned long long>(rigidRouteGeometryBytes),
+            static_cast<unsigned long long>(rigidRouteInstanceBytes),
+            static_cast<unsigned long long>(rigidRouteUploadBytes),
+            rigidRouteBuildMs,
+            rigidRouteBuild.stats.skippedNonRigid,
+            rigidRouteBuild.stats.skippedMissingMesh,
+            rigidRouteBuild.stats.skippedMissingBlas,
+            rigidRouteBuild.stats.missingMaterialTableIndex);
+        r_pathTracingRigidRouteDump.SetInteger(0);
+    }
 
     RtPathTraceSceneInputs sceneInputs;
     sceneInputs.valid = true;

@@ -291,6 +291,12 @@ idCVar r_pathTracingRigidRouteMode20(
     CVAR_RENDERER | CVAR_INTEGER,
     "Mode 20 routed rigid integration gate; set 0 to force legacy dynamic fallback behavior" );
 
+idCVar r_pathTracingRigidRouteDump(
+    "r_pathTracingRigidRouteDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump one-shot rigid route buffer build and upload stats" );
+
 idCVar r_pathTracingRigidRouteOverlapDump(
     "r_pathTracingRigidRouteOverlapDump",
     "0",
