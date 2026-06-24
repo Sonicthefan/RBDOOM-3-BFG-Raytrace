@@ -692,7 +692,6 @@ private:
     void AddRigidMeshCandidateSample(const RtPathTraceRigidMeshCandidateObservation& observation, bool eligible, uint32_t rejectFlags, int seenCount);
     void BuildRigidRouteInstanceList(const RtPathTraceInstanceUniverse& instanceUniverse, std::vector<RtPathTraceRigidRouteInstanceObservation>& instances) const;
     void AddRigidResidencySample(const RigidResidentInstanceRecord& record, bool selectedArea, bool routeReady);
-    bool RigidResidentObservationMatchesCurrentModel(const RtPathTraceRigidRouteInstanceObservation& instance) const;
     void RecordRigidResidentObservation(const RtPathTraceRigidRouteInstanceObservation& instance);
     void PruneRigidCachesToCurrentFrame(
         const idRenderWorldLocal* renderWorld,

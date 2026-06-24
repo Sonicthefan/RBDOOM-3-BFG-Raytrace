@@ -27,33 +27,6 @@ uint64 PtHashBytes(uint64 hash, const void* data, size_t size)
     return HashSmokeBytes(hash, data, size);
 }
 
-uint64 PtMeshKeyHash(const RtPathTraceMeshKey& key)
-{
-    uint64 hash = 14695981039346656037ull;
-    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(key.tri);
-    hash = PtHashBytes(hash, &triPtr, sizeof(triPtr));
-    hash = PtHashBytes(hash, &key.vertexBufferIdentity, sizeof(key.vertexBufferIdentity));
-    hash = PtHashBytes(hash, &key.indexBufferIdentity, sizeof(key.indexBufferIdentity));
-    hash = PtHashBytes(hash, &key.numVerts, sizeof(key.numVerts));
-    hash = PtHashBytes(hash, &key.numIndexes, sizeof(key.numIndexes));
-    hash = PtHashBytes(hash, &key.vertexFormat, sizeof(key.vertexFormat));
-    hash = PtHashBytes(hash, &key.materialId, sizeof(key.materialId));
-    hash = PtHashBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
-    return hash;
-}
-
-uint64 PtInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, uint32_t materialId, const srfTriangles_t* tri)
-{
-    uint64 hash = 14695981039346656037ull;
-    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
-    hash = PtHashBytes(hash, &meshHash, sizeof(meshHash));
-    hash = PtHashBytes(hash, &entityIndex, sizeof(entityIndex));
-    hash = PtHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
-    hash = PtHashBytes(hash, &materialId, sizeof(materialId));
-    hash = PtHashBytes(hash, &triPtr, sizeof(triPtr));
-    return hash;
-}
-
 uint32_t PtDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t materialId, uint32_t localTriangleIndex)
 {
     const idRenderEntityLocal* entity = (drawSurf && drawSurf->space) ? drawSurf->space->entityDef : nullptr;
@@ -570,7 +543,7 @@ void CapturePathTraceDrawSurfMirror(
             instanceObservation.sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
         }
         CopyDrawSurfObjectToWorld(drawSurf, instanceObservation.objectToWorld);
-        instanceObservation.instanceId = PtInstanceIdHash(meshObservation.stableHash, instanceObservation.entityIndex, instanceObservation.renderEntityNum, materialId, tri);
+        instanceObservation.instanceId = PtInstanceIdHash(meshObservation.stableHash, instanceObservation.entityIndex, instanceObservation.renderEntityNum, materialId);
         instanceObservation.materialName = meshObservation.materialName;
         instanceObservation.modelName = meshObservation.modelName;
 
