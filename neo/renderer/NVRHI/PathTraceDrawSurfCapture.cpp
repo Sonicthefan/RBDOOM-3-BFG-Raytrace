@@ -749,6 +749,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     int skippedRoutedRigidDynamicSurfaces = 0;
     int skippedRoutedRigidDynamicIndexes = 0;
     int skippedRoutedRigidDynamicByInstance = 0;
+    int routedRigidDynamicTested = 0;
+    int routedRigidDynamicPromotedEmissive = 0;
+    int routedRigidDynamicReadyByMesh = 0;
+    int routedRigidDynamicReadyByResident = 0;
     const int requestedDebugMode = r_pathTracingDebugMode.GetInteger();
     const bool routeMode18 = requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0;
     const bool routeMode20 = requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0;
@@ -789,6 +793,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         }
         if (removeRoutedRigidDynamic && surfaceClass == RtSmokeSurfaceClass::RigidEntity && geometryUniverse)
         {
+            ++routedRigidDynamicTested;
             const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
             const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
             const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
@@ -807,15 +812,28 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
             const uint64 meshHash = PtMeshKeyHash(meshKey);
             const bool routeReadyByMesh = geometryUniverse->IsRigidRouteReady(meshHash);
+            const bool promotedEmissive = PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, classifiedSurfaceClass);
+            if (promotedEmissive)
+            {
+                ++routedRigidDynamicPromotedEmissive;
+            }
             const bool routeReadyByResident =
                 !routeReadyByMesh &&
-                PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, classifiedSurfaceClass) &&
+                promotedEmissive &&
                 geometryUniverse->IsRigidRouteResidentReadyForEntityMaterial(
                     entity ? entity->index : -1,
                     renderEntity ? renderEntity->entityNum : -1,
                     materialId);
             if (routeReadyByMesh || routeReadyByResident)
             {
+                if (routeReadyByMesh)
+                {
+                    ++routedRigidDynamicReadyByMesh;
+                }
+                if (routeReadyByResident)
+                {
+                    ++routedRigidDynamicReadyByResident;
+                }
                 ++skippedRoutedRigidDynamicSurfaces;
                 skippedRoutedRigidDynamicIndexes += tri->numIndexes;
                 if (routeReadyByResident)
@@ -958,13 +976,23 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     {
         ++skipStats.emptyClassBuffer;
     }
-    if (skippedRoutedRigidDynamicSurfaces > 0 && (r_pathTracingSmokeLog.GetInteger() != 0 || r_pathTracingRigidRouteOverlapDump.GetInteger() != 0))
+    const bool overlapDumpRequested = r_pathTracingRigidRouteOverlapDump.GetInteger() != 0;
+    if (r_pathTracingSmokeLog.GetInteger() != 0 || overlapDumpRequested)
     {
-        common->Printf("PathTracePrimaryPass: PT rigid route dynamic removal mode=%d removedSurfaces=%d removedIndexes=%d byInstance=%d renderPath=routedRigidPlusDynamicFallback\n",
+        common->Printf("PathTracePrimaryPass: PT rigid route dynamic removal mode=%d active=%d tested=%d promotedEmissive=%d ready(mesh/resident)=%d/%d removedSurfaces=%d removedIndexes=%d byInstance=%d renderPath=routedRigidPlusDynamicFallback\n",
             requestedDebugMode,
+            removeRoutedRigidDynamic ? 1 : 0,
+            routedRigidDynamicTested,
+            routedRigidDynamicPromotedEmissive,
+            routedRigidDynamicReadyByMesh,
+            routedRigidDynamicReadyByResident,
             skippedRoutedRigidDynamicSurfaces,
             skippedRoutedRigidDynamicIndexes,
             skippedRoutedRigidDynamicByInstance);
+        if (overlapDumpRequested && requestedDebugMode != 24)
+        {
+            r_pathTracingRigidRouteOverlapDump.SetInteger(0);
+        }
     }
 
     const bool hasDynamicGeometry = !vertexData.empty() && !indexData.empty() && !triangleClassData.empty() && !triangleMaterialData.empty();
