@@ -4049,7 +4049,7 @@ bool RtSmokeGeometryUniverse::IsRigidRouteReady(uint64 meshHash) const
     }
 
     const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[it->second];
-    return record.valid && record.rigidVertexBuffer && record.rigidIndexBuffer && record.rigidBlas;
+    return RigidMeshHasCachedRouteGpuReady(record);
 }
 
 bool RtSmokeGeometryUniverse::IsRigidRouteResidentReadyForEntityMaterial(int entityIndex, int renderEntityNum, uint32_t materialId) const
@@ -4390,7 +4390,7 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
             AppendRigidRoutePlaceholder(build, plannedInstance);
             continue;
         }
-        if (!record.rigidBlas)
+        if (!RigidCachedTlasInstanceValid(plannedInstance, record))
         {
             ++build.stats.skippedMissingBlas;
             AppendRigidRoutePlaceholder(build, plannedInstance);
