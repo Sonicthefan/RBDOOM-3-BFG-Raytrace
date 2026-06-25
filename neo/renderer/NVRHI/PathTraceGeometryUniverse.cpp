@@ -3585,6 +3585,11 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
         return false;
     }
 
+    if (instance.modelSurfaceIndex >= 0)
+    {
+        return instance.modelSurfaceIndex < model->NumSurfaces();
+    }
+
     const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(instance.meshHash);
     if (meshIt == m_rigidMeshCandidateLookup.end() || meshIt->second >= m_rigidMeshCandidateRecords.size())
     {
@@ -3595,7 +3600,7 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
     const srfTriangles_t* tri = meshRecord.tri;
     if (tri == nullptr)
     {
-        return false;
+        return true;
     }
 
     for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
