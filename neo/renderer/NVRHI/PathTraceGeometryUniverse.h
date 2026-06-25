@@ -737,7 +737,6 @@ private:
     std::unordered_set<uint64> m_frameRigidMeshCandidateHashes;
     std::vector<RigidResidentInstanceRecord> m_rigidResidentRecords;
     std::unordered_map<uint64, size_t> m_rigidResidentLookup;
-    std::unordered_map<uint64, int> m_rigidVisibleEntityModifiedFrames;
     std::vector<RtPathTraceRigidRouteInstanceObservation> m_rigidResidentFrameInstances;
     RtPathTraceRigidMeshCandidateStats m_rigidMeshCandidateFrameStats;
     RtPathTraceRigidResidencyStats m_rigidResidencyStats;

@@ -13,6 +13,42 @@ uint64 HashRigidIdentityBytes(uint64 hash, const void* data, size_t size)
 
 }
 
+int ResolvePathTraceRigidModelSurfaceIndex(
+    const idRenderModel* model,
+    const srfTriangles_t* tri,
+    int requestedModelSurfaceIndex)
+{
+    if (!model)
+    {
+        return -1;
+    }
+
+    if (requestedModelSurfaceIndex >= 0 && requestedModelSurfaceIndex < model->NumSurfaces())
+    {
+        const modelSurface_t* requestedSurface = model->Surface(requestedModelSurfaceIndex);
+        if (!tri || (requestedSurface && requestedSurface->geometry == tri))
+        {
+            return requestedModelSurfaceIndex;
+        }
+    }
+
+    if (!tri)
+    {
+        return -1;
+    }
+
+    for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
+    {
+        const modelSurface_t* surface = model->Surface(surfaceIndex);
+        if (surface && surface->geometry == tri)
+        {
+            return surfaceIndex;
+        }
+    }
+
+    return -1;
+}
+
 uint64 BuildPathTraceRigidMeshHash(
     const RtPathTraceMeshKey& key,
     const idRenderModel* model,
@@ -55,4 +91,38 @@ uint64 BuildPathTraceRigidInstanceId(
     hash = HashRigidIdentityBytes(hash, &materialId, sizeof(materialId));
     hash = HashRigidIdentityBytes(hash, &meshHash, sizeof(meshHash));
     return hash;
+}
+
+RtPathTraceRigidInstanceSnapshot BuildPathTraceRigidInstanceSnapshot(
+    const RtPathTraceMeshKey& key,
+    const idRenderModel* model,
+    const srfTriangles_t* tri,
+    const PtRenderDefKey& renderDefKey,
+    uint32_t modelEpoch,
+    int entityIndex,
+    int renderEntityNum,
+    int requestedModelSurfaceIndex,
+    uint32_t sourceFlags)
+{
+    RtPathTraceRigidInstanceSnapshot snapshot;
+    snapshot.meshKey = key;
+    snapshot.model = model;
+    snapshot.renderDefKey = renderDefKey;
+    snapshot.modelEpoch = modelEpoch;
+    snapshot.entityIndex = entityIndex;
+    snapshot.renderEntityNum = renderEntityNum;
+    snapshot.modelSurfaceIndex = ResolvePathTraceRigidModelSurfaceIndex(model, tri, requestedModelSurfaceIndex);
+    snapshot.materialId = key.materialId;
+    snapshot.materialClassSignature = key.materialClassSignature;
+    snapshot.sourceFlags = sourceFlags;
+    snapshot.meshHash = BuildPathTraceRigidMeshHash(snapshot.meshKey, model, modelEpoch, snapshot.modelSurfaceIndex);
+    snapshot.instanceId = BuildPathTraceRigidInstanceId(
+        snapshot.meshHash,
+        renderDefKey,
+        modelEpoch,
+        entityIndex,
+        renderEntityNum,
+        snapshot.modelSurfaceIndex,
+        snapshot.materialId);
+    return snapshot;
 }

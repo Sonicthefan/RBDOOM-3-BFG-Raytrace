@@ -71,14 +71,6 @@ void AccumulateSmokeGeometryElementRange(const RtSmokeGeometryElementRange& rang
     count = end - begin;
 }
 
-uint64 RigidResidencyEntityKey(int entityIndex, int renderEntityNum)
-{
-    uint64 hash = 14695981039346656037ull;
-    hash = HashSmokeBytes(hash, &entityIndex, sizeof(entityIndex));
-    hash = HashSmokeBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
-    return hash;
-}
-
 int ResolveRigidResidencyCurrentArea(const viewDef_t* viewDef)
 {
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
@@ -1213,7 +1205,6 @@ void RtSmokeGeometryUniverse::ClearRigidResidencyCaches()
     m_frameRigidMeshCandidateHashes.clear();
     m_rigidResidentRecords.clear();
     m_rigidResidentLookup.clear();
-    m_rigidVisibleEntityModifiedFrames.clear();
     m_rigidResidentFrameInstances.clear();
     m_rigidResidencyAreaWalkInstancesThisFrame = 0;
 }
@@ -3065,10 +3056,6 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
             continue;
         }
 
-        if (instance.entity)
-        {
-            m_rigidVisibleEntityModifiedFrames[RigidResidencyEntityKey(instance.entityIndex, instance.renderEntityNum)] = instance.entity->lastModifiedFrameNum;
-        }
         RecordRigidResidentObservation(routeInstance);
     }
 
@@ -3219,14 +3206,6 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
             }
 
             const renderEntity_t& renderEntity = entity->parms;
-            const uint64 entityKey = RigidResidencyEntityKey(entity->index, renderEntity.entityNum);
-            const std::unordered_map<uint64, int>::const_iterator visibleFrameIt = m_rigidVisibleEntityModifiedFrames.find(entityKey);
-            if (visibleFrameIt == m_rigidVisibleEntityModifiedFrames.end() ||
-                visibleFrameIt->second != entity->lastModifiedFrameNum)
-            {
-                continue;
-            }
-
             const idRenderModel* model = renderEntity.hModel;
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
@@ -3253,15 +3232,23 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 const uint32_t modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
-                const uint64 meshHash = BuildPathTraceRigidMeshHash(meshKey, model, modelEpoch, surfaceIndex);
-                const uint64 instanceId = BuildPathTraceRigidInstanceId(
-                    meshHash,
+                uint32_t sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID;
+                if (renderEntity.customShader != nullptr || renderEntity.customSkin != nullptr)
+                {
+                    sourceFlags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;
+                }
+                const RtPathTraceRigidInstanceSnapshot rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
+                    meshKey,
+                    model,
+                    tri,
                     renderDefKey,
                     modelEpoch,
                     entity->index,
                     renderEntity.entityNum,
                     surfaceIndex,
-                    materialId);
+                    sourceFlags);
+                const uint64 meshHash = rigidSnapshot.meshHash;
+                const uint64 instanceId = rigidSnapshot.instanceId;
                 if (visibleRigidInstanceIds.find(instanceId) != visibleRigidInstanceIds.end())
                 {
                     continue;
@@ -3278,19 +3265,15 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 candidateObservation.instanceId = instanceId;
                 candidateObservation.vertexBufferIdentity = meshKey.vertexBufferIdentity;
                 candidateObservation.indexBufferIdentity = meshKey.indexBufferIdentity;
-                candidateObservation.sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID;
-                if (renderEntity.customShader != nullptr || renderEntity.customSkin != nullptr)
-                {
-                    candidateObservation.sourceFlags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;
-                }
-                candidateObservation.materialId = materialId;
-                candidateObservation.materialClassSignature = materialClassSignature;
+                candidateObservation.sourceFlags = rigidSnapshot.sourceFlags;
+                candidateObservation.materialId = rigidSnapshot.materialId;
+                candidateObservation.materialClassSignature = rigidSnapshot.materialClassSignature;
                 candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 candidateObservation.vertexFormat = meshKey.vertexFormat;
                 candidateObservation.drawSurfIndex = -1;
                 candidateObservation.entityIndex = entity->index;
                 candidateObservation.renderEntityNum = renderEntity.entityNum;
-                candidateObservation.modelEpoch = modelEpoch;
+                candidateObservation.modelEpoch = rigidSnapshot.modelEpoch;
                 candidateObservation.numVerts = tri->numVerts;
                 candidateObservation.numIndexes = tri->numIndexes;
                 candidateObservation.localSpaceValid = true;
@@ -3304,12 +3287,12 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 residentInstance.entityIndex = entity->index;
                 residentInstance.renderEntityNum = renderEntity.entityNum;
                 residentInstance.drawSurfIndex = -1;
-                residentInstance.modelSurfaceIndex = surfaceIndex;
+                residentInstance.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
                 residentInstance.currentArea = areaIndex;
-                residentInstance.renderDefKey = renderDefKey;
-                residentInstance.modelEpoch = modelEpoch;
-                residentInstance.materialOverrideId = materialId;
-                residentInstance.sourceFlags = candidateObservation.sourceFlags;
+                residentInstance.renderDefKey = rigidSnapshot.renderDefKey;
+                residentInstance.modelEpoch = rigidSnapshot.modelEpoch;
+                residentInstance.materialOverrideId = rigidSnapshot.materialId;
+                residentInstance.sourceFlags = rigidSnapshot.sourceFlags;
                 residentInstance.seenThisFrame = true;
                 residentInstance.wasMovingWhenLastSeen = entity->lastModifiedFrameNum == tr.frameCount;
                 residentInstance.isSkinnedOrDeforming = RigidRouteSourceFlagsDeforming(residentInstance.sourceFlags);

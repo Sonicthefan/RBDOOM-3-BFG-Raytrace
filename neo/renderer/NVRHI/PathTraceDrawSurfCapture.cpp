@@ -500,57 +500,63 @@ void CapturePathTraceDrawSurfMirror(
         const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
         const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
-        const int modelSurfaceIndex = -1;
         const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
         const uint32_t modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
             ? PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index)
             : 0;
+        uint32_t sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
+        if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())
+        {
+            sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH;
+        }
+        if (geometryUniverse && geometryUniverse->HasStaticSurface(legacyStaticKey))
+        {
+            sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
+        }
+
+        RtPathTraceMeshKey meshKey;
+        meshKey.tri = tri;
+        meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
+        meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri ? tri->indexCache : 0);
+        meshKey.numVerts = tri ? tri->numVerts : 0;
+        meshKey.numIndexes = tri ? tri->numIndexes : 0;
+        meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
+        meshKey.materialId = materialId;
+        meshKey.materialClassSignature = materialClassSignature;
+        meshKey.sourceKind = sourceKind;
+        const RtPathTraceRigidInstanceSnapshot rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
+            meshKey,
+            renderModel,
+            tri,
+            renderDefKey,
+            modelEpoch,
+            entity ? entity->index : -1,
+            renderEntity ? renderEntity->entityNum : -1,
+            -1,
+            sourceFlags);
 
         RtPathTraceMeshObservation meshObservation;
-        meshObservation.key.tri = tri;
-        meshObservation.key.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
-        meshObservation.key.indexBufferIdentity = static_cast<uintptr_t>(tri ? tri->indexCache : 0);
-        meshObservation.key.numVerts = tri ? tri->numVerts : 0;
-        meshObservation.key.numIndexes = tri ? tri->numIndexes : 0;
-        meshObservation.key.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
-        meshObservation.key.materialId = materialId;
-        meshObservation.key.materialClassSignature = materialClassSignature;
-        meshObservation.key.sourceKind = sourceKind;
-        meshObservation.stableHash = BuildPathTraceRigidMeshHash(meshObservation.key, renderModel, modelEpoch, modelSurfaceIndex);
+        meshObservation.key = rigidSnapshot.meshKey;
+        meshObservation.stableHash = rigidSnapshot.meshHash;
         meshObservation.baseMaterial = material;
         meshObservation.materialName = material ? material->GetName() : "<none>";
         meshObservation.modelName = modelName;
         meshObservation.localSpaceValid = true;
 
         RtPathTraceInstanceObservation instanceObservation;
-        instanceObservation.meshHash = meshObservation.stableHash;
+        instanceObservation.meshHash = rigidSnapshot.meshHash;
         instanceObservation.entity = entity;
-        instanceObservation.entityIndex = entity ? entity->index : -1;
-        instanceObservation.renderEntityNum = renderEntity ? renderEntity->entityNum : -1;
+        instanceObservation.entityIndex = rigidSnapshot.entityIndex;
+        instanceObservation.renderEntityNum = rigidSnapshot.renderEntityNum;
         instanceObservation.drawSurfIndex = surfaceIndex;
-        instanceObservation.modelSurfaceIndex = modelSurfaceIndex;
+        instanceObservation.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
         instanceObservation.currentArea = PtMirrorResolveDrawSurfArea(viewDef, drawSurf, tri);
-        instanceObservation.renderDefKey = renderDefKey;
-        instanceObservation.modelEpoch = modelEpoch;
-        instanceObservation.materialOverrideId = materialId;
-        instanceObservation.sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
-        if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())
-        {
-            instanceObservation.sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH;
-        }
-        if (geometryUniverse && geometryUniverse->HasStaticSurface(legacyStaticKey))
-        {
-            instanceObservation.sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
-        }
+        instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
+        instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
+        instanceObservation.materialOverrideId = rigidSnapshot.materialId;
+        instanceObservation.sourceFlags = rigidSnapshot.sourceFlags;
         CopyDrawSurfObjectToWorld(drawSurf, instanceObservation.objectToWorld);
-        instanceObservation.instanceId = BuildPathTraceRigidInstanceId(
-            meshObservation.stableHash,
-            renderDefKey,
-            modelEpoch,
-            instanceObservation.entityIndex,
-            instanceObservation.renderEntityNum,
-            instanceObservation.modelSurfaceIndex,
-            materialId);
+        instanceObservation.instanceId = rigidSnapshot.instanceId;
         instanceObservation.materialName = meshObservation.materialName;
         instanceObservation.modelName = meshObservation.modelName;
 
@@ -732,13 +738,13 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
             const uint32_t baseMaterialId = SmokeMaterialId(material);
             const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
-            const int modelSurfaceIndex = -1;
             const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
             const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
             const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
             const uint32_t modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
                 ? PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index)
                 : 0;
+            const uint32_t sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
 
             RtPathTraceMeshKey meshKey;
             meshKey.tri = tri;
@@ -750,7 +756,17 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             meshKey.materialId = materialId;
             meshKey.materialClassSignature = materialClassSignature;
             meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
-            const uint64 meshHash = BuildPathTraceRigidMeshHash(meshKey, renderModel, modelEpoch, modelSurfaceIndex);
+            const RtPathTraceRigidInstanceSnapshot rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
+                meshKey,
+                renderModel,
+                tri,
+                renderDefKey,
+                modelEpoch,
+                entity ? entity->index : -1,
+                renderEntity ? renderEntity->entityNum : -1,
+                -1,
+                sourceFlags);
+            const uint64 meshHash = rigidSnapshot.meshHash;
             const bool routeReadyByMesh = geometryUniverse->IsRigidRouteReady(meshHash);
             const bool promotedEmissive = PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, classifiedSurfaceClass);
             if (promotedEmissive)
