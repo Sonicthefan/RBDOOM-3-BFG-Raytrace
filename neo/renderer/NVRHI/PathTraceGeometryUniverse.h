@@ -454,6 +454,13 @@ struct RtPathTraceRigidResidencyStats
     int rejectedRigidDynamicFrame = 0;
     int rejectedRigidTransientEffect = 0;
     int rejectedRigidUnknown = 0;
+    int areaWalkEntities = 0;
+    int areaWalkRejectedEntities = 0;
+    int areaWalkSurfaces = 0;
+    int areaWalkRejectedSurfaces = 0;
+    int areaWalkEligibleSurfaces = 0;
+    int areaWalkDuplicateVisible = 0;
+    int areaWalkDuplicateFrame = 0;
     int areaWalkRigidInstances = 0;
     int cachedRigidInstances = 0;
     int residentInstances = 0;
@@ -740,6 +747,13 @@ private:
     std::vector<RtPathTraceRigidRouteInstanceObservation> m_rigidResidentFrameInstances;
     RtPathTraceRigidMeshCandidateStats m_rigidMeshCandidateFrameStats;
     RtPathTraceRigidResidencyStats m_rigidResidencyStats;
+    int m_rigidResidencyAreaWalkEntitiesThisFrame = 0;
+    int m_rigidResidencyAreaWalkRejectedEntitiesThisFrame = 0;
+    int m_rigidResidencyAreaWalkSurfacesThisFrame = 0;
+    int m_rigidResidencyAreaWalkRejectedSurfacesThisFrame = 0;
+    int m_rigidResidencyAreaWalkEligibleSurfacesThisFrame = 0;
+    int m_rigidResidencyAreaWalkDuplicateVisibleThisFrame = 0;
+    int m_rigidResidencyAreaWalkDuplicateFrameThisFrame = 0;
     int m_rigidResidencyAreaWalkInstancesThisFrame = 0;
     bool m_rigidResidencyEnabled = false;
     const idRenderWorldLocal* m_rigidResidencyWorld = nullptr;

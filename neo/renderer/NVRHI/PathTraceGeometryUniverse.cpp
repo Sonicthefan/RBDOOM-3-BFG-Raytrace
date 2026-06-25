@@ -1206,6 +1206,13 @@ void RtSmokeGeometryUniverse::ClearRigidResidencyCaches()
     m_rigidResidentRecords.clear();
     m_rigidResidentLookup.clear();
     m_rigidResidentFrameInstances.clear();
+    m_rigidResidencyAreaWalkEntitiesThisFrame = 0;
+    m_rigidResidencyAreaWalkRejectedEntitiesThisFrame = 0;
+    m_rigidResidencyAreaWalkSurfacesThisFrame = 0;
+    m_rigidResidencyAreaWalkRejectedSurfacesThisFrame = 0;
+    m_rigidResidencyAreaWalkEligibleSurfacesThisFrame = 0;
+    m_rigidResidencyAreaWalkDuplicateVisibleThisFrame = 0;
+    m_rigidResidencyAreaWalkDuplicateFrameThisFrame = 0;
     m_rigidResidencyAreaWalkInstancesThisFrame = 0;
 }
 
@@ -1267,6 +1274,13 @@ void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex, const idRenderWorldL
     m_rigidResidencyStats = RtPathTraceRigidResidencyStats();
     m_rigidResidencyStats.frameIndex = frameIndex;
     m_rigidResidencyStats.generation = m_generation;
+    m_rigidResidencyAreaWalkEntitiesThisFrame = 0;
+    m_rigidResidencyAreaWalkRejectedEntitiesThisFrame = 0;
+    m_rigidResidencyAreaWalkSurfacesThisFrame = 0;
+    m_rigidResidencyAreaWalkRejectedSurfacesThisFrame = 0;
+    m_rigidResidencyAreaWalkEligibleSurfacesThisFrame = 0;
+    m_rigidResidencyAreaWalkDuplicateVisibleThisFrame = 0;
+    m_rigidResidencyAreaWalkDuplicateFrameThisFrame = 0;
     m_rigidResidencyAreaWalkInstancesThisFrame = 0;
 }
 
@@ -2985,6 +2999,13 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     m_rigidResidencyStats.frameIndex = m_currentFrameIndex;
     m_rigidResidencyStats.generation = m_generation;
     m_rigidResidencyStats.portalSteps = idMath::ClampInt(0, 8, portalSteps);
+    m_rigidResidencyStats.areaWalkEntities = m_rigidResidencyAreaWalkEntitiesThisFrame;
+    m_rigidResidencyStats.areaWalkRejectedEntities = m_rigidResidencyAreaWalkRejectedEntitiesThisFrame;
+    m_rigidResidencyStats.areaWalkSurfaces = m_rigidResidencyAreaWalkSurfacesThisFrame;
+    m_rigidResidencyStats.areaWalkRejectedSurfaces = m_rigidResidencyAreaWalkRejectedSurfacesThisFrame;
+    m_rigidResidencyStats.areaWalkEligibleSurfaces = m_rigidResidencyAreaWalkEligibleSurfacesThisFrame;
+    m_rigidResidencyStats.areaWalkDuplicateVisible = m_rigidResidencyAreaWalkDuplicateVisibleThisFrame;
+    m_rigidResidencyStats.areaWalkDuplicateFrame = m_rigidResidencyAreaWalkDuplicateFrameThisFrame;
     m_rigidResidencyStats.areaWalkRigidInstances = m_rigidResidencyAreaWalkInstancesThisFrame;
 
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
@@ -3200,8 +3221,10 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
         for (areaReference_t* ref = area->entityRefs.areaNext; ref != &area->entityRefs; ref = ref->areaNext)
         {
             idRenderEntityLocal* entity = ref ? ref->entity : nullptr;
+            ++m_rigidResidencyAreaWalkEntitiesThisFrame;
             if (!RigidResidencyCanTrackEntity(viewDef, entity))
             {
+                ++m_rigidResidencyAreaWalkRejectedEntitiesThisFrame;
                 continue;
             }
 
@@ -3213,8 +3236,10 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
                 const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
                 const idMaterial* material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
+                ++m_rigidResidencyAreaWalkSurfacesThisFrame;
                 if (!RigidResidencyCanTrackSurface(entity, tri, material))
                 {
+                    ++m_rigidResidencyAreaWalkRejectedSurfacesThisFrame;
                     continue;
                 }
 
@@ -3249,12 +3274,15 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     sourceFlags);
                 const uint64 meshHash = rigidSnapshot.meshHash;
                 const uint64 instanceId = rigidSnapshot.instanceId;
+                ++m_rigidResidencyAreaWalkEligibleSurfacesThisFrame;
                 if (visibleRigidInstanceIds.find(instanceId) != visibleRigidInstanceIds.end())
                 {
+                    ++m_rigidResidencyAreaWalkDuplicateVisibleThisFrame;
                     continue;
                 }
                 if (observedInstanceIds.find(instanceId) != observedInstanceIds.end())
                 {
+                    ++m_rigidResidencyAreaWalkDuplicateFrameThisFrame;
                     continue;
                 }
                 observedInstanceIds.insert(instanceId);
@@ -3316,7 +3344,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
     const char* routeSource = !stats.enabled
         ? "visibleOnly"
         : (stats.residencyV2 ? "residencyV2" : "legacyAreaWalk");
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d visibleRigid/staleModel=%d/%d rejectedRigid(static/dynamic/transient/unknown)=%d/%d/%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d visibleRigid/staleModel=%d/%d rejectedRigid(static/dynamic/transient/unknown)=%d/%d/%d/%d areaWalk(entity/reject/surface/reject/eligible/dupVisible/dupFrame/added)=%d/%d/%d/%d/%d/%d/%d/%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         stats.residencyV2,
@@ -3339,6 +3367,13 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.rejectedRigidDynamicFrame,
         stats.rejectedRigidTransientEffect,
         stats.rejectedRigidUnknown,
+        stats.areaWalkEntities,
+        stats.areaWalkRejectedEntities,
+        stats.areaWalkSurfaces,
+        stats.areaWalkRejectedSurfaces,
+        stats.areaWalkEligibleSurfaces,
+        stats.areaWalkDuplicateVisible,
+        stats.areaWalkDuplicateFrame,
         stats.areaWalkRigidInstances,
         stats.cachedRigidInstances,
         stats.residentInstances,
