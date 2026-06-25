@@ -102,9 +102,8 @@ uint64 RigidResidencyInstanceIdHash(uint64 meshHash, int entityIndex, int render
     }
     else
     {
-        const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
-        hash = RigidResidencyHashBytes(hash, &meshHash, sizeof(meshHash));
-        hash = RigidResidencyHashBytes(hash, &triPtr, sizeof(triPtr));
+        (void)meshHash;
+        (void)tri;
     }
     return hash;
 }
