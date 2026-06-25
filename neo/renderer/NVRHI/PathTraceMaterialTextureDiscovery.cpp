@@ -649,6 +649,11 @@ void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
     info.normalImage = nullptr;
     info.specularImage = nullptr;
     info.emissiveImage = nullptr;
+    info.diffuseTexture = nullptr;
+    info.alphaTexture = nullptr;
+    info.normalTexture = nullptr;
+    info.specularTexture = nullptr;
+    info.emissiveTexture = nullptr;
     info.hasDiffuseImage = false;
     info.hasAlphaImage = false;
     info.hasNormalImage = false;
@@ -1183,6 +1188,7 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
         else
         {
             info->alphaImage = nullptr;
+            info->alphaTexture = nullptr;
             info->alphaImageName = "<none>";
             info->hasAlphaImage = false;
             info->hasAlphaTextureHandle = false;

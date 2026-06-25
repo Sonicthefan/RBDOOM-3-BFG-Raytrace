@@ -1015,12 +1015,15 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
                 g_smokeMaterialTableCache.table.staticMaterialIndexes = table.staticMaterialIndexes;
             }
         }
+        g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
+        ++g_smokeMaterialTableBuildStats.buildCalls;
+        PopulateSmokeMaterialTextureSlots(table, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe, minimumTextureTableLimit);
+        if (ValidateSmokeMaterialIndexes(table))
+        {
+            g_smokeMaterialTableCache.table = table;
+        }
         cacheHit = true;
         ++g_smokeMaterialTableCache.hits;
-        g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
-        g_smokeMaterialTableBuildStats.tableMaterials = static_cast<int>(table.materials.size());
-        g_smokeMaterialTableBuildStats.safeMaterials = table.materialsWithTextures + table.materialsWithAlphaTextures + table.materialsWithNormalTextures + table.materialsWithSpecularTextures + table.materialsWithEmissiveTextures;
-        g_smokeMaterialTableBuildStats.descriptorTextures = static_cast<int>(table.diffuseTextures.size());
         return true;
     }
 
