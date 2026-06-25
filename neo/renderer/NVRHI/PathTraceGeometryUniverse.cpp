@@ -3567,7 +3567,7 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
     {
         return false;
     }
-    if (!RigidRouteEntityKeyKnownAlive(renderDefKey))
+    if (!instance.seenThisFrame && !RigidRouteEntityKeyKnownAlive(renderDefKey))
     {
         return false;
     }
@@ -3584,14 +3584,14 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
     {
         return false;
     }
+    if (instance.seenThisFrame)
+    {
+        return true;
+    }
 
     if (instance.modelSurfaceIndex >= 0)
     {
         return instance.modelSurfaceIndex < model->NumSurfaces();
-    }
-    if (instance.seenThisFrame)
-    {
-        return true;
     }
 
     const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(instance.meshHash);
