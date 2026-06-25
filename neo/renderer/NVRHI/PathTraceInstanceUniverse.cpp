@@ -203,6 +203,25 @@ void RtPathTraceInstanceUniverse::RecordObservation(
     {
         ++m_frameStats.missingMaterialOrSkinOverrideMetadata;
     }
+    const RtPathTraceResidencyClass residencyClass = RtPathTraceResidencyClassForSourceFlags(frameInstance.sourceFlags);
+    switch (residencyClass)
+    {
+        case RtPathTraceResidencyClass::StaticWorld:
+            ++m_frameStats.residencyStaticWorldInstances;
+            break;
+        case RtPathTraceResidencyClass::DurableRigid:
+            ++m_frameStats.residencyDurableRigidInstances;
+            break;
+        case RtPathTraceResidencyClass::DynamicFrame:
+            ++m_frameStats.residencyDynamicFrameInstances;
+            break;
+        case RtPathTraceResidencyClass::TransientEffect:
+            ++m_frameStats.residencyTransientEffectInstances;
+            break;
+        default:
+            ++m_frameStats.residencyUnknownInstances;
+            break;
+    }
 
     InstanceHistory* history = FindOrCreateInstanceHistory(frameInstance.instanceId);
     if (history)
@@ -214,6 +233,14 @@ void RtPathTraceInstanceUniverse::RecordObservation(
             frameInstance.hasPreviousObjectToWorld = true;
             frameInstance.transformContinuous = true;
             memcpy(frameInstance.previousObjectToWorld, history->lastObjectToWorld, sizeof(frameInstance.previousObjectToWorld));
+            if (residencyClass == RtPathTraceResidencyClass::DynamicFrame)
+            {
+                ++m_frameStats.dynamicFramePreviousMatches;
+            }
+            else if (residencyClass == RtPathTraceResidencyClass::TransientEffect)
+            {
+                ++m_frameStats.transientEffectPreviousMatches;
+            }
         }
         if (!hasAnyPrevious)
         {
@@ -275,7 +302,7 @@ void RtPathTraceInstanceUniverse::RunDiagnostics(const RtPathTraceInstanceUniver
 {
     if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_frameIndex % 120ull) == 1ull)
     {
-        common->Printf("PathTracePrimaryPass: PT drawSurf mirror source=%d drawSurfs=%d usable=%d skipped=%d meshes=%d instances=%d oldSmokeSurfaces=%d static/rigid/skinned/particle/unknown=%d/%d/%d/%d/%d matches(scene/staticCache)=%d/%d transforms(same/changed/rigidChanged)=%d/%d/%d lifetimeChanged(all/rigid)=%d/%d overrides=%d missingMaterial=%d candidates(skinned/callback/gui/transient)=%d/%d/%d/%d\n",
+        common->Printf("PathTracePrimaryPass: PT drawSurf mirror source=%d drawSurfs=%d usable=%d skipped=%d meshes=%d instances=%d oldSmokeSurfaces=%d static/rigid/skinned/particle/unknown=%d/%d/%d/%d/%d residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d dynamicPrevMatch(dynamic/transient)=%d/%d matches(scene/staticCache)=%d/%d transforms(same/changed/rigidChanged)=%d/%d/%d lifetimeChanged(all/rigid)=%d/%d overrides=%d missingMaterial=%d candidates(skinned/callback/gui/transient)=%d/%d/%d/%d\n",
             desc.sceneSource,
             m_frameStats.drawSurfCount,
             m_frameStats.usableDrawSurfs,
@@ -288,6 +315,13 @@ void RtPathTraceInstanceUniverse::RunDiagnostics(const RtPathTraceInstanceUniver
             m_frameStats.skinnedOrDeformingSurfaces,
             m_frameStats.particleOrTransientSurfaces,
             m_frameStats.unknownSurfaces,
+            m_frameStats.residencyStaticWorldInstances,
+            m_frameStats.residencyDurableRigidInstances,
+            m_frameStats.residencyDynamicFrameInstances,
+            m_frameStats.residencyTransientEffectInstances,
+            m_frameStats.residencyUnknownInstances,
+            m_frameStats.dynamicFramePreviousMatches,
+            m_frameStats.transientEffectPreviousMatches,
             m_frameStats.staticUniverseMatches,
             m_frameStats.staticGeometryCacheMatches,
             m_frameStats.sameTransformObservations,
@@ -333,7 +367,14 @@ void RtPathTraceInstanceUniverse::RunDiagnostics(const RtPathTraceInstanceUniver
         legacyClassStats ? legacyClassStats->particleAlphaSurfaces : 0,
         legacyClassStats ? legacyClassStats->unknownSurfaces : 0,
         desc.legacySourceSurfaces);
-    common->Printf("PathTracePrimaryPass: PT instance universe identity matches(scene/staticCache)=%d/%d transforms(same/changed/rigidChanged)=%d/%d/%d lifetimeChanged(all/rigid)=%d/%d overrides=%d missingMaterialOrSkin=%d dynamicCandidates(skinned/callback/gui/transient)=%d/%d/%d/%d\n",
+    common->Printf("PathTracePrimaryPass: PT instance universe identity residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d dynamicPrevMatch(dynamic/transient)=%d/%d matches(scene/staticCache)=%d/%d transforms(same/changed/rigidChanged)=%d/%d/%d lifetimeChanged(all/rigid)=%d/%d overrides=%d missingMaterialOrSkin=%d dynamicCandidates(skinned/callback/gui/transient)=%d/%d/%d/%d\n",
+        m_frameStats.residencyStaticWorldInstances,
+        m_frameStats.residencyDurableRigidInstances,
+        m_frameStats.residencyDynamicFrameInstances,
+        m_frameStats.residencyTransientEffectInstances,
+        m_frameStats.residencyUnknownInstances,
+        m_frameStats.dynamicFramePreviousMatches,
+        m_frameStats.transientEffectPreviousMatches,
         m_frameStats.staticUniverseMatches,
         m_frameStats.staticGeometryCacheMatches,
         m_frameStats.sameTransformObservations,

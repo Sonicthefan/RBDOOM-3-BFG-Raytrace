@@ -338,7 +338,7 @@ bool PtMirrorIsEligibleRigidCandidate(
     const RtPathTraceMeshObservation& meshObservation,
     const RtPathTraceInstanceObservation& instanceObservation)
 {
-    if ((instanceObservation.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+    if (!RtPathTraceSourceFlagsAreDurableRigid(instanceObservation.sourceFlags))
     {
         return false;
     }
@@ -352,14 +352,7 @@ bool PtMirrorIsEligibleRigidCandidate(
     {
         return false;
     }
-    const uint32_t rejectMask =
-        RT_PT_INSTANCE_SOURCE_STATIC_WORLD |
-        RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING |
-        RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT |
-        RT_PT_INSTANCE_SOURCE_GUI |
-        RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED |
-        RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
-    return (instanceObservation.sourceFlags & rejectMask) == 0;
+    return true;
 }
 
 idVec4 PtMirrorBoundsColor(

@@ -444,8 +444,16 @@ struct RtPathTraceRigidResidencyStats
     int selectedAreas = 0;
     int portalEdges = 0;
     int blockedPortalEdges = 0;
+    int visibleStaticWorldInstances = 0;
+    int visibleDynamicFrameInstances = 0;
+    int visibleTransientEffectInstances = 0;
+    int visibleUnknownResidencyInstances = 0;
     int visibleRigidInstances = 0;
     int visibleRigidStaleModel = 0;
+    int rejectedRigidStaticWorld = 0;
+    int rejectedRigidDynamicFrame = 0;
+    int rejectedRigidTransientEffect = 0;
+    int rejectedRigidUnknown = 0;
     int areaWalkRigidInstances = 0;
     int cachedRigidInstances = 0;
     int residentInstances = 0;

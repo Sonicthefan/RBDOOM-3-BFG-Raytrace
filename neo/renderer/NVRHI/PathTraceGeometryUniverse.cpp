@@ -595,7 +595,9 @@ void PrintSmokeGeometryRange(const char* label, const RtSmokeGeometryRangeRecord
 uint32_t BuildRigidMeshCandidateRejectFlags(const RtPathTraceRigidMeshCandidateObservation& observation)
 {
     uint32_t rejectFlags = 0;
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+    const RtPathTraceResidencyClass residencyClass = RtPathTraceResidencyClassForSourceFlags(observation.sourceFlags);
+    if (residencyClass != RtPathTraceResidencyClass::DurableRigid &&
+        (observation.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
     {
         rejectFlags |= RT_PT_RIGID_MESH_REJECT_NOT_RIGID;
     }
@@ -635,7 +637,7 @@ uint32_t BuildRigidMeshCandidateRejectFlags(const RtPathTraceRigidMeshCandidateO
     {
         rejectFlags |= RT_PT_RIGID_MESH_REJECT_STATIC_WORLD;
     }
-    if ((observation.sourceFlags & RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH) != 0)
+    if ((observation.sourceFlags & (RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH | RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH)) != 0)
     {
         rejectFlags |= RT_PT_RIGID_MESH_REJECT_STATIC_CACHE_MATCH;
     }
@@ -3009,8 +3011,45 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     const std::vector<RtPathTraceInstanceObservation>& visibleInstances = instanceUniverse.FrameInstances();
     for (const RtPathTraceInstanceObservation& instance : visibleInstances)
     {
-        if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+        const RtPathTraceResidencyClass residencyClass = RtPathTraceResidencyClassForSourceFlags(instance.sourceFlags);
+        switch (residencyClass)
         {
+            case RtPathTraceResidencyClass::StaticWorld:
+                ++m_rigidResidencyStats.visibleStaticWorldInstances;
+                break;
+            case RtPathTraceResidencyClass::DurableRigid:
+                break;
+            case RtPathTraceResidencyClass::DynamicFrame:
+                ++m_rigidResidencyStats.visibleDynamicFrameInstances;
+                break;
+            case RtPathTraceResidencyClass::TransientEffect:
+                ++m_rigidResidencyStats.visibleTransientEffectInstances;
+                break;
+            default:
+                ++m_rigidResidencyStats.visibleUnknownResidencyInstances;
+                break;
+        }
+
+        if (residencyClass != RtPathTraceResidencyClass::DurableRigid)
+        {
+            if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) != 0)
+            {
+                switch (residencyClass)
+                {
+                    case RtPathTraceResidencyClass::StaticWorld:
+                        ++m_rigidResidencyStats.rejectedRigidStaticWorld;
+                        break;
+                    case RtPathTraceResidencyClass::DynamicFrame:
+                        ++m_rigidResidencyStats.rejectedRigidDynamicFrame;
+                        break;
+                    case RtPathTraceResidencyClass::TransientEffect:
+                        ++m_rigidResidencyStats.rejectedRigidTransientEffect;
+                        break;
+                    default:
+                        ++m_rigidResidencyStats.rejectedRigidUnknown;
+                        break;
+                }
+            }
             continue;
         }
         ++m_rigidResidencyStats.visibleRigidInstances;
@@ -3148,7 +3187,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
     const std::vector<RtPathTraceInstanceObservation>& visibleInstances = instanceUniverse.FrameInstances();
     for (const RtPathTraceInstanceObservation& instance : visibleInstances)
     {
-        if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+        if (!RtPathTraceSourceFlagsAreDurableRigid(instance.sourceFlags))
         {
             continue;
         }
@@ -3294,7 +3333,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
     const char* routeSource = !stats.enabled
         ? "visibleOnly"
         : (stats.residencyV2 ? "residencyV2" : "legacyAreaWalk");
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid/staleModel=%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d visibleRigid/staleModel=%d/%d rejectedRigid(static/dynamic/transient/unknown)=%d/%d/%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         stats.residencyV2,
@@ -3306,8 +3345,17 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.selectedAreas,
         stats.portalEdges,
         stats.blockedPortalEdges,
+        stats.visibleStaticWorldInstances,
+        stats.visibleRigidInstances,
+        stats.visibleDynamicFrameInstances,
+        stats.visibleTransientEffectInstances,
+        stats.visibleUnknownResidencyInstances,
         stats.visibleRigidInstances,
         stats.visibleRigidStaleModel,
+        stats.rejectedRigidStaticWorld,
+        stats.rejectedRigidDynamicFrame,
+        stats.rejectedRigidTransientEffect,
+        stats.rejectedRigidUnknown,
         stats.areaWalkRigidInstances,
         stats.cachedRigidInstances,
         stats.residentInstances,
@@ -3541,6 +3589,10 @@ void RtSmokeGeometryUniverse::BuildRigidRouteInstanceList(const RtPathTraceInsta
     instances.reserve(frameInstances.size());
     for (const RtPathTraceInstanceObservation& instance : frameInstances)
     {
+        if (!RtPathTraceSourceFlagsAreDurableRigid(instance.sourceFlags))
+        {
+            continue;
+        }
         instances.push_back(MakeRigidRouteInstanceObservation(instance));
     }
 }
@@ -3829,7 +3881,7 @@ RtPathTraceRigidTlasPlanStats RtSmokeGeometryUniverse::BuildRigidTlasPlanStats(c
     stats.visibleInstances = static_cast<int>(instances.size());
     for (const RtPathTraceRigidRouteInstanceObservation& instance : instances)
     {
-        if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+        if (!RtPathTraceSourceFlagsAreDurableRigid(instance.sourceFlags))
         {
             continue;
         }
@@ -4063,7 +4115,7 @@ RtSmokeRigidTlasPlanSnapshot RtSmokeGeometryUniverse::CaptureRigidTlasInstancePl
         const auto routeReadyForInstance = [this, &instances](size_t instanceIndex) -> bool
         {
             const RtPathTraceRigidRouteInstanceObservation& instance = instances[instanceIndex];
-            if ((instance.sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) == 0)
+            if (!RtPathTraceSourceFlagsAreDurableRigid(instance.sourceFlags))
             {
                 return false;
             }

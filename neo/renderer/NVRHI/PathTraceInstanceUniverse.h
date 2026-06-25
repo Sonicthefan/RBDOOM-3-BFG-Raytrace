@@ -33,6 +33,41 @@ enum RtPathTraceInstanceSourceFlags : uint32_t
     RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE = 1u << 8
 };
 
+enum class RtPathTraceResidencyClass : uint32_t
+{
+    Unknown = 0,
+    StaticWorld,
+    DurableRigid,
+    DynamicFrame,
+    TransientEffect
+};
+
+inline RtPathTraceResidencyClass RtPathTraceResidencyClassForSourceFlags(uint32_t sourceFlags)
+{
+    if ((sourceFlags & (RT_PT_INSTANCE_SOURCE_STATIC_WORLD | RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH | RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH)) != 0)
+    {
+        return RtPathTraceResidencyClass::StaticWorld;
+    }
+    if ((sourceFlags & (RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT | RT_PT_INSTANCE_SOURCE_GUI)) != 0)
+    {
+        return RtPathTraceResidencyClass::TransientEffect;
+    }
+    if ((sourceFlags & (RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING | RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED)) != 0)
+    {
+        return RtPathTraceResidencyClass::DynamicFrame;
+    }
+    if ((sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) != 0)
+    {
+        return RtPathTraceResidencyClass::DurableRigid;
+    }
+    return RtPathTraceResidencyClass::Unknown;
+}
+
+inline bool RtPathTraceSourceFlagsAreDurableRigid(uint32_t sourceFlags)
+{
+    return RtPathTraceResidencyClassForSourceFlags(sourceFlags) == RtPathTraceResidencyClass::DurableRigid;
+}
+
 struct RtPathTraceMeshKey
 {
     const srfTriangles_t* tri = nullptr;
@@ -137,10 +172,17 @@ struct RtPathTraceInstanceUniverseStats
     int everChangedRigidTransformObservations = 0;
     int materialOverrideObservations = 0;
     int missingMaterialOrSkinOverrideMetadata = 0;
+    int residencyStaticWorldInstances = 0;
+    int residencyDurableRigidInstances = 0;
+    int residencyDynamicFrameInstances = 0;
+    int residencyTransientEffectInstances = 0;
+    int residencyUnknownInstances = 0;
     int dynamicSkinnedDeformingCandidates = 0;
     int callbackOrGeneratedCandidates = 0;
     int guiCandidates = 0;
     int particlesOrTransientCandidates = 0;
+    int dynamicFramePreviousMatches = 0;
+    int transientEffectPreviousMatches = 0;
     int nullSurfaceSkips = 0;
     int missingGeometrySkips = 0;
     int nullMaterialSkips = 0;
