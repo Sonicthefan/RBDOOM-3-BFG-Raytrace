@@ -44,10 +44,6 @@ enum class RtPathTraceResidencyClass : uint32_t
 
 inline RtPathTraceResidencyClass RtPathTraceResidencyClassForSourceFlags(uint32_t sourceFlags)
 {
-    if ((sourceFlags & (RT_PT_INSTANCE_SOURCE_STATIC_WORLD | RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH | RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH)) != 0)
-    {
-        return RtPathTraceResidencyClass::StaticWorld;
-    }
     if ((sourceFlags & (RT_PT_INSTANCE_SOURCE_PARTICLE_OR_TRANSIENT | RT_PT_INSTANCE_SOURCE_GUI)) != 0)
     {
         return RtPathTraceResidencyClass::TransientEffect;
@@ -55,6 +51,10 @@ inline RtPathTraceResidencyClass RtPathTraceResidencyClassForSourceFlags(uint32_
     if ((sourceFlags & (RT_PT_INSTANCE_SOURCE_SKINNED_OR_DEFORMING | RT_PT_INSTANCE_SOURCE_CALLBACK_OR_GENERATED)) != 0)
     {
         return RtPathTraceResidencyClass::DynamicFrame;
+    }
+    if ((sourceFlags & (RT_PT_INSTANCE_SOURCE_STATIC_WORLD | RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH | RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH)) != 0)
+    {
+        return RtPathTraceResidencyClass::StaticWorld;
     }
     if ((sourceFlags & RT_PT_INSTANCE_SOURCE_RIGID) != 0)
     {
