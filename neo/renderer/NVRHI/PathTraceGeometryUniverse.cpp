@@ -930,10 +930,6 @@ bool RigidCachedTlasInstanceValid(
     const RtSmokePlanTlasInstance& plannedInstance,
     const RtSmokeGeometryUniverse::RigidMeshCandidateRecord& record)
 {
-    if (plannedInstance.sourceSeenThisFrame)
-    {
-        return true;
-    }
     if (!RigidMeshHasCachedRouteGpuReady(record) ||
         !RigidRouteTransformUsable(plannedInstance.transform))
     {
