@@ -2774,12 +2774,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             OPTICK_EVENT("PT DrawSurf Mirror");
             m_instanceUniverse.BeginFrame(m_smokeGeometryFrameIndex, viewDef);
             CapturePathTraceDrawSurfMirror(viewDef, useSceneUniverseStaticGeometry ? &m_sceneUniverse : nullptr, &m_smokeGeometryUniverse, m_instanceUniverse, &m_smokeBoundsOverlayLines);
-            if (rigidResidencyEnabled)
+            const bool residencyV2 = r_pathTracingGeometryResidencyV2.GetInteger() != 0;
+            const bool diagnosticAreaWalk = residencyV2 && r_pathTracingRigidResidencyDump.GetInteger() != 0;
+            if (rigidResidencyEnabled && (!residencyV2 || diagnosticAreaWalk))
             {
                 m_smokeGeometryUniverse.RefreshRigidResidencyAreaWalk(
                     viewDef,
                     m_instanceUniverse,
-                    idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger()));
+                    idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger()),
+                    !residencyV2);
             }
             m_smokeBoundsOverlayLineCount = static_cast<int>(m_smokeBoundsOverlayLines.size());
         }

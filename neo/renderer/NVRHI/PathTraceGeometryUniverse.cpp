@@ -3177,7 +3177,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     return m_rigidResidencyStats;
 }
 
-void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps)
+void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps, bool recordResidents)
 {
     if (!m_frameActive || !viewDef || !viewDef->renderWorld)
     {
@@ -3287,47 +3287,50 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 }
                 observedInstanceIds.insert(instanceId);
 
-                RtPathTraceRigidMeshCandidateObservation candidateObservation;
-                candidateObservation.tri = tri;
-                candidateObservation.meshHash = meshHash;
-                candidateObservation.instanceId = instanceId;
-                candidateObservation.vertexBufferIdentity = meshKey.vertexBufferIdentity;
-                candidateObservation.indexBufferIdentity = meshKey.indexBufferIdentity;
-                candidateObservation.sourceFlags = rigidSnapshot.sourceFlags;
-                candidateObservation.materialId = rigidSnapshot.materialId;
-                candidateObservation.materialClassSignature = rigidSnapshot.materialClassSignature;
-                candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
-                candidateObservation.vertexFormat = meshKey.vertexFormat;
-                candidateObservation.drawSurfIndex = -1;
-                candidateObservation.entityIndex = entity->index;
-                candidateObservation.renderEntityNum = renderEntity.entityNum;
-                candidateObservation.modelEpoch = rigidSnapshot.modelEpoch;
-                candidateObservation.numVerts = tri->numVerts;
-                candidateObservation.numIndexes = tri->numIndexes;
-                candidateObservation.localSpaceValid = true;
-                candidateObservation.materialName = material ? material->GetName() : "<none>";
-                candidateObservation.modelName = model ? model->Name() : "<none>";
-                RecordRigidMeshCandidate(candidateObservation);
+                if (recordResidents)
+                {
+                    RtPathTraceRigidMeshCandidateObservation candidateObservation;
+                    candidateObservation.tri = tri;
+                    candidateObservation.meshHash = meshHash;
+                    candidateObservation.instanceId = instanceId;
+                    candidateObservation.vertexBufferIdentity = meshKey.vertexBufferIdentity;
+                    candidateObservation.indexBufferIdentity = meshKey.indexBufferIdentity;
+                    candidateObservation.sourceFlags = rigidSnapshot.sourceFlags;
+                    candidateObservation.materialId = rigidSnapshot.materialId;
+                    candidateObservation.materialClassSignature = rigidSnapshot.materialClassSignature;
+                    candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                    candidateObservation.vertexFormat = meshKey.vertexFormat;
+                    candidateObservation.drawSurfIndex = -1;
+                    candidateObservation.entityIndex = entity->index;
+                    candidateObservation.renderEntityNum = renderEntity.entityNum;
+                    candidateObservation.modelEpoch = rigidSnapshot.modelEpoch;
+                    candidateObservation.numVerts = tri->numVerts;
+                    candidateObservation.numIndexes = tri->numIndexes;
+                    candidateObservation.localSpaceValid = true;
+                    candidateObservation.materialName = material ? material->GetName() : "<none>";
+                    candidateObservation.modelName = model ? model->Name() : "<none>";
+                    RecordRigidMeshCandidate(candidateObservation);
 
-                RtPathTraceRigidRouteInstanceObservation residentInstance;
-                residentInstance.instanceId = instanceId;
-                residentInstance.meshHash = meshHash;
-                residentInstance.entityIndex = entity->index;
-                residentInstance.renderEntityNum = renderEntity.entityNum;
-                residentInstance.drawSurfIndex = -1;
-                residentInstance.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
-                residentInstance.currentArea = areaIndex;
-                residentInstance.renderDefKey = rigidSnapshot.renderDefKey;
-                residentInstance.modelEpoch = rigidSnapshot.modelEpoch;
-                residentInstance.materialOverrideId = rigidSnapshot.materialId;
-                residentInstance.sourceFlags = rigidSnapshot.sourceFlags;
-                residentInstance.seenThisFrame = true;
-                residentInstance.wasMovingWhenLastSeen = entity->lastModifiedFrameNum == tr.frameCount;
-                residentInstance.isSkinnedOrDeforming = RigidRouteSourceFlagsDeforming(residentInstance.sourceFlags);
-                memcpy(residentInstance.objectToWorld, entity->modelMatrix, sizeof(residentInstance.objectToWorld));
-                residentInstance.materialName = candidateObservation.materialName;
-                residentInstance.modelName = candidateObservation.modelName;
-                RecordRigidResidentObservation(residentInstance);
+                    RtPathTraceRigidRouteInstanceObservation residentInstance;
+                    residentInstance.instanceId = instanceId;
+                    residentInstance.meshHash = meshHash;
+                    residentInstance.entityIndex = entity->index;
+                    residentInstance.renderEntityNum = renderEntity.entityNum;
+                    residentInstance.drawSurfIndex = -1;
+                    residentInstance.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
+                    residentInstance.currentArea = areaIndex;
+                    residentInstance.renderDefKey = rigidSnapshot.renderDefKey;
+                    residentInstance.modelEpoch = rigidSnapshot.modelEpoch;
+                    residentInstance.materialOverrideId = rigidSnapshot.materialId;
+                    residentInstance.sourceFlags = rigidSnapshot.sourceFlags;
+                    residentInstance.seenThisFrame = true;
+                    residentInstance.wasMovingWhenLastSeen = entity->lastModifiedFrameNum == tr.frameCount;
+                    residentInstance.isSkinnedOrDeforming = RigidRouteSourceFlagsDeforming(residentInstance.sourceFlags);
+                    memcpy(residentInstance.objectToWorld, entity->modelMatrix, sizeof(residentInstance.objectToWorld));
+                    residentInstance.materialName = candidateObservation.materialName;
+                    residentInstance.modelName = candidateObservation.modelName;
+                    RecordRigidResidentObservation(residentInstance);
+                }
                 ++m_rigidResidencyAreaWalkInstancesThisFrame;
             }
         }
@@ -3344,7 +3347,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
     const char* routeSource = !stats.enabled
         ? "visibleOnly"
         : (stats.residencyV2 ? "residencyV2" : "legacyAreaWalk");
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d visibleRigid/staleModel=%d/%d rejectedRigid(static/dynamic/transient/unknown)=%d/%d/%d/%d areaWalk(entity/reject/surface/reject/eligible/dupVisible/dupFrame/added)=%d/%d/%d/%d/%d/%d/%d/%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d visibleRigid/staleModel=%d/%d rejectedRigid(static/dynamic/transient/unknown)=%d/%d/%d/%d areaWalk(entity/reject/surface/reject/eligible/dupVisible/dupFrame/addOrWouldAdd)=%d/%d/%d/%d/%d/%d/%d/%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         stats.residencyV2,

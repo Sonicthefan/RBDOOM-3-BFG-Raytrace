@@ -625,7 +625,7 @@ public:
         const RtPathTraceInstanceUniverse& instanceUniverse,
         bool enabled,
         int portalSteps);
-    void RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps);
+    void RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps, bool recordResidents = true);
     const RtPathTraceRigidResidencyStats& GetRigidResidencyStats() const;
     void DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource, bool includeSamples = true) const;
     void CollectRigidResidencyBoundsBoxes(std::vector<RtPathTraceRigidResidencyBoundsBox>& boxes, int maxBoxes) const;
