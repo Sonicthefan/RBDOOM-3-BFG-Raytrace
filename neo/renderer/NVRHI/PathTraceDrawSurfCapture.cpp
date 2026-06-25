@@ -23,50 +23,6 @@
 
 namespace {
 
-int PtResolveModelSurfaceIndex(const idRenderEntityLocal* entity, const srfTriangles_t* tri, const idMaterial* material)
-{
-    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
-    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
-    if (!model || !tri)
-    {
-        return -1;
-    }
-    for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
-    {
-        const modelSurface_t* surface = model->Surface(surfaceIndex);
-        if (surface && surface->geometry == tri)
-        {
-            return surfaceIndex;
-        }
-    }
-
-    int matchedSurfaceIndex = -1;
-    for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
-    {
-        const modelSurface_t* surface = model->Surface(surfaceIndex);
-        const srfTriangles_t* surfaceTri = surface ? surface->geometry : nullptr;
-        const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
-        const idMaterial* remappedMaterial = R_RemapShaderBySkin(surfaceMaterial, renderEntity ? renderEntity->customSkin : nullptr, renderEntity ? renderEntity->customShader : nullptr);
-        if (!surfaceTri ||
-            remappedMaterial != material ||
-            surfaceTri->numVerts != tri->numVerts ||
-            surfaceTri->numIndexes != tri->numIndexes)
-        {
-            continue;
-        }
-        if (matchedSurfaceIndex >= 0)
-        {
-            return -1;
-        }
-        matchedSurfaceIndex = surfaceIndex;
-    }
-    if (matchedSurfaceIndex >= 0)
-    {
-        return matchedSurfaceIndex;
-    }
-    return -1;
-}
-
 uint32_t PtDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t materialId, uint32_t localTriangleIndex)
 {
     const idRenderEntityLocal* entity = (drawSurf && drawSurf->space) ? drawSurf->space->entityDef : nullptr;
@@ -544,12 +500,12 @@ void CapturePathTraceDrawSurfMirror(
         const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
         const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
         const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
-        const char* modelName = renderModel ? renderModel->Name() : "<none>";
+        const char* modelName = renderModel ? "<live render model>" : "<none>";
         const uint32_t baseMaterialId = SmokeMaterialId(material);
         const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
         const uint32_t sourceKind = SmokeSurfaceClassId(surfaceClass);
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
-        const int modelSurfaceIndex = PtResolveModelSurfaceIndex(entity, tri, material);
+        const int modelSurfaceIndex = -1;
         const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
 
         RtPathTraceMeshObservation meshObservation;
@@ -773,7 +729,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
             const uint32_t baseMaterialId = SmokeMaterialId(material);
             const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
-            const int modelSurfaceIndex = PtResolveModelSurfaceIndex(entity, tri, material);
+            const int modelSurfaceIndex = -1;
 
             RtPathTraceMeshKey meshKey;
             meshKey.tri = tri;
