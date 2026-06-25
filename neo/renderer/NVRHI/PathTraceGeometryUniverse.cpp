@@ -2696,6 +2696,18 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
     const uint64 cachedRouteFramesToKeep = prepareCachedRouteRecords
         ? static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyMeshFramesToKeep.GetInteger()))
         : 0ull;
+    std::unordered_set<uint64> cachedRouteResidentMeshHashes;
+    if (prepareCachedRouteRecords)
+    {
+        cachedRouteResidentMeshHashes.reserve(m_rigidResidentRecords.size());
+        for (const RigidResidentInstanceRecord& residentRecord : m_rigidResidentRecords)
+        {
+            if (residentRecord.observation.meshHash != 0)
+            {
+                cachedRouteResidentMeshHashes.insert(residentRecord.observation.meshHash);
+            }
+        }
+    }
 
     for (RigidMeshCandidateRecord& record : m_rigidMeshCandidateRecords)
     {
@@ -2705,6 +2717,7 @@ RtPathTraceRigidBlasGpuStats RtSmokeGeometryUniverse::UpdateRigidBlasGpuScaffold
         const bool cachedRouteCandidate =
             prepareCachedRouteRecords &&
             !record.seenThisFrame &&
+            cachedRouteResidentMeshHashes.find(record.meshHash) != cachedRouteResidentMeshHashes.end() &&
             cachedRouteWithinKeepWindow &&
             RigidMeshHasCachedRouteData(record);
         if (!record.valid || (!record.seenThisFrame && !cachedRouteCandidate))
