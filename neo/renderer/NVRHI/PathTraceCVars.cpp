@@ -377,21 +377,21 @@ idCVar r_pathTracingResidencyMeshFramesToKeep(
 
 idCVar r_pathTracingResidencyMaxDistance(
     "r_pathTracingResidencyMaxDistance",
-    "512",
+    "0",
     CVAR_RENDERER | CVAR_FLOAT,
-    "Maximum world-space distance for cached rigid residency after an instance leaves the raster view; 0 disables distance pruning" );
+    "Deprecated V2 far safety valve for cached rigid residency; 0 disables distance pruning so frustum anti-culling is the selector" );
 
 idCVar r_pathTracingResidencyAntiCulling(
     "r_pathTracingResidencyAntiCulling",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic V2 selector: 1 retains not-seen instances only when primary-frustum culled; 0 keeps all aged-in rigid instances for path-traced secondary visibility" );
+    "Deprecated/no-op under V2; retained rigid residency always uses the frustum anti-culling selector" );
 
 idCVar r_pathTracingResidencyRouteCached(
     "r_pathTracingResidencyRouteCached",
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "When V2 is on, emit retained off-screen rigid records into the rigid route TLAS/buffers; set 0 to keep the residency cache CPU-only for diagnostics." );
+    "Debug disable for retained off-screen rigid route emission; default 1 emits retained V2 residents when cached GPU route data is ready." );
 
 idCVar r_pathTracingResidencyRouteCachedTlas(
     "r_pathTracingResidencyRouteCachedTlas",
@@ -404,6 +404,12 @@ idCVar r_pathTracingResidencyRouteCachedTraceMask(
     "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Diagnostic gate for cached rigid TLAS descriptors: 1 uses the normal trace mask, 0 emits cached descriptors with mask 0 so TLAS build still references them but rays cannot hit them." );
+
+idCVar r_pathTracingResidencyMovingGraceFrames(
+    "r_pathTracingResidencyMovingGraceFrames",
+    "6",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Frames after an entity transform update during which rigid residency treats the instance as moving and refuses off-screen freeze retention" );
 
 idCVar r_pathTracingResidencyDebug(
     "r_pathTracingResidencyDebug",

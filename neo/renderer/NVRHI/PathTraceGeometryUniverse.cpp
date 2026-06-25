@@ -268,6 +268,18 @@ bool RigidRouteSourceFlagsDeforming(uint32_t sourceFlags)
     return (sourceFlags & deformingFlags) != 0;
 }
 
+bool RigidResidencyEntityMovedWithinGrace(const idRenderEntityLocal* entity)
+{
+    if (!entity || entity->lastModifiedFrameNum <= 0)
+    {
+        return false;
+    }
+
+    const int graceFrames = idMath::ClampInt(0, 120, r_pathTracingResidencyMovingGraceFrames.GetInteger());
+    const int framesSinceMove = tr.frameCount - entity->lastModifiedFrameNum;
+    return framesSinceMove < 0 || framesSinceMove <= graceFrames;
+}
+
 bool RigidResidencyCanTrackEntity(const viewDef_t* viewDef, const idRenderEntityLocal* entity)
 {
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
@@ -298,7 +310,7 @@ bool RigidResidencyCanTrackEntity(const viewDef_t* viewDef, const idRenderEntity
         !model->ModelHasDrawingSurfaces() ||
         model->IsDefaultModel() ||
         model->IsDynamicModel() != DM_STATIC ||
-        entity->lastModifiedFrameNum == tr.frameCount ||
+        RigidResidencyEntityMovedWithinGrace(entity) ||
         renderEntity->callback != nullptr ||
         renderEntity->forceUpdate != 0 ||
         renderEntity->joints != nullptr ||
@@ -449,8 +461,7 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.sourceFlags = instance.sourceFlags;
     routeInstance.wasMovingWhenLastSeen =
         instance.entity &&
-        RigidRouteEntityKeyKnownAlive(instance.renderDefKey) &&
-        instance.entity->lastModifiedFrameNum == tr.frameCount;
+        RigidResidencyEntityMovedWithinGrace(instance.entity);
     routeInstance.isSkinnedOrDeforming = RigidRouteSourceFlagsDeforming(instance.sourceFlags);
     routeInstance.hasPreviousObjectToWorld = instance.hasPreviousObjectToWorld;
     routeInstance.transformContinuous = instance.transformContinuous;
@@ -3337,7 +3348,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     residentInstance.materialOverrideId = rigidSnapshot.materialId;
                     residentInstance.sourceFlags = rigidSnapshot.sourceFlags;
                     residentInstance.seenThisFrame = true;
-                    residentInstance.wasMovingWhenLastSeen = entity->lastModifiedFrameNum == tr.frameCount;
+                    residentInstance.wasMovingWhenLastSeen = RigidResidencyEntityMovedWithinGrace(entity);
                     residentInstance.isSkinnedOrDeforming = RigidRouteSourceFlagsDeforming(residentInstance.sourceFlags);
                     memcpy(residentInstance.objectToWorld, entity->modelMatrix, sizeof(residentInstance.objectToWorld));
                     residentInstance.materialName = candidateObservation.materialName;
@@ -3667,10 +3678,6 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
     {
         return false;
     }
-    if (!instance.seenThisFrame && !RigidRouteEntityKeyKnownAlive(renderDefKey))
-    {
-        return false;
-    }
 
     const idRenderWorldLocal* world = static_cast<const idRenderWorldLocal*>(renderDefKey.world);
     if (renderDefKey.index >= world->entityDefs.Num())
@@ -3767,11 +3774,11 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
     }
     const uint64 framesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyFramesToKeep.GetInteger()));
     const uint64 meshFramesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyMeshFramesToKeep.GetInteger()));
-    const float maxDistance = idMath::ClampFloat(0.0f, 100000.0f, r_pathTracingResidencyMaxDistance.GetFloat());
-    const bool antiCulling = r_pathTracingResidencyAntiCulling.GetInteger() != 0;
+    (void)viewOrigin;
+    (void)selectedAreas;
     m_rigidResidencyStats.residencyFramesToKeep = static_cast<int>(framesToKeep);
     m_rigidResidencyStats.residencyMeshFramesToKeep = static_cast<int>(meshFramesToKeep);
-    m_rigidResidencyStats.residencyAntiCulling = antiCulling ? 1 : 0;
+    m_rigidResidencyStats.residencyAntiCulling = v2 ? 1 : 0;
     std::unordered_set<uint64> residentMeshHashes;
 
     if (!m_rigidResidentRecords.empty())
@@ -3780,48 +3787,30 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
         liveResidentRecords.reserve(m_rigidResidentRecords.size());
         for (const RigidResidentInstanceRecord& record : m_rigidResidentRecords)
         {
-            const PtRenderDefKey& renderDefKey = record.observation.renderDefKey;
-            const bool deletedEntity =
-                v2 &&
-                renderDefKey.world != nullptr &&
-                renderDefKey.index >= 0 &&
-                renderDefKey.generation != 0 &&
-                !PtGeometryLifecycle::IsEntityKeyAlive(renderDefKey);
-            bool keepRecord = !deletedEntity && record.seenThisFrame;
+            bool keepRecord = record.seenThisFrame;
             bool retainedOffscreen = false;
-            if (v2 && !deletedEntity && !record.seenThisFrame)
+            if (v2 && !record.seenThisFrame)
             {
                 const bool withinWindow = record.lastSeenFrame + framesToKeep >= m_currentFrameIndex;
-                const bool areaKnown = record.observation.currentArea >= 0;
-                const bool locallyRelevant =
-                    (!areaKnown || RigidResidencyAreaSelected(record.observation.currentArea, selectedAreas)) &&
-                    RigidResidencyWithinDistance(record.observation, viewOrigin, maxDistance);
-                if (withinWindow && locallyRelevant)
+                if (withinWindow)
                 {
-                    if (antiCulling)
-                    {
-                        const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(record.observation.meshHash);
-                        const RigidMeshCandidateRecord* meshRecord =
-                            meshIt != m_rigidMeshCandidateLookup.end() && meshIt->second < m_rigidMeshCandidateRecords.size()
-                                ? &m_rigidMeshCandidateRecords[meshIt->second]
-                                : nullptr;
-                        idBounds worldBounds;
-                        const bool outsideFrustum =
-                            viewMvp &&
-                            meshRecord &&
-                            meshRecord->valid &&
-                            BuildRigidResidencyWorldBounds(*meshRecord, record.observation, worldBounds) &&
-                            idRenderMatrix::CullBoundsToMVP(*viewMvp, worldBounds, false);
-                        const bool eligible =
-                            record.observation.isStable &&
-                            !record.observation.isSkinnedOrDeforming &&
-                            !record.observation.wasMovingWhenLastSeen;
-                        retainedOffscreen = eligible && outsideFrustum;
-                    }
-                    else
-                    {
-                        retainedOffscreen = true;
-                    }
+                    const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(record.observation.meshHash);
+                    const RigidMeshCandidateRecord* meshRecord =
+                        meshIt != m_rigidMeshCandidateLookup.end() && meshIt->second < m_rigidMeshCandidateRecords.size()
+                            ? &m_rigidMeshCandidateRecords[meshIt->second]
+                            : nullptr;
+                    idBounds worldBounds;
+                    const bool outsideFrustum =
+                        viewMvp &&
+                        meshRecord &&
+                        meshRecord->valid &&
+                        BuildRigidResidencyWorldBounds(*meshRecord, record.observation, worldBounds) &&
+                        idRenderMatrix::CullBoundsToMVP(*viewMvp, worldBounds, false);
+                    const bool eligible =
+                        record.observation.isStable &&
+                        !record.observation.isSkinnedOrDeforming &&
+                        !record.observation.wasMovingWhenLastSeen;
+                    retainedOffscreen = eligible && outsideFrustum;
                     keepRecord = retainedOffscreen;
                 }
             }
@@ -3840,10 +3829,6 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
             }
             else
             {
-                if (deletedEntity)
-                {
-                    ++m_rigidResidencyStats.residentDeleted;
-                }
                 ++m_rigidResidencyStats.residentAgedOut;
             }
         }
