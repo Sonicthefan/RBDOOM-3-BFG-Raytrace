@@ -292,11 +292,16 @@ void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
     const bool oldHasSafeSpecularTexture = info.hasSafeSpecularTexture;
     const bool oldHasSafeEmissiveTexture = info.hasSafeEmissiveTexture;
 
-    info.hasTextureHandle = info.diffuseImage && info.diffuseImage->GetTextureHandle();
-    info.hasAlphaTextureHandle = info.alphaImage && info.alphaImage->GetTextureHandle();
-    info.hasNormalTextureHandle = info.normalImage && info.normalImage->GetTextureHandle();
-    info.hasSpecularTextureHandle = info.specularImage && info.specularImage->GetTextureHandle();
-    info.hasEmissiveTextureHandle = info.emissiveImage && info.emissiveImage->GetTextureHandle();
+    info.diffuseTexture = info.diffuseImage ? info.diffuseImage->GetTextureHandle() : nullptr;
+    info.alphaTexture = info.alphaImage ? info.alphaImage->GetTextureHandle() : nullptr;
+    info.normalTexture = info.normalImage ? info.normalImage->GetTextureHandle() : nullptr;
+    info.specularTexture = info.specularImage ? info.specularImage->GetTextureHandle() : nullptr;
+    info.emissiveTexture = info.emissiveImage ? info.emissiveImage->GetTextureHandle() : nullptr;
+    info.hasTextureHandle = info.diffuseTexture != nullptr;
+    info.hasAlphaTextureHandle = info.alphaTexture != nullptr;
+    info.hasNormalTextureHandle = info.normalTexture != nullptr;
+    info.hasSpecularTextureHandle = info.specularTexture != nullptr;
+    info.hasEmissiveTextureHandle = info.emissiveTexture != nullptr;
     info.hasSafeTexture = info.hasTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.diffuseImage);
     info.hasSafeAlphaTexture = info.hasAlphaTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.alphaImage);
     info.hasSafeNormalTexture = info.hasNormalTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.normalImage);

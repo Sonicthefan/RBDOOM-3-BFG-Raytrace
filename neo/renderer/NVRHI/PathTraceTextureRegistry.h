@@ -30,6 +30,11 @@ struct RtSmokeMaterialTextureInfo
     idImage* normalImage = nullptr;
     idImage* specularImage = nullptr;
     idImage* emissiveImage = nullptr;
+    nvrhi::TextureHandle diffuseTexture;
+    nvrhi::TextureHandle alphaTexture;
+    nvrhi::TextureHandle normalTexture;
+    nvrhi::TextureHandle specularTexture;
+    nvrhi::TextureHandle emissiveTexture;
     bool hasDiffuseImage = false;
     bool hasAlphaImage = false;
     bool hasNormalImage = false;

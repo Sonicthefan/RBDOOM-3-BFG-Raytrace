@@ -245,16 +245,8 @@ uint32_t SmokeMaterialId(const idMaterial* material)
     return HashSmokeMaterialName(material ? material->GetName() : "<none>");
 }
 
-uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t materialId)
+PathTraceSmokeMaterial BuildSmokeMaterialTableMaterial(uint32_t materialId, const RtSmokeMaterialTextureInfo& info, const RtSmokePersistentMaterialRecord& record)
 {
-    std::vector<uint32_t>::iterator existing = std::find(table.materialIds.begin(), table.materialIds.end(), materialId);
-    if (existing != table.materialIds.end())
-    {
-        return static_cast<uint32_t>(existing - table.materialIds.begin());
-    }
-
-    const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, static_cast<int>(table.materials.size()));
-    const RtSmokePersistentMaterialRecord& record = GetSmokePersistentMaterialRecord(materialId, info);
     PathTraceSmokeMaterial material = record.material;
     if (SmokeMaterialHasZeroRoughnessOverride(materialId))
     {
@@ -289,12 +281,48 @@ uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t m
             }
         }
     }
+    return material;
+}
+
+uint32_t AddSmokeMaterialTableEntry(RtSmokeMaterialTableBuild& table, uint32_t materialId)
+{
+    std::vector<uint32_t>::iterator existing = std::find(table.materialIds.begin(), table.materialIds.end(), materialId);
+    if (existing != table.materialIds.end())
+    {
+        return static_cast<uint32_t>(existing - table.materialIds.begin());
+    }
+
+    const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, static_cast<int>(table.materials.size()));
+    const RtSmokePersistentMaterialRecord& record = GetSmokePersistentMaterialRecord(materialId, info);
     table.materialIds.push_back(materialId);
-    table.materials.push_back(material);
+    table.materials.push_back(BuildSmokeMaterialTableMaterial(materialId, info, record));
     table.materialInfos.push_back(info);
     table.materialFacts.push_back(record.facts);
     table.materialsAdditiveDecals += record.additiveDecalContribution;
     return static_cast<uint32_t>(table.materials.size() - 1);
+}
+
+bool RefreshSmokeMaterialTableFrameRecords(RtSmokeMaterialTableBuild& table)
+{
+    if (table.materialIds.size() != table.materials.size() ||
+        table.materialInfos.size() != table.materials.size() ||
+        table.materialFacts.size() != table.materials.size())
+    {
+        return false;
+    }
+
+    table.materialsAdditiveDecals = 0;
+    for (int tableIndex = 0; tableIndex < static_cast<int>(table.materialIds.size()); ++tableIndex)
+    {
+        const uint32_t materialId = table.materialIds[tableIndex];
+        const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, tableIndex);
+        const RtSmokePersistentMaterialRecord& record = GetSmokePersistentMaterialRecord(materialId, info);
+        table.materialInfos[tableIndex] = info;
+        table.materials[tableIndex] = BuildSmokeMaterialTableMaterial(materialId, info, record);
+        table.materialFacts[tableIndex] = record.facts;
+        table.materialsAdditiveDecals += record.additiveDecalContribution;
+    }
+    return true;
 }
 
 bool ValidateSmokeMaterialIndexes(const RtSmokeMaterialTableBuild& table)
@@ -512,9 +540,9 @@ bool BindSmokeMaterialRuntimeEmissiveTexture(RtSmokeMaterialTableBuild& table, i
     return true;
 }
 
-void AccumulateSmokeGuiTextureDiagnostic(RtSmokeMaterialTableBuild& table, idImage* image, bool safe)
+void AccumulateSmokeGuiTextureDiagnostic(RtSmokeMaterialTableBuild& table, const idStr& imageName, bool safe)
 {
-    if (!image || !IsSmokeImageNameGuiLike(image->GetName()))
+    if (imageName.IsEmpty() || !IsSmokeImageNameGuiLike(imageName.c_str()))
     {
         return;
     }
@@ -613,11 +641,11 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
 
         if (facts.guiTextureCandidate)
         {
-            AccumulateSmokeGuiTextureDiagnostic(table, info.diffuseImage, facts.hasSafeDiffuseTexture);
-            AccumulateSmokeGuiTextureDiagnostic(table, info.alphaImage, facts.hasSafeAlphaTexture);
-            AccumulateSmokeGuiTextureDiagnostic(table, info.normalImage, facts.hasSafeNormalTexture);
-            AccumulateSmokeGuiTextureDiagnostic(table, info.specularImage, facts.hasSafeSpecularTexture);
-            AccumulateSmokeGuiTextureDiagnostic(table, info.emissiveImage, facts.hasSafeEmissiveTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.diffuseImageName, facts.hasSafeDiffuseTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.alphaImageName, facts.hasSafeAlphaTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.normalImageName, facts.hasSafeNormalTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.specularImageName, facts.hasSafeSpecularTexture);
+            AccumulateSmokeGuiTextureDiagnostic(table, info.emissiveImageName, facts.hasSafeEmissiveTexture);
         }
 
         if (!facts.hasDiffuseImage || !info.hasTextureHandle)
@@ -674,8 +702,8 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
         }
 
         const RtSmokeMaterialTextureInfo& info = materialInfos[safeIndex];
-        const nvrhi::TextureHandle texture = info.diffuseImage ? info.diffuseImage->GetTextureHandle() : nullptr;
-        if (texture && IsSmokeDiffuseImageSafeForRayTracing(info.diffuseImage))
+        const nvrhi::TextureHandle texture = info.hasSafeTexture ? info.diffuseTexture : nullptr;
+        if (texture && IsSmokeTextureHandleSafeForDescriptor(texture))
         {
             const uint32_t descriptorIndex = AddSmokeMaterialTextureSlot(table, texture, textureTableLimit, textureTableStart, skippedUniqueTextures, skippedTextures);
             if (descriptorIndex != UINT32_MAX)
@@ -688,8 +716,8 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             }
         }
 
-        const nvrhi::TextureHandle alphaTexture = info.alphaImage ? info.alphaImage->GetTextureHandle() : nullptr;
-        if (info.hasAlphaTest && alphaTexture && IsSmokeDiffuseImageSafeForRayTracing(info.alphaImage))
+        const nvrhi::TextureHandle alphaTexture = info.hasSafeAlphaTexture ? info.alphaTexture : nullptr;
+        if (info.hasAlphaTest && alphaTexture && IsSmokeTextureHandleSafeForDescriptor(alphaTexture))
         {
             const uint32_t alphaDescriptorIndex = AddSmokeMaterialTextureSlot(table, alphaTexture, textureTableLimit, textureTableStart, skippedUniqueTextures, skippedTextures);
             if (alphaDescriptorIndex != UINT32_MAX)
@@ -702,8 +730,8 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             }
         }
 
-        const nvrhi::TextureHandle normalTexture = info.normalImage ? info.normalImage->GetTextureHandle() : nullptr;
-        if (normalTexture && IsSmokeDiffuseImageSafeForRayTracing(info.normalImage))
+        const nvrhi::TextureHandle normalTexture = info.hasSafeNormalTexture ? info.normalTexture : nullptr;
+        if (normalTexture && IsSmokeTextureHandleSafeForDescriptor(normalTexture))
         {
             const uint32_t normalDescriptorIndex = AddSmokeMaterialTextureSlot(table, normalTexture, textureTableLimit, textureTableStart, skippedUniqueTextures, skippedTextures);
             if (normalDescriptorIndex != UINT32_MAX)
@@ -716,8 +744,8 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             }
         }
 
-        const nvrhi::TextureHandle specularTexture = info.specularImage ? info.specularImage->GetTextureHandle() : nullptr;
-        if (specularTexture && IsSmokeDiffuseImageSafeForRayTracing(info.specularImage))
+        const nvrhi::TextureHandle specularTexture = info.hasSafeSpecularTexture ? info.specularTexture : nullptr;
+        if (specularTexture && IsSmokeTextureHandleSafeForDescriptor(specularTexture))
         {
             const uint32_t specularDescriptorIndex = AddSmokeMaterialTextureSlot(table, specularTexture, textureTableLimit, textureTableStart, skippedUniqueTextures, skippedTextures);
             if (specularDescriptorIndex != UINT32_MAX)
@@ -730,8 +758,8 @@ void PopulateSmokeMaterialTextureSlots(RtSmokeMaterialTableBuild& table, uint32_
             }
         }
 
-        const nvrhi::TextureHandle emissiveTexture = info.emissiveImage ? info.emissiveImage->GetTextureHandle() : nullptr;
-        if (emissiveTexture && IsSmokeDiffuseImageSafeForRayTracing(info.emissiveImage))
+        const nvrhi::TextureHandle emissiveTexture = info.hasSafeEmissiveTexture ? info.emissiveTexture : nullptr;
+        if (emissiveTexture && IsSmokeTextureHandleSafeForDescriptor(emissiveTexture))
         {
             const uint32_t emissiveDescriptorIndex = AddSmokeMaterialTextureSlot(table, emissiveTexture, textureTableLimit, textureTableStart, skippedUniqueTextures, skippedTextures);
             if (emissiveDescriptorIndex != UINT32_MAX)
@@ -968,6 +996,13 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
     if (r_pathTracingMaterialCache.GetInteger() != 0 && g_smokeMaterialTableCache.valid && g_smokeMaterialTableCache.signature == signature)
     {
         table = g_smokeMaterialTableCache.table;
+        if (!RefreshSmokeMaterialTableFrameRecords(table))
+        {
+            g_smokeMaterialTableCache.valid = false;
+            ++g_smokeMaterialTableCache.misses;
+            BuildSmokeMaterialTableFromUniverse(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe, minimumTextureTableLimit);
+            return false;
+        }
         if (table.staticMaterialIndexes.size() == staticMaterialIds.size())
         {
             RebuildSmokeDynamicMaterialIndexesFromCachedTable(table, dynamicMaterialIds);
