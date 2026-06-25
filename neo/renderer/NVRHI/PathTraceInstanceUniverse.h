@@ -63,6 +63,7 @@ struct RtPathTraceInstanceObservation
     int entityIndex = -1;
     int renderEntityNum = -1;
     int drawSurfIndex = -1;
+    int modelSurfaceIndex = -1;
     int currentArea = -1;
     PtRenderDefKey renderDefKey;
     uint32_t materialOverrideId = 0;

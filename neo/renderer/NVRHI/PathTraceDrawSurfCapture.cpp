@@ -42,15 +42,41 @@ uint64 PtMeshKeyHash(const RtPathTraceMeshKey& key)
     return hash;
 }
 
-uint64 PtInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, uint32_t materialId, const srfTriangles_t* tri)
+int PtResolveModelSurfaceIndex(const idRenderEntityLocal* entity, const srfTriangles_t* tri)
+{
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    const idRenderModel* model = renderEntity ? renderEntity->hModel : nullptr;
+    if (!model || !tri)
+    {
+        return -1;
+    }
+    for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
+    {
+        const modelSurface_t* surface = model->Surface(surfaceIndex);
+        if (surface && surface->geometry == tri)
+        {
+            return surfaceIndex;
+        }
+    }
+    return -1;
+}
+
+uint64 PtInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, int modelSurfaceIndex, uint32_t materialId, const srfTriangles_t* tri)
 {
     uint64 hash = 14695981039346656037ull;
-    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
-    hash = PtHashBytes(hash, &meshHash, sizeof(meshHash));
     hash = PtHashBytes(hash, &entityIndex, sizeof(entityIndex));
     hash = PtHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
     hash = PtHashBytes(hash, &materialId, sizeof(materialId));
-    hash = PtHashBytes(hash, &triPtr, sizeof(triPtr));
+    if (modelSurfaceIndex >= 0)
+    {
+        hash = PtHashBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
+    }
+    else
+    {
+        const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
+        hash = PtHashBytes(hash, &meshHash, sizeof(meshHash));
+        hash = PtHashBytes(hash, &triPtr, sizeof(triPtr));
+    }
     return hash;
 }
 
@@ -557,6 +583,7 @@ void CapturePathTraceDrawSurfMirror(
         instanceObservation.entityIndex = entity ? entity->index : -1;
         instanceObservation.renderEntityNum = renderEntity ? renderEntity->entityNum : -1;
         instanceObservation.drawSurfIndex = surfaceIndex;
+        instanceObservation.modelSurfaceIndex = PtResolveModelSurfaceIndex(entity, tri);
         instanceObservation.currentArea = PtMirrorResolveDrawSurfArea(viewDef, drawSurf, tri);
         instanceObservation.renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
         instanceObservation.materialOverrideId = materialId;
@@ -570,7 +597,7 @@ void CapturePathTraceDrawSurfMirror(
             instanceObservation.sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
         }
         CopyDrawSurfObjectToWorld(drawSurf, instanceObservation.objectToWorld);
-        instanceObservation.instanceId = PtInstanceIdHash(meshObservation.stableHash, instanceObservation.entityIndex, instanceObservation.renderEntityNum, materialId, tri);
+        instanceObservation.instanceId = PtInstanceIdHash(meshObservation.stableHash, instanceObservation.entityIndex, instanceObservation.renderEntityNum, instanceObservation.modelSurfaceIndex, materialId, tri);
         instanceObservation.materialName = meshObservation.materialName;
         instanceObservation.modelName = meshObservation.modelName;
 

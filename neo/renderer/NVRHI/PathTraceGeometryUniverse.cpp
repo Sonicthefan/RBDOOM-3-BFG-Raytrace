@@ -90,15 +90,22 @@ uint64 RigidResidencyMeshKeyHash(const RtPathTraceMeshKey& key)
     return hash;
 }
 
-uint64 RigidResidencyInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, uint32_t materialId, const srfTriangles_t* tri)
+uint64 RigidResidencyInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, int modelSurfaceIndex, uint32_t materialId, const srfTriangles_t* tri)
 {
     uint64 hash = 14695981039346656037ull;
-    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
-    hash = RigidResidencyHashBytes(hash, &meshHash, sizeof(meshHash));
     hash = RigidResidencyHashBytes(hash, &entityIndex, sizeof(entityIndex));
     hash = RigidResidencyHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
     hash = RigidResidencyHashBytes(hash, &materialId, sizeof(materialId));
-    hash = RigidResidencyHashBytes(hash, &triPtr, sizeof(triPtr));
+    if (modelSurfaceIndex >= 0)
+    {
+        hash = RigidResidencyHashBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
+    }
+    else
+    {
+        const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
+        hash = RigidResidencyHashBytes(hash, &meshHash, sizeof(meshHash));
+        hash = RigidResidencyHashBytes(hash, &triPtr, sizeof(triPtr));
+    }
     return hash;
 }
 
@@ -480,6 +487,7 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.entityIndex = instance.entityIndex;
     routeInstance.renderEntityNum = instance.renderEntityNum;
     routeInstance.drawSurfIndex = instance.drawSurfIndex;
+    routeInstance.modelSurfaceIndex = instance.modelSurfaceIndex;
     routeInstance.currentArea = instance.currentArea;
     routeInstance.renderDefKey = instance.renderDefKey;
     routeInstance.materialOverrideId = instance.materialOverrideId;
@@ -3234,7 +3242,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 meshKey.materialId = materialId;
                 meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 const uint64 meshHash = RigidResidencyMeshKeyHash(meshKey);
-                const uint64 instanceId = RigidResidencyInstanceIdHash(meshHash, entity->index, renderEntity.entityNum, materialId, tri);
+                const uint64 instanceId = RigidResidencyInstanceIdHash(meshHash, entity->index, renderEntity.entityNum, surfaceIndex, materialId, tri);
                 if (visibleRigidInstanceIds.find(instanceId) != visibleRigidInstanceIds.end())
                 {
                     continue;
@@ -3275,6 +3283,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 residentInstance.entityIndex = entity->index;
                 residentInstance.renderEntityNum = renderEntity.entityNum;
                 residentInstance.drawSurfIndex = -1;
+                residentInstance.modelSurfaceIndex = surfaceIndex;
                 residentInstance.currentArea = areaIndex;
                 residentInstance.renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 residentInstance.materialOverrideId = materialId;
