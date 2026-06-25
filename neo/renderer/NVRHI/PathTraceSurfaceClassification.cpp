@@ -217,3 +217,39 @@ uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmoke
     }
     return id;
 }
+
+uint32_t SmokeMaterialRouteClassSignature(const idMaterial* material, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype)
+{
+    uint32_t signature =
+        (SmokeSurfaceClassId(surfaceClass) & 0x0fu) |
+        ((SmokeTranslucentSubtypeId(subtype) & 0x0fu) << 4);
+    if (!material)
+    {
+        return signature;
+    }
+
+    bool hasAlphaTest = false;
+    float alphaCutoff = 0.0f;
+    ResolveSmokeMaterialAlphaInfo(material, hasAlphaTest, alphaCutoff);
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    const uint32_t coverage = static_cast<uint32_t>(material->Coverage()) & 0x0fu;
+    const uint32_t deform = static_cast<uint32_t>(material->Deform()) & 0x0fu;
+    const bool routeSortMediumOrLater = material->GetSort() >= SS_MEDIUM;
+
+    signature |= coverage << 8;
+    signature |= deform << 12;
+    signature |= hasAlphaTest ? (1u << 16) : 0u;
+    signature |= routeSortMediumOrLater ? (1u << 17) : 0u;
+    signature |= classifier.hasScreenTexgen ? (1u << 18) : 0u;
+    signature |= classifier.hasAdditiveBlend ? (1u << 19) : 0u;
+    signature |= classifier.hasAmbientBlendStage ? (1u << 20) : 0u;
+    signature |= classifier.hasDiffuseStage ? (1u << 21) : 0u;
+    signature |= classifier.hasAddDefault0200Texture ? (1u << 22) : 0u;
+    signature |= classifier.nameLooksGui ? (1u << 23) : 0u;
+    signature |= classifier.nameLooksParticle ? (1u << 24) : 0u;
+    signature |= classifier.nameLooksDecal ? (1u << 25) : 0u;
+    signature |= classifier.nameLooksGlass ? (1u << 26) : 0u;
+    signature |= classifier.nameLooksGlow ? (1u << 27) : 0u;
+    signature |= classifier.nameLooksSignage ? (1u << 28) : 0u;
+    return signature;
+}

@@ -42,6 +42,7 @@ struct RtPathTraceMeshKey
     int numIndexes = 0;
     uint32_t vertexFormat = 0;
     uint32_t materialId = 0;
+    uint32_t materialClassSignature = 0;
     uint32_t sourceKind = 0;
 };
 

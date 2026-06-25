@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 struct drawSurf_t;
+class idMaterial;
 struct srfTriangles_t;
 struct viewDef_t;
 
@@ -46,3 +47,4 @@ const char* SmokeTranslucentSubtypeNameByIndex(int subtypeIndex);
 RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri);
 RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* drawSurf);
 uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype);
+uint32_t SmokeMaterialRouteClassSignature(const idMaterial* material, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype);

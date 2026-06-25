@@ -2037,6 +2037,7 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
         record->vertexBufferIdentity = observation.vertexBufferIdentity;
         record->indexBufferIdentity = observation.indexBufferIdentity;
         record->materialId = observation.materialId;
+        record->materialClassSignature = observation.materialClassSignature;
         record->surfaceClassId = observation.surfaceClassId;
         record->vertexFormat = observation.vertexFormat;
         record->modelEpoch = observation.modelEpoch;
@@ -2166,7 +2167,7 @@ void RtSmokeGeometryUniverse::RunRigidMeshCandidateDiagnostics(bool dumpRequeste
         {
             continue;
         }
-        common->Printf("PathTracePrimaryPass: PT rigid mesh eligible sample %d surf=%d entity=%d renderEntity=%d mesh=%llu instance=%llu tri=%llu vb=%llu ib=%llu format=%u seen=%d verts=%d indexes=%d tris=%d material=%u '%s' model='%s'\n",
+        common->Printf("PathTracePrimaryPass: PT rigid mesh eligible sample %d surf=%d entity=%d renderEntity=%d mesh=%llu instance=%llu tri=%llu vb=%llu ib=%llu format=%u materialClass=0x%x seen=%d verts=%d indexes=%d tris=%d material=%u '%s' model='%s'\n",
             sampleIndex,
             sample.drawSurfIndex,
             sample.entityIndex,
@@ -2177,6 +2178,7 @@ void RtSmokeGeometryUniverse::RunRigidMeshCandidateDiagnostics(bool dumpRequeste
             static_cast<unsigned long long>(sample.vertexBufferIdentity),
             static_cast<unsigned long long>(sample.indexBufferIdentity),
             sample.vertexFormat,
+            sample.materialClassSignature,
             sample.seenCount,
             sample.numVerts,
             sample.numIndexes,
@@ -2193,7 +2195,7 @@ void RtSmokeGeometryUniverse::RunRigidMeshCandidateDiagnostics(bool dumpRequeste
         {
             continue;
         }
-        common->Printf("PathTracePrimaryPass: PT rigid mesh rejected sample %d reason=%s flags=0x%x surf=%d entity=%d renderEntity=%d mesh=%llu instance=%llu verts=%d indexes=%d material=%u '%s' model='%s'\n",
+        common->Printf("PathTracePrimaryPass: PT rigid mesh rejected sample %d reason=%s flags=0x%x surf=%d entity=%d renderEntity=%d mesh=%llu instance=%llu verts=%d indexes=%d materialClass=0x%x material=%u '%s' model='%s'\n",
             sampleIndex,
             RigidMeshCandidateRejectSummary(sample.rejectFlags),
             sample.rejectFlags,
@@ -2204,6 +2206,7 @@ void RtSmokeGeometryUniverse::RunRigidMeshCandidateDiagnostics(bool dumpRequeste
             static_cast<unsigned long long>(sample.instanceId),
             sample.numVerts,
             sample.numIndexes,
+            sample.materialClassSignature,
             sample.materialId,
             sample.materialName.c_str(),
             sample.modelName.c_str());
@@ -2229,6 +2232,7 @@ RtSmokeGeometryUniverse::RigidMeshCandidateRecord* RtSmokeGeometryUniverse::Find
     record.vertexBufferIdentity = observation.vertexBufferIdentity;
     record.indexBufferIdentity = observation.indexBufferIdentity;
     record.materialId = observation.materialId;
+    record.materialClassSignature = observation.materialClassSignature;
     record.surfaceClassId = observation.surfaceClassId;
     record.vertexFormat = observation.vertexFormat;
     record.modelEpoch = observation.modelEpoch;
@@ -2285,6 +2289,7 @@ void RtSmokeGeometryUniverse::AddRigidMeshCandidateSample(const RtPathTraceRigid
     sample->indexBufferIdentity = observation.indexBufferIdentity;
     sample->rejectFlags = rejectFlags;
     sample->materialId = observation.materialId;
+    sample->materialClassSignature = observation.materialClassSignature;
     sample->vertexFormat = observation.vertexFormat;
     sample->drawSurfIndex = observation.drawSurfIndex;
     sample->entityIndex = observation.entityIndex;
@@ -3196,6 +3201,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 }
 
                 const uint32_t materialId = SmokeMaterialId(material);
+                const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
                 RtPathTraceMeshKey meshKey;
                 meshKey.tri = tri;
                 meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
@@ -3204,6 +3210,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 meshKey.numIndexes = tri ? tri->numIndexes : 0;
                 meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
                 meshKey.materialId = materialId;
+                meshKey.materialClassSignature = materialClassSignature;
                 meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 const uint32_t modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
@@ -3238,6 +3245,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     candidateObservation.sourceFlags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;
                 }
                 candidateObservation.materialId = materialId;
+                candidateObservation.materialClassSignature = materialClassSignature;
                 candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 candidateObservation.vertexFormat = meshKey.vertexFormat;
                 candidateObservation.drawSurfIndex = -1;

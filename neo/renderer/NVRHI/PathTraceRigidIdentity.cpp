@@ -30,6 +30,7 @@ uint64 BuildPathTraceRigidMeshHash(
     hash = HashRigidIdentityBytes(hash, &key.numIndexes, sizeof(key.numIndexes));
     hash = HashRigidIdentityBytes(hash, &key.vertexFormat, sizeof(key.vertexFormat));
     hash = HashRigidIdentityBytes(hash, &key.materialId, sizeof(key.materialId));
+    hash = HashRigidIdentityBytes(hash, &key.materialClassSignature, sizeof(key.materialClassSignature));
     hash = HashRigidIdentityBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
     return hash;
 }

@@ -504,6 +504,8 @@ void CapturePathTraceDrawSurfMirror(
         const uint32_t baseMaterialId = SmokeMaterialId(material);
         const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
         const uint32_t sourceKind = SmokeSurfaceClassId(surfaceClass);
+        const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+        const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
         const int modelSurfaceIndex = -1;
         const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
@@ -519,6 +521,7 @@ void CapturePathTraceDrawSurfMirror(
         meshObservation.key.numIndexes = tri ? tri->numIndexes : 0;
         meshObservation.key.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
         meshObservation.key.materialId = materialId;
+        meshObservation.key.materialClassSignature = materialClassSignature;
         meshObservation.key.sourceKind = sourceKind;
         meshObservation.stableHash = BuildPathTraceRigidMeshHash(meshObservation.key, renderModel, modelEpoch, modelSurfaceIndex);
         meshObservation.baseMaterial = material;
@@ -578,6 +581,7 @@ void CapturePathTraceDrawSurfMirror(
             candidateObservation.indexBufferIdentity = meshObservation.key.indexBufferIdentity;
             candidateObservation.sourceFlags = instanceObservation.sourceFlags;
             candidateObservation.materialId = materialId;
+            candidateObservation.materialClassSignature = materialClassSignature;
             candidateObservation.surfaceClassId = SmokeSurfaceClassId(surfaceClass);
             candidateObservation.vertexFormat = meshObservation.key.vertexFormat;
             candidateObservation.drawSurfIndex = surfaceIndex;
@@ -736,6 +740,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             const uint32_t baseMaterialId = SmokeMaterialId(material);
             const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
             const int modelSurfaceIndex = -1;
+            const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+            const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
             const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
             const uint32_t modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
                 ? PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index)
@@ -749,6 +755,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             meshKey.numIndexes = tri ? tri->numIndexes : 0;
             meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
             meshKey.materialId = materialId;
+            meshKey.materialClassSignature = materialClassSignature;
             meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
             const uint64 meshHash = BuildPathTraceRigidMeshHash(meshKey, renderModel, modelEpoch, modelSurfaceIndex);
             const bool routeReadyByMesh = geometryUniverse->IsRigidRouteReady(meshHash);

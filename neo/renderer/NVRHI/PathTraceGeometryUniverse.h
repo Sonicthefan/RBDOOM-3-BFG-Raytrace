@@ -88,6 +88,7 @@ struct RtPathTraceRigidMeshCandidateObservation
     uintptr_t indexBufferIdentity = 0;
     uint32_t sourceFlags = 0;
     uint32_t materialId = 0;
+    uint32_t materialClassSignature = 0;
     uint32_t surfaceClassId = 0;
     uint32_t vertexFormat = 0;
     int drawSurfIndex = -1;
@@ -112,6 +113,7 @@ struct RtPathTraceRigidMeshCandidateSample
     uintptr_t indexBufferIdentity = 0;
     uint32_t rejectFlags = 0;
     uint32_t materialId = 0;
+    uint32_t materialClassSignature = 0;
     uint32_t vertexFormat = 0;
     int drawSurfIndex = -1;
     int entityIndex = -1;
@@ -655,6 +657,7 @@ public:
         uintptr_t vertexBufferIdentity = 0;
         uintptr_t indexBufferIdentity = 0;
         uint32_t materialId = 0;
+        uint32_t materialClassSignature = 0;
         uint32_t surfaceClassId = 0;
         uint32_t vertexFormat = 0;
         uint32_t modelEpoch = 0;
