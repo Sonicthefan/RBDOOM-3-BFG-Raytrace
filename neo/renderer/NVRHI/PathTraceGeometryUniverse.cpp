@@ -3279,7 +3279,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
     const char* routeSource = !stats.enabled
         ? "visibleOnly"
         : (stats.residencyV2 ? "residencyV2" : "legacyAreaWalk");
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid/staleModel=%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skipped outside/unknown=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d visibleRigid/staleModel=%d/%d areaWalkRigid=%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         stats.residencyV2,
