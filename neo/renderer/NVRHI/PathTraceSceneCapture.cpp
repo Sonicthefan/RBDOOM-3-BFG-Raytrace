@@ -1998,6 +1998,7 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
 
                     drawSurf_t retainedDrawSurf = {};
                     retainedDrawSurf.frontEndGeo = tri;
+                    retainedDrawSurf.modelSurfaceIndex = surfaceIndex;
                     retainedDrawSurf.numIndexes = tri->numIndexes;
                     retainedDrawSurf.indexCache = tri->indexCache;
                     retainedDrawSurf.ambientCache = tri->ambientCache;

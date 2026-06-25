@@ -143,6 +143,7 @@ void idGuiModel::EmitSurfaces( float modelMatrix[16], float modelViewMatrix[16],
 		drawSurf->indexCache = indexBlock + ( ( int64 )( guiSurf.firstIndex * sizeof( triIndex_t ) ) << VERTCACHE_OFFSET_SHIFT );
 		drawSurf->jointCache = 0;
 		drawSurf->frontEndGeo = NULL;
+		drawSurf->modelSurfaceIndex = -1;
 		drawSurf->space = guiSpace;
 		drawSurf->material = shader;
 		drawSurf->extraGLState = guiSurf.glState;

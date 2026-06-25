@@ -111,7 +111,9 @@ RtPathTraceRigidInstanceSnapshot BuildPathTraceRigidInstanceSnapshot(
     snapshot.modelEpoch = modelEpoch;
     snapshot.entityIndex = entityIndex;
     snapshot.renderEntityNum = renderEntityNum;
-    snapshot.modelSurfaceIndex = ResolvePathTraceRigidModelSurfaceIndex(model, tri, requestedModelSurfaceIndex);
+    snapshot.modelSurfaceIndex = (requestedModelSurfaceIndex >= 0 || RtPathTraceSourceFlagsAreDurableRigid(sourceFlags))
+        ? ResolvePathTraceRigidModelSurfaceIndex(model, tri, requestedModelSurfaceIndex)
+        : -1;
     snapshot.materialId = key.materialId;
     snapshot.materialClassSignature = key.materialClassSignature;
     snapshot.sourceFlags = sourceFlags;

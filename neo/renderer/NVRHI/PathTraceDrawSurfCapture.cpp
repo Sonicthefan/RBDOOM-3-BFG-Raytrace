@@ -532,7 +532,7 @@ void CapturePathTraceDrawSurfMirror(
             modelEpoch,
             entity ? entity->index : -1,
             renderEntity ? renderEntity->entityNum : -1,
-            -1,
+            drawSurf ? drawSurf->modelSurfaceIndex : -1,
             sourceFlags);
 
         RtPathTraceMeshObservation meshObservation;
@@ -764,7 +764,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 modelEpoch,
                 entity ? entity->index : -1,
                 renderEntity ? renderEntity->entityNum : -1,
-                -1,
+                drawSurf ? drawSurf->modelSurfaceIndex : -1,
                 sourceFlags);
             const uint64 meshHash = rigidSnapshot.meshHash;
             const bool routeReadyByMesh = geometryUniverse->IsRigidRouteReady(meshHash);

@@ -89,6 +89,7 @@ struct viewEnvprobe_t;
 struct drawSurf_t
 {
 	const srfTriangles_t* 	frontEndGeo;		// don't use on the back end, it may be updated by the front end!
+	int						modelSurfaceIndex;	// source model surface index when known, otherwise -1
 	int						numIndexes;
 	vertCacheHandle_t		indexCache;			// triIndex_t
 	vertCacheHandle_t		ambientCache;		// idDrawVert

@@ -759,6 +759,7 @@ void R_AddSingleModel( viewEntity_t* vEntity )
 			// we can re-use some of the values for light interaction surfaces
 			baseDrawSurf = ( drawSurf_t* )R_FrameAlloc( sizeof( *baseDrawSurf ), FRAME_ALLOC_DRAW_SURFACE );
 			baseDrawSurf->frontEndGeo = tri;
+			baseDrawSurf->modelSurfaceIndex = surfaceNum;
 			baseDrawSurf->space = vEntity;
 			baseDrawSurf->scissorRect = vEntity->scissorRect;
 			baseDrawSurf->extraGLState = 0;
@@ -980,6 +981,7 @@ void R_AddSingleModel( viewEntity_t* vEntity )
 
 						lightDrawSurf->ambientCache = tri->ambientCache;
 						lightDrawSurf->frontEndGeo = tri;
+						lightDrawSurf->modelSurfaceIndex = surfaceNum;
 						lightDrawSurf->space = vEntity;
 						lightDrawSurf->material = shader;
 						lightDrawSurf->extraGLState = 0;
@@ -1127,6 +1129,7 @@ void R_AddSingleModel( viewEntity_t* vEntity )
 
 					shadowDrawSurf->ambientCache = tri->ambientCache;
 					shadowDrawSurf->frontEndGeo = tri;
+					shadowDrawSurf->modelSurfaceIndex = surfaceNum;
 					shadowDrawSurf->space = vEntity;
 					shadowDrawSurf->material = shader;
 					shadowDrawSurf->extraGLState = 0;
