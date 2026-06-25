@@ -18,18 +18,14 @@ int ResolvePathTraceRigidModelSurfaceIndex(
     const srfTriangles_t* tri,
     int requestedModelSurfaceIndex)
 {
+    if (requestedModelSurfaceIndex >= 0)
+    {
+        return requestedModelSurfaceIndex;
+    }
+
     if (!model)
     {
         return -1;
-    }
-
-    if (requestedModelSurfaceIndex >= 0 && requestedModelSurfaceIndex < model->NumSurfaces())
-    {
-        const modelSurface_t* requestedSurface = model->Surface(requestedModelSurfaceIndex);
-        if (!tri || (requestedSurface && requestedSurface->geometry == tri))
-        {
-            return requestedModelSurfaceIndex;
-        }
     }
 
     if (!tri)
