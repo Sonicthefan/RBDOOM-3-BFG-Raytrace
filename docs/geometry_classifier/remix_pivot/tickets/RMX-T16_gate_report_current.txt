@@ -1,0 +1,78 @@
+RMX-T16 gate report - current checkpoint
+=======================================
+
+Scope
+-----
+This report summarizes the observed T12-T15 gate evidence after the rigid
+residency v2 fixes through commit 8e079c83. It is not a T11 implementation
+approval; it names the next allowed T11 step.
+
+Observed runtime evidence
+-------------------------
+Latest T15 retest:
+  r_pathTracingRigidResidencyDump 1
+    residencyClass(static/durable/dynamic/transient/unknown)=37/6/2/5/0
+    visibleRigid/staleModel=6/0
+    rejectedRigid(static/dynamic/transient/unknown)=37/0/0/0
+    cachedRigid=54 resident=54 seen/cache=6/48
+    routeReady=54 missing(mesh/blas)=0/0
+  r_pathTracingInstanceUniverseDump 1
+    classes mirror static/rigid/skinned/particle/unknown=0/42/2/5/0
+    residencyClass(static/durable/dynamic/transient/unknown)=37/5/2/5/0
+    dynamicPrevMatch(dynamic/transient)=2/4
+    dynamicCandidates(skinned/callback/gui/transient)=2/3/0/5
+
+Earlier T14/T15 evidence:
+  - rigid residency dumps showed staleModel=0 and missing(mesh/blas)=0/0 after
+    model epoch and material route-class signature changes.
+  - rigid mesh universe dumps showed materialClass=0x... in eligible and rejected
+    samples.
+  - lifecycle dump showed entity generation and modelEpoch separately, with
+    modelSwaps=0 in the tested path.
+
+Checklist
+---------
+T12/T13 identity:
+  PASS for the observed runtime path. Current dumps show stable resident reuse,
+  no stale model residents, and no missing mesh/BLAS records. Moving rigid
+  samples retain instance identity across transform changes. The shared identity
+  helper path is in code and durable mesh identity no longer depends on a live
+  tri pointer.
+
+T14 model/material invalidation:
+  PARTIAL PASS. The non-model-swap path is stable and material route-class
+  signatures are visible in rigid mesh diagnostics. The attached lifecycle dump
+  did not exercise a model swap; modelChanged/modelEpoch invalidation still needs
+  a targeted runtime sample before treating this as fully validated.
+
+T15 dynamic island boundary:
+  PASS for the observed runtime path. Skinned/callback/transient surfaces are
+  counted outside durable residency. Dynamic and transient observations have
+  previous-frame matches, and durable rigid residency remains clean.
+
+T10 regression coverage:
+  PARTIAL. Offscreen retain is visible in the residency dump via cached residents
+  returning routeReady with missing(mesh/blas)=0/0. Destroy-in-view, level-load
+  cleanup, no-freeze/no-transform-trail, and V2=0 byte-identical behavior were
+  not proven by the attached dumps.
+
+T11 audit measurements:
+  NOT RUN in the attached evidence. No gate data yet for route plan ms, route CPU
+  geometry rebuild ms, route bytes versus unique meshHash, instance bytes versus
+  instance count, BLAS uploads/builds/reused handles, TLAS submit cost, or
+  admitted/deferred counts.
+
+Decision
+--------
+Do not start T11 implementation slices A-F yet.
+
+The next allowed T11 step is audit-only measurement from the "INVESTIGATE FIRST"
+section of RMX-T11:
+  1) capture route plan/build timings and rigid route byte counts,
+  2) compare route geometry bytes against unique meshHash versus instance count,
+  3) run the cached-route A/B cvars to identify the dominant CPU field.
+
+If correctness remains clean and route geometry bytes scale with instance count
+for repeated meshHash, resume T11 with slice A/B first: shared route geometry
+cache and split route uploads. If route geometry bytes already scale with unique
+meshHash, revise T11 to target the measured dominant field instead.
