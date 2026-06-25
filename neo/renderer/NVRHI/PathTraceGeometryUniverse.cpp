@@ -3992,6 +3992,22 @@ bool RtSmokeGeometryUniverse::IsRigidRouteReady(uint64 meshHash) const
     return record.valid && record.rigidVertexBuffer && record.rigidIndexBuffer && record.rigidBlas;
 }
 
+bool RtSmokeGeometryUniverse::IsRigidRouteInstanceReady(uint64 instanceId) const
+{
+    if (instanceId == 0)
+    {
+        return false;
+    }
+
+    const std::unordered_map<uint64, size_t>::const_iterator residentIt = m_rigidResidentLookup.find(instanceId);
+    if (residentIt == m_rigidResidentLookup.end() || residentIt->second >= m_rigidResidentRecords.size())
+    {
+        return false;
+    }
+
+    return IsRigidRouteReady(m_rigidResidentRecords[residentIt->second].observation.meshHash);
+}
+
 std::vector<uint32_t> RtSmokeGeometryUniverse::CollectRigidRouteMaterialIds(const RtSmokeRigidTlasPlan& plan) const
 {
     std::vector<uint32_t> materialIds;

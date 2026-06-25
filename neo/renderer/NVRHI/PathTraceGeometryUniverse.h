@@ -614,6 +614,7 @@ public:
     RtPathTraceRigidTlasPlanStats BuildRigidTlasPlanStats(const RtPathTraceInstanceUniverse& instanceUniverse, const RtSmokeSurfaceClassStats* sourceClassStats = nullptr) const;
     void DumpRigidTlasPlanStats(const RtPathTraceRigidTlasPlanStats& stats, int sceneSource) const;
     bool IsRigidRouteReady(uint64 meshHash) const;
+    bool IsRigidRouteInstanceReady(uint64 instanceId) const;
     std::vector<uint32_t> CollectRigidRouteMaterialIds(const RtSmokeRigidTlasPlan& plan) const;
     std::vector<uint32_t> CollectRigidRouteMaterialIds(const RtPathTraceInstanceUniverse& instanceUniverse, int maxInstances) const;
     RtSmokeRigidTlasPlanSnapshot CaptureRigidTlasInstancePlanSnapshot(

@@ -748,6 +748,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     int dynamicSurfaces = 0;
     int skippedRoutedRigidDynamicSurfaces = 0;
     int skippedRoutedRigidDynamicIndexes = 0;
+    int skippedRoutedRigidDynamicByInstance = 0;
     const int requestedDebugMode = r_pathTracingDebugMode.GetInteger();
     const bool routeMode18 = requestedDebugMode == 18 && r_pathTracingRigidRouteMode18.GetInteger() != 0;
     const bool routeMode20 = requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0;
@@ -788,6 +789,13 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         }
         if (removeRoutedRigidDynamic && surfaceClass == RtSmokeSurfaceClass::RigidEntity && geometryUniverse)
         {
+            const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+            const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
+            const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
+            const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+            const uint32_t baseMaterialId = SmokeMaterialId(material);
+            const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
+
             RtPathTraceMeshKey meshKey;
             meshKey.tri = tri;
             meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri ? tri->ambientCache : 0);
@@ -795,13 +803,27 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             meshKey.numVerts = tri ? tri->numVerts : 0;
             meshKey.numIndexes = tri ? tri->numIndexes : 0;
             meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
-            const uint32_t baseMaterialId = SmokeMaterialId(drawSurf->material);
-            meshKey.materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
+            meshKey.materialId = materialId;
             meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
-            if (geometryUniverse->IsRigidRouteReady(PtMeshKeyHash(meshKey)))
+            const uint64 meshHash = PtMeshKeyHash(meshKey);
+            const int modelSurfaceIndex = PtResolveModelSurfaceIndex(entity, tri, material);
+            const uint64 instanceId = PtInstanceIdHash(
+                meshHash,
+                entity ? entity->index : -1,
+                renderEntity ? renderEntity->entityNum : -1,
+                modelSurfaceIndex,
+                materialId,
+                tri);
+            const bool routeReadyByMesh = geometryUniverse->IsRigidRouteReady(meshHash);
+            const bool routeReadyByInstance = !routeReadyByMesh && geometryUniverse->IsRigidRouteInstanceReady(instanceId);
+            if (routeReadyByMesh || routeReadyByInstance)
             {
                 ++skippedRoutedRigidDynamicSurfaces;
                 skippedRoutedRigidDynamicIndexes += tri->numIndexes;
+                if (routeReadyByInstance)
+                {
+                    ++skippedRoutedRigidDynamicByInstance;
+                }
                 continue;
             }
         }
@@ -940,10 +962,11 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     }
     if (skippedRoutedRigidDynamicSurfaces > 0 && (r_pathTracingSmokeLog.GetInteger() != 0 || r_pathTracingRigidRouteOverlapDump.GetInteger() != 0))
     {
-        common->Printf("PathTracePrimaryPass: PT rigid route dynamic removal mode=%d removedSurfaces=%d removedIndexes=%d renderPath=routedRigidPlusDynamicFallback\n",
+        common->Printf("PathTracePrimaryPass: PT rigid route dynamic removal mode=%d removedSurfaces=%d removedIndexes=%d byInstance=%d renderPath=routedRigidPlusDynamicFallback\n",
             requestedDebugMode,
             skippedRoutedRigidDynamicSurfaces,
-            skippedRoutedRigidDynamicIndexes);
+            skippedRoutedRigidDynamicIndexes,
+            skippedRoutedRigidDynamicByInstance);
     }
 
     const bool hasDynamicGeometry = !vertexData.empty() && !indexData.empty() && !triangleClassData.empty() && !triangleMaterialData.empty();
