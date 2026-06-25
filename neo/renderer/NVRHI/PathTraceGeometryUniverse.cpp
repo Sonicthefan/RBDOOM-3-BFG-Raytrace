@@ -3047,10 +3047,9 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
         if (!retainedFromCache && instance.currentArea < 0)
         {
             ++m_rigidResidencyStats.skippedUnknownArea;
-            continue;
         }
         const bool selectedArea = RigidResidencyAreaSelected(instance.currentArea, selectedAreas);
-        if (!retainedFromCache && !selectedArea)
+        if (!retainedFromCache && instance.currentArea >= 0 && !selectedArea)
         {
             ++m_rigidResidencyStats.skippedOutsideArea;
             continue;
