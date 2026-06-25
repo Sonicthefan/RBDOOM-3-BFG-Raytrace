@@ -10,6 +10,7 @@
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceRestirPasses.h"
+#include "PathTraceRigidIdentity.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSkinning.h"
@@ -21,26 +22,6 @@
 #include <unordered_set>
 
 namespace {
-
-uint64 PtHashBytes(uint64 hash, const void* data, size_t size)
-{
-    return HashSmokeBytes(hash, data, size);
-}
-
-uint64 PtMeshKeyHash(const RtPathTraceMeshKey& key)
-{
-    uint64 hash = 14695981039346656037ull;
-    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(key.tri);
-    hash = PtHashBytes(hash, &triPtr, sizeof(triPtr));
-    hash = PtHashBytes(hash, &key.vertexBufferIdentity, sizeof(key.vertexBufferIdentity));
-    hash = PtHashBytes(hash, &key.indexBufferIdentity, sizeof(key.indexBufferIdentity));
-    hash = PtHashBytes(hash, &key.numVerts, sizeof(key.numVerts));
-    hash = PtHashBytes(hash, &key.numIndexes, sizeof(key.numIndexes));
-    hash = PtHashBytes(hash, &key.vertexFormat, sizeof(key.vertexFormat));
-    hash = PtHashBytes(hash, &key.materialId, sizeof(key.materialId));
-    hash = PtHashBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
-    return hash;
-}
 
 int PtResolveModelSurfaceIndex(const idRenderEntityLocal* entity, const srfTriangles_t* tri, const idMaterial* material)
 {
@@ -86,24 +67,6 @@ int PtResolveModelSurfaceIndex(const idRenderEntityLocal* entity, const srfTrian
     return -1;
 }
 
-uint64 PtInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, int modelSurfaceIndex, uint32_t materialId, const srfTriangles_t* tri)
-{
-    uint64 hash = 14695981039346656037ull;
-    hash = PtHashBytes(hash, &entityIndex, sizeof(entityIndex));
-    hash = PtHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
-    hash = PtHashBytes(hash, &materialId, sizeof(materialId));
-    if (modelSurfaceIndex >= 0)
-    {
-        hash = PtHashBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
-    }
-    else
-    {
-        (void)meshHash;
-        (void)tri;
-    }
-    return hash;
-}
-
 uint32_t PtDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t materialId, uint32_t localTriangleIndex)
 {
     const idRenderEntityLocal* entity = (drawSurf && drawSurf->space) ? drawSurf->space->entityDef : nullptr;
@@ -112,11 +75,11 @@ uint32_t PtDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfTria
     const int renderEntityNum = renderEntity ? renderEntity->entityNum : -1;
     const uintptr_t triPtr = reinterpret_cast<uintptr_t>(tri);
     uint64 hash = 14695981039346656037ull;
-    hash = PtHashBytes(hash, &entityIndex, sizeof(entityIndex));
-    hash = PtHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
-    hash = PtHashBytes(hash, &materialId, sizeof(materialId));
-    hash = PtHashBytes(hash, &triPtr, sizeof(triPtr));
-    hash = PtHashBytes(hash, &localTriangleIndex, sizeof(localTriangleIndex));
+    hash = HashSmokeBytes(hash, &entityIndex, sizeof(entityIndex));
+    hash = HashSmokeBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
+    hash = HashSmokeBytes(hash, &materialId, sizeof(materialId));
+    hash = HashSmokeBytes(hash, &triPtr, sizeof(triPtr));
+    hash = HashSmokeBytes(hash, &localTriangleIndex, sizeof(localTriangleIndex));
     const uint32_t folded = static_cast<uint32_t>(hash) ^ static_cast<uint32_t>(hash >> 32);
     return folded != 0u ? folded : 1u;
 }
@@ -580,11 +543,14 @@ void CapturePathTraceDrawSurfMirror(
         const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
         const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
         const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
-        const char* modelName = renderEntity && renderEntity->hModel ? "<entity-model>" : "<none>";
+        const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
+        const char* modelName = renderModel ? renderModel->Name() : "<none>";
         const uint32_t baseMaterialId = SmokeMaterialId(material);
         const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
         const uint32_t sourceKind = SmokeSurfaceClassId(surfaceClass);
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
+        const int modelSurfaceIndex = PtResolveModelSurfaceIndex(entity, tri, material);
+        const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
 
         RtPathTraceMeshObservation meshObservation;
         meshObservation.key.tri = tri;
@@ -595,7 +561,7 @@ void CapturePathTraceDrawSurfMirror(
         meshObservation.key.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
         meshObservation.key.materialId = materialId;
         meshObservation.key.sourceKind = sourceKind;
-        meshObservation.stableHash = PtMeshKeyHash(meshObservation.key);
+        meshObservation.stableHash = BuildPathTraceRigidMeshHash(meshObservation.key, renderModel, modelSurfaceIndex);
         meshObservation.baseMaterial = material;
         meshObservation.materialName = material ? material->GetName() : "<none>";
         meshObservation.modelName = modelName;
@@ -607,9 +573,9 @@ void CapturePathTraceDrawSurfMirror(
         instanceObservation.entityIndex = entity ? entity->index : -1;
         instanceObservation.renderEntityNum = renderEntity ? renderEntity->entityNum : -1;
         instanceObservation.drawSurfIndex = surfaceIndex;
-        instanceObservation.modelSurfaceIndex = PtResolveModelSurfaceIndex(entity, tri, material);
+        instanceObservation.modelSurfaceIndex = modelSurfaceIndex;
         instanceObservation.currentArea = PtMirrorResolveDrawSurfArea(viewDef, drawSurf, tri);
-        instanceObservation.renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+        instanceObservation.renderDefKey = renderDefKey;
         instanceObservation.materialOverrideId = materialId;
         instanceObservation.sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
         if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())
@@ -621,7 +587,13 @@ void CapturePathTraceDrawSurfMirror(
             instanceObservation.sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
         }
         CopyDrawSurfObjectToWorld(drawSurf, instanceObservation.objectToWorld);
-        instanceObservation.instanceId = PtInstanceIdHash(meshObservation.stableHash, instanceObservation.entityIndex, instanceObservation.renderEntityNum, instanceObservation.modelSurfaceIndex, materialId, tri);
+        instanceObservation.instanceId = BuildPathTraceRigidInstanceId(
+            meshObservation.stableHash,
+            renderDefKey,
+            instanceObservation.entityIndex,
+            instanceObservation.renderEntityNum,
+            instanceObservation.modelSurfaceIndex,
+            materialId);
         instanceObservation.materialName = meshObservation.materialName;
         instanceObservation.modelName = meshObservation.modelName;
 
@@ -798,8 +770,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
             const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
             const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+            const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
             const uint32_t baseMaterialId = SmokeMaterialId(material);
             const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
+            const int modelSurfaceIndex = PtResolveModelSurfaceIndex(entity, tri, material);
 
             RtPathTraceMeshKey meshKey;
             meshKey.tri = tri;
@@ -810,7 +784,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
             meshKey.materialId = materialId;
             meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
-            const uint64 meshHash = PtMeshKeyHash(meshKey);
+            const uint64 meshHash = BuildPathTraceRigidMeshHash(meshKey, renderModel, modelSurfaceIndex);
             const bool routeReadyByMesh = geometryUniverse->IsRigidRouteReady(meshHash);
             const bool promotedEmissive = PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, classifiedSurfaceClass);
             if (promotedEmissive)

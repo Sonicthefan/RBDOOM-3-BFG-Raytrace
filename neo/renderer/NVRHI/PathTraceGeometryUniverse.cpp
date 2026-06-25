@@ -9,6 +9,7 @@
 #include "PathTraceAccelerationPlan.h"
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
+#include "PathTraceRigidIdentity.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
@@ -70,49 +71,11 @@ void AccumulateSmokeGeometryElementRange(const RtSmokeGeometryElementRange& rang
     count = end - begin;
 }
 
-uint64 RigidResidencyHashBytes(uint64 hash, const void* data, size_t size)
-{
-    return HashSmokeBytes(hash, data, size);
-}
-
-uint64 RigidResidencyMeshKeyHash(const RtPathTraceMeshKey& key)
-{
-    uint64 hash = 14695981039346656037ull;
-    const uintptr_t triPtr = reinterpret_cast<uintptr_t>(key.tri);
-    hash = RigidResidencyHashBytes(hash, &triPtr, sizeof(triPtr));
-    hash = RigidResidencyHashBytes(hash, &key.vertexBufferIdentity, sizeof(key.vertexBufferIdentity));
-    hash = RigidResidencyHashBytes(hash, &key.indexBufferIdentity, sizeof(key.indexBufferIdentity));
-    hash = RigidResidencyHashBytes(hash, &key.numVerts, sizeof(key.numVerts));
-    hash = RigidResidencyHashBytes(hash, &key.numIndexes, sizeof(key.numIndexes));
-    hash = RigidResidencyHashBytes(hash, &key.vertexFormat, sizeof(key.vertexFormat));
-    hash = RigidResidencyHashBytes(hash, &key.materialId, sizeof(key.materialId));
-    hash = RigidResidencyHashBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
-    return hash;
-}
-
-uint64 RigidResidencyInstanceIdHash(uint64 meshHash, int entityIndex, int renderEntityNum, int modelSurfaceIndex, uint32_t materialId, const srfTriangles_t* tri)
-{
-    uint64 hash = 14695981039346656037ull;
-    hash = RigidResidencyHashBytes(hash, &entityIndex, sizeof(entityIndex));
-    hash = RigidResidencyHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
-    hash = RigidResidencyHashBytes(hash, &materialId, sizeof(materialId));
-    if (modelSurfaceIndex >= 0)
-    {
-        hash = RigidResidencyHashBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
-    }
-    else
-    {
-        (void)meshHash;
-        (void)tri;
-    }
-    return hash;
-}
-
 uint64 RigidResidencyEntityKey(int entityIndex, int renderEntityNum)
 {
     uint64 hash = 14695981039346656037ull;
-    hash = RigidResidencyHashBytes(hash, &entityIndex, sizeof(entityIndex));
-    hash = RigidResidencyHashBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
+    hash = HashSmokeBytes(hash, &entityIndex, sizeof(entityIndex));
+    hash = HashSmokeBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
     return hash;
 }
 
@@ -3240,8 +3203,15 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
                 meshKey.materialId = materialId;
                 meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
-                const uint64 meshHash = RigidResidencyMeshKeyHash(meshKey);
-                const uint64 instanceId = RigidResidencyInstanceIdHash(meshHash, entity->index, renderEntity.entityNum, surfaceIndex, materialId, tri);
+                const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                const uint64 meshHash = BuildPathTraceRigidMeshHash(meshKey, model, surfaceIndex);
+                const uint64 instanceId = BuildPathTraceRigidInstanceId(
+                    meshHash,
+                    renderDefKey,
+                    entity->index,
+                    renderEntity.entityNum,
+                    surfaceIndex,
+                    materialId);
                 if (visibleRigidInstanceIds.find(instanceId) != visibleRigidInstanceIds.end())
                 {
                     continue;
@@ -3284,7 +3254,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 residentInstance.drawSurfIndex = -1;
                 residentInstance.modelSurfaceIndex = surfaceIndex;
                 residentInstance.currentArea = areaIndex;
-                residentInstance.renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                residentInstance.renderDefKey = renderDefKey;
                 residentInstance.materialOverrideId = materialId;
                 residentInstance.sourceFlags = candidateObservation.sourceFlags;
                 residentInstance.seenThisFrame = true;
