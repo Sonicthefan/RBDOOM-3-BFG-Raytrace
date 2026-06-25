@@ -806,21 +806,19 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             meshKey.materialId = materialId;
             meshKey.sourceKind = SmokeSurfaceClassId(surfaceClass);
             const uint64 meshHash = PtMeshKeyHash(meshKey);
-            const int modelSurfaceIndex = PtResolveModelSurfaceIndex(entity, tri, material);
-            const uint64 instanceId = PtInstanceIdHash(
-                meshHash,
-                entity ? entity->index : -1,
-                renderEntity ? renderEntity->entityNum : -1,
-                modelSurfaceIndex,
-                materialId,
-                tri);
             const bool routeReadyByMesh = geometryUniverse->IsRigidRouteReady(meshHash);
-            const bool routeReadyByInstance = !routeReadyByMesh && geometryUniverse->IsRigidRouteInstanceReady(instanceId);
-            if (routeReadyByMesh || routeReadyByInstance)
+            const bool routeReadyByResident =
+                !routeReadyByMesh &&
+                PtMirrorCanPromoteRigidEmissiveCard(drawSurf, tri, classifiedSurfaceClass) &&
+                geometryUniverse->IsRigidRouteResidentReadyForEntityMaterial(
+                    entity ? entity->index : -1,
+                    renderEntity ? renderEntity->entityNum : -1,
+                    materialId);
+            if (routeReadyByMesh || routeReadyByResident)
             {
                 ++skippedRoutedRigidDynamicSurfaces;
                 skippedRoutedRigidDynamicIndexes += tri->numIndexes;
-                if (routeReadyByInstance)
+                if (routeReadyByResident)
                 {
                     ++skippedRoutedRigidDynamicByInstance;
                 }
