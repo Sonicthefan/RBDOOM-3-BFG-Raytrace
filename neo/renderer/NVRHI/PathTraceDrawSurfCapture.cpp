@@ -695,8 +695,11 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     const bool routeMode20 = requestedDebugMode == 20 && r_pathTracingRigidRouteMode20.GetInteger() != 0;
     const bool routeRestirPTMode = IsPathTraceRestirPTDebugMode(requestedDebugMode);
     const bool routeIntegratorDebugMode = requestedDebugMode >= 34 && requestedDebugMode <= 37;
+    const bool routeResidencyV2Mode =
+        r_pathTracingGeometryResidencyV2.GetInteger() != 0 &&
+        r_pathTracingRigidResidency.GetInteger() != 0;
     const bool removeRoutedRigidDynamic =
-        (requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 52 || requestedDebugMode == 42 || requestedDebugMode == 43 || routeMode18 || routeMode20 || routeRestirPTMode || routeIntegratorDebugMode) &&
+        (routeResidencyV2Mode || requestedDebugMode == 24 || requestedDebugMode == 25 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 52 || requestedDebugMode == 42 || requestedDebugMode == 43 || routeMode18 || routeMode20 || routeRestirPTMode || routeIntegratorDebugMode) &&
         r_pathTracingRigidRouteRemoveDynamic.GetInteger() != 0 &&
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
