@@ -452,6 +452,7 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.modelSurfaceIndex = instance.modelSurfaceIndex;
     routeInstance.currentArea = instance.currentArea;
     routeInstance.renderDefKey = instance.renderDefKey;
+    routeInstance.modelEpoch = instance.modelEpoch;
     routeInstance.materialOverrideId = instance.materialOverrideId;
     routeInstance.sourceFlags = instance.sourceFlags;
     routeInstance.wasMovingWhenLastSeen =
@@ -2038,6 +2039,7 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
         record->materialId = observation.materialId;
         record->surfaceClassId = observation.surfaceClassId;
         record->vertexFormat = observation.vertexFormat;
+        record->modelEpoch = observation.modelEpoch;
         record->sourceRange.vertices.count = observation.numVerts;
         record->sourceRange.indexes.count = observation.numIndexes;
         record->sourceRange.triangles.count = observation.numIndexes / 3;
@@ -2229,6 +2231,7 @@ RtSmokeGeometryUniverse::RigidMeshCandidateRecord* RtSmokeGeometryUniverse::Find
     record.materialId = observation.materialId;
     record.surfaceClassId = observation.surfaceClassId;
     record.vertexFormat = observation.vertexFormat;
+    record.modelEpoch = observation.modelEpoch;
     record.sourceRange.vertices.offset = 0;
     record.sourceRange.vertices.count = observation.numVerts;
     record.sourceRange.indexes.offset = 0;
@@ -3203,10 +3206,12 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 meshKey.materialId = materialId;
                 meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
-                const uint64 meshHash = BuildPathTraceRigidMeshHash(meshKey, model, surfaceIndex);
+                const uint32_t modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
+                const uint64 meshHash = BuildPathTraceRigidMeshHash(meshKey, model, modelEpoch, surfaceIndex);
                 const uint64 instanceId = BuildPathTraceRigidInstanceId(
                     meshHash,
                     renderDefKey,
+                    modelEpoch,
                     entity->index,
                     renderEntity.entityNum,
                     surfaceIndex,
@@ -3238,6 +3243,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 candidateObservation.drawSurfIndex = -1;
                 candidateObservation.entityIndex = entity->index;
                 candidateObservation.renderEntityNum = renderEntity.entityNum;
+                candidateObservation.modelEpoch = modelEpoch;
                 candidateObservation.numVerts = tri->numVerts;
                 candidateObservation.numIndexes = tri->numIndexes;
                 candidateObservation.localSpaceValid = true;
@@ -3254,6 +3260,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 residentInstance.modelSurfaceIndex = surfaceIndex;
                 residentInstance.currentArea = areaIndex;
                 residentInstance.renderDefKey = renderDefKey;
+                residentInstance.modelEpoch = modelEpoch;
                 residentInstance.materialOverrideId = materialId;
                 residentInstance.sourceFlags = candidateObservation.sourceFlags;
                 residentInstance.seenThisFrame = true;

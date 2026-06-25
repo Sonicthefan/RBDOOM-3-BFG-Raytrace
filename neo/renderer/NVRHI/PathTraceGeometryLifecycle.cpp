@@ -16,6 +16,7 @@ const int PT_GEOMETRY_LIFECYCLE_MAX_EVENT_SAMPLES = 16;
 struct PtGeometryLifecycleSlotState
 {
     uint32_t generation = 1;
+    uint32_t modelEpoch = 1;
     bool alive = false;
 };
 
@@ -32,6 +33,7 @@ struct PtGeometryLifecycleEventSample
     PtRenderDefKey key;
     int entityNum = -1;
     int lastModifiedFrameNum = 0;
+    uint32_t modelEpoch = 0;
     PtGeometryLifecycleClass geometryClass = PtGeometryLifecycleClass::Unknown;
     bool modelChanged = false;
     const idRenderModel* oldModel = nullptr;
@@ -209,6 +211,15 @@ void AdvanceSlotGeneration(PtGeometryLifecycleSlotState& slot)
     }
 }
 
+void AdvanceSlotModelEpoch(PtGeometryLifecycleSlotState& slot)
+{
+    ++slot.modelEpoch;
+    if (slot.modelEpoch == 0)
+    {
+        slot.modelEpoch = 1;
+    }
+}
+
 }
 
 namespace PtGeometryLifecycle {
@@ -237,6 +248,12 @@ uint32_t EntityGeneration(const void* world, int index)
 {
     PtGeometryLifecycleWorldState& state = EnsureWorldState(world);
     return EnsureSlot(state.entitySlots, index).generation;
+}
+
+uint32_t EntityModelEpoch(const void* world, int index)
+{
+    PtGeometryLifecycleWorldState& state = EnsureWorldState(world);
+    return EnsureSlot(state.entitySlots, index).modelEpoch;
 }
 
 uint32_t LightGeneration(const void* world, int index)
@@ -350,6 +367,7 @@ void NotifyEntityAdded(const idRenderEntityLocal* entity)
     sample.key = MakeEntityKey(entity);
     sample.entityNum = entity->parms.entityNum;
     sample.lastModifiedFrameNum = entity->lastModifiedFrameNum;
+    sample.modelEpoch = EntityModelEpoch(entity->world, entity->index);
     sample.geometryClass = geometryClass;
     sample.newModel = entity->parms.hModel;
     AddEventSample(sample);
@@ -367,7 +385,7 @@ void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel*
     ++g_lifecycleStats.entityUpdates;
     if (modelChanged)
     {
-        AdvanceSlotGeneration(slot);
+        AdvanceSlotModelEpoch(slot);
         ++g_lifecycleStats.entityModelSwaps;
     }
     const PtGeometryLifecycleClass geometryClass = ClassifyEntity(entity);
@@ -379,6 +397,7 @@ void NotifyEntityUpdated(const idRenderEntityLocal* entity, const idRenderModel*
     sample.key = MakeEntityKey(entity);
     sample.entityNum = entity->parms.entityNum;
     sample.lastModifiedFrameNum = entity->lastModifiedFrameNum;
+    sample.modelEpoch = slot.modelEpoch;
     sample.geometryClass = geometryClass;
     sample.modelChanged = modelChanged;
     sample.oldModel = oldModel;
@@ -405,6 +424,7 @@ void NotifyEntityFreed(const idRenderEntityLocal* entity)
     sample.key = oldKey;
     sample.entityNum = entity->parms.entityNum;
     sample.lastModifiedFrameNum = entity->lastModifiedFrameNum;
+    sample.modelEpoch = slot.modelEpoch;
     sample.geometryClass = ClassifyEntity(entity);
     sample.newModel = entity->parms.hModel;
     AddEventSample(sample);
@@ -494,13 +514,14 @@ void MaybeDumpLifecycleStats(uint64_t frameIndex)
     for (int sampleIndex = 0; sampleIndex < g_lifecycleStats.sampleCount; ++sampleIndex)
     {
         const PtGeometryLifecycleEventSample& sample = g_lifecycleStats.samples[sampleIndex];
-        common->Printf("PathTracePrimaryPass: geometry lifecycle sample %d %s %s world=%p index=%d generation=%u entityNum=%d class=%s modifiedFrame=%d modelChanged=%d oldModel=%p newModel=%p\n",
+        common->Printf("PathTracePrimaryPass: geometry lifecycle sample %d %s %s world=%p index=%d generation=%u modelEpoch=%u entityNum=%d class=%s modifiedFrame=%d modelChanged=%d oldModel=%p newModel=%p\n",
             sampleIndex,
             DefKindName(sample.defKind),
             EventName(sample.eventKind),
             sample.key.world,
             sample.key.index,
             sample.key.generation,
+            sample.modelEpoch,
             sample.entityNum,
             ClassName(sample.geometryClass),
             sample.lastModifiedFrameNum,

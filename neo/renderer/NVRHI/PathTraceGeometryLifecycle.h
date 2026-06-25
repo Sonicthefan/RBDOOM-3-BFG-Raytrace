@@ -42,6 +42,7 @@ namespace PtGeometryLifecycle
     PtRenderDefKey MakeLightKey(const idRenderLightLocal* light);
 
     uint32_t EntityGeneration(const void* world, int index);
+    uint32_t EntityModelEpoch(const void* world, int index);
     uint32_t LightGeneration(const void* world, int index);
 
     bool IsEntityKeyAlive(const PtRenderDefKey& key);

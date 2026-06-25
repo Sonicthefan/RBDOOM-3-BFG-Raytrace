@@ -16,11 +16,13 @@ uint64 HashRigidIdentityBytes(uint64 hash, const void* data, size_t size)
 uint64 BuildPathTraceRigidMeshHash(
     const RtPathTraceMeshKey& key,
     const idRenderModel* model,
+    uint32_t modelEpoch,
     int modelSurfaceIndex)
 {
     uint64 hash = 14695981039346656037ull;
     const uintptr_t modelIdentity = reinterpret_cast<uintptr_t>(model);
     hash = HashRigidIdentityBytes(hash, &modelIdentity, sizeof(modelIdentity));
+    hash = HashRigidIdentityBytes(hash, &modelEpoch, sizeof(modelEpoch));
     hash = HashRigidIdentityBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
     hash = HashRigidIdentityBytes(hash, &key.vertexBufferIdentity, sizeof(key.vertexBufferIdentity));
     hash = HashRigidIdentityBytes(hash, &key.indexBufferIdentity, sizeof(key.indexBufferIdentity));
@@ -35,6 +37,7 @@ uint64 BuildPathTraceRigidMeshHash(
 uint64 BuildPathTraceRigidInstanceId(
     uint64 meshHash,
     const PtRenderDefKey& renderDefKey,
+    uint32_t modelEpoch,
     int entityIndex,
     int renderEntityNum,
     int modelSurfaceIndex,
@@ -44,6 +47,7 @@ uint64 BuildPathTraceRigidInstanceId(
     hash = HashRigidIdentityBytes(hash, &renderDefKey.world, sizeof(renderDefKey.world));
     hash = HashRigidIdentityBytes(hash, &renderDefKey.index, sizeof(renderDefKey.index));
     hash = HashRigidIdentityBytes(hash, &renderDefKey.generation, sizeof(renderDefKey.generation));
+    hash = HashRigidIdentityBytes(hash, &modelEpoch, sizeof(modelEpoch));
     hash = HashRigidIdentityBytes(hash, &entityIndex, sizeof(entityIndex));
     hash = HashRigidIdentityBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
     hash = HashRigidIdentityBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
