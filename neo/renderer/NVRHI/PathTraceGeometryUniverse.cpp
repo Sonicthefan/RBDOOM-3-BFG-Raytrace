@@ -3589,6 +3589,10 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
     {
         return instance.modelSurfaceIndex < model->NumSurfaces();
     }
+    if (instance.seenThisFrame)
+    {
+        return true;
+    }
 
     const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(instance.meshHash);
     if (meshIt == m_rigidMeshCandidateLookup.end() || meshIt->second >= m_rigidMeshCandidateRecords.size())
