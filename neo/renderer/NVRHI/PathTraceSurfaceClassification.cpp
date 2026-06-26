@@ -72,6 +72,12 @@ bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
         return false;
     }
 
+    const char* materialName = material->GetName();
+    if (materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
+    {
+        return false;
+    }
+
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     if (classifier.hasScreenTexgen ||
         classifier.hasAddDefault0200Texture ||
