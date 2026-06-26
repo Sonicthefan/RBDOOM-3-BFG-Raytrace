@@ -432,7 +432,9 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.renderDefKey = instance.renderDefKey;
     routeInstance.modelEpoch = instance.modelEpoch;
     routeInstance.materialOverrideId = instance.materialOverrideId;
-    routeInstance.triangleClassAndFlags = instance.surfaceClassId;
+    routeInstance.triangleClassAndFlags = instance.triangleClassAndFlags != 0u
+        ? instance.triangleClassAndFlags
+        : instance.surfaceClassId;
     routeInstance.sourceFlags = instance.sourceFlags;
     routeInstance.wasMovingWhenLastSeen =
         instance.entity &&

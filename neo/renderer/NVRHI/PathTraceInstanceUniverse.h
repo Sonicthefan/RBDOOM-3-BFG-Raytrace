@@ -106,6 +106,7 @@ struct RtPathTraceInstanceObservation
     uint32_t modelEpoch = 0;
     uint32_t materialOverrideId = 0;
     uint32_t surfaceClassId = 0;
+    uint32_t triangleClassAndFlags = 0;
     uint32_t sourceFlags = 0;
     uint32_t trustFlags = 0;
     float objectToWorld[16] = {};

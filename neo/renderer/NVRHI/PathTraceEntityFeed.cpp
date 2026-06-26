@@ -651,7 +651,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.meshObservation.key = rigidSnapshot.meshKey;
                 candidate.meshObservation.stableHash = rigidSnapshot.meshHash;
                 candidate.meshObservation.baseMaterial = material;
-                candidate.meshObservation.surfaceClassId = surfaceClassAndFlags;
+                candidate.meshObservation.surfaceClassId = surfaceClassId;
                 candidate.meshObservation.materialName = material ? material->GetName() : "<none>";
                 candidate.meshObservation.modelName = model ? model->Name() : "<none>";
                 candidate.meshObservation.localSpaceValid = true;
@@ -666,7 +666,8 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
                 candidate.instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
                 candidate.instanceObservation.materialOverrideId = rigidSnapshot.materialId;
-                candidate.instanceObservation.surfaceClassId = surfaceClassAndFlags;
+                candidate.instanceObservation.surfaceClassId = surfaceClassId;
+                candidate.instanceObservation.triangleClassAndFlags = surfaceClassAndFlags;
                 candidate.instanceObservation.sourceFlags = rigidSnapshot.sourceFlags;
                 memcpy(candidate.instanceObservation.objectToWorld, entity->modelMatrix, sizeof(candidate.instanceObservation.objectToWorld));
                 candidate.instanceObservation.instanceId = rigidSnapshot.instanceId;

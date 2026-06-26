@@ -513,7 +513,7 @@ void CapturePathTraceDrawSurfMirror(
         meshObservation.key = rigidSnapshot.meshKey;
         meshObservation.stableHash = rigidSnapshot.meshHash;
         meshObservation.baseMaterial = material;
-        meshObservation.surfaceClassId = surfaceClassAndFlags;
+        meshObservation.surfaceClassId = surfaceClassId;
         meshObservation.materialName = material ? material->GetName() : "<none>";
         meshObservation.modelName = modelName;
         meshObservation.localSpaceValid = true;
@@ -529,7 +529,8 @@ void CapturePathTraceDrawSurfMirror(
         instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
         instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
         instanceObservation.materialOverrideId = rigidSnapshot.materialId;
-        instanceObservation.surfaceClassId = surfaceClassAndFlags;
+        instanceObservation.surfaceClassId = surfaceClassId;
+        instanceObservation.triangleClassAndFlags = surfaceClassAndFlags;
         instanceObservation.sourceFlags = rigidSnapshot.sourceFlags;
         CopyDrawSurfObjectToWorld(drawSurf, instanceObservation.objectToWorld);
         instanceObservation.instanceId = rigidSnapshot.instanceId;
