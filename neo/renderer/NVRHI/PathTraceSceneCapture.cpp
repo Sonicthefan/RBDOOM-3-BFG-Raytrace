@@ -15,6 +15,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGuiSurfaces.h"
 #include "PathTraceMaterialTextureDiscovery.h"
+#include "PathTraceRigidIdentity.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../GLMatrix.h"
@@ -1108,6 +1109,29 @@ uint32_t SmokeDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfT
     return hash != 0u ? hash : 1u;
 }
 
+static uint32_t SmokeRuntimeMaterialVariantIdForEntitySurfaceKey(const idRenderEntityLocal* entity, int modelSurfaceIndex, uint32_t baseMaterialId)
+{
+    if (!entity || baseMaterialId == 0u)
+    {
+        return baseMaterialId;
+    }
+
+    const renderEntity_t& renderEntity = entity->parms;
+    uint32_t hash = 2166136261u;
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, 0x72746573u);
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, baseMaterialId);
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(entity->index));
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(renderEntity.entityNum));
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(modelSurfaceIndex));
+
+    uint32_t variantMaterialId = hash | 0x80000000u;
+    if (variantMaterialId == 0u || variantMaterialId == baseMaterialId)
+    {
+        variantMaterialId = (hash ^ 0x5bd1e995u) | 0x80000000u;
+    }
+    return variantMaterialId != 0u ? variantMaterialId : baseMaterialId;
+}
+
 enum class RtSmokeDynamicEvalBuildResult
 {
     NoMaterial,
@@ -1628,6 +1652,16 @@ uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, ui
         return baseMaterialId;
     }
 
+    const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
+    const int resolvedModelSurfaceIndex = ResolvePathTraceRigidModelSurfaceIndex(
+        renderModel,
+        drawSurf->frontEndGeo,
+        drawSurf->modelSurfaceIndex);
+    if (resolvedModelSurfaceIndex >= 0)
+    {
+        return SmokeRuntimeMaterialVariantIdForEntitySurfaceKey(entity, resolvedModelSurfaceIndex, baseMaterialId);
+    }
+
     uint32_t hash = 2166136261u;
     hash = SmokeRuntimeMaterialVariantHashValue(hash, 0x72747632u);
     hash = SmokeRuntimeMaterialVariantHashValue(hash, baseMaterialId);
@@ -1689,20 +1723,7 @@ static uint32_t SmokeRuntimeMaterialVariantIdForEntitySurface(const idRenderEnti
         return baseMaterialId;
     }
 
-    const renderEntity_t& renderEntity = entity->parms;
-    uint32_t hash = 2166136261u;
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, 0x72746573u);
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, baseMaterialId);
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(entity->index));
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(renderEntity.entityNum));
-    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(modelSurfaceIndex));
-
-    uint32_t variantMaterialId = hash | 0x80000000u;
-    if (variantMaterialId == 0u || variantMaterialId == baseMaterialId)
-    {
-        variantMaterialId = (hash ^ 0x5bd1e995u) | 0x80000000u;
-    }
-    return variantMaterialId != 0u ? variantMaterialId : baseMaterialId;
+    return SmokeRuntimeMaterialVariantIdForEntitySurfaceKey(entity, modelSurfaceIndex, baseMaterialId);
 }
 
 uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId)
