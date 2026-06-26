@@ -91,6 +91,7 @@ struct RtPathTraceRigidMeshCandidateObservation
     uint32_t materialId = 0;
     uint32_t materialClassSignature = 0;
     uint32_t surfaceClassId = 0;
+    uint32_t triangleClassAndFlags = 0;
     uint32_t vertexFormat = 0;
     int drawSurfIndex = -1;
     int entityIndex = -1;
@@ -398,6 +399,7 @@ struct RtPathTraceRigidRouteBuild
     std::vector<uint32_t> indexes;
     std::vector<uint32_t> triangleMaterials;
     std::vector<uint32_t> triangleMaterialIndexes;
+    std::vector<uint32_t> triangleClassAndFlags;
     std::vector<PathTraceRigidRouteInstance> instances;
     std::vector<std::array<float, 16>> instanceObjectToWorld;
     std::vector<uint32_t> instanceSeenThisFrame;
@@ -498,6 +500,7 @@ struct RtPathTraceRigidRouteInstanceObservation
     PtRenderDefKey renderDefKey;
     uint32_t modelEpoch = 0;
     uint32_t materialOverrideId = 0;
+    uint32_t triangleClassAndFlags = 0;
     uint32_t sourceFlags = 0;
     bool seenThisFrame = true;
     bool wasMovingWhenLastSeen = false;
@@ -675,6 +678,7 @@ public:
         uint32_t materialId = 0;
         uint32_t materialClassSignature = 0;
         uint32_t surfaceClassId = 0;
+        uint32_t triangleClassAndFlags = 0;
         uint32_t vertexFormat = 0;
         uint32_t modelEpoch = 0;
         RtSmokeGeometryRangeRecord sourceRange;

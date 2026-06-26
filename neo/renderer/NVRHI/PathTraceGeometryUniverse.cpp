@@ -432,6 +432,7 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.renderDefKey = instance.renderDefKey;
     routeInstance.modelEpoch = instance.modelEpoch;
     routeInstance.materialOverrideId = instance.materialOverrideId;
+    routeInstance.triangleClassAndFlags = instance.surfaceClassId;
     routeInstance.sourceFlags = instance.sourceFlags;
     routeInstance.wasMovingWhenLastSeen =
         instance.entity &&
@@ -2027,6 +2028,7 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
         record->materialId = observation.materialId;
         record->materialClassSignature = observation.materialClassSignature;
         record->surfaceClassId = observation.surfaceClassId;
+        record->triangleClassAndFlags = observation.triangleClassAndFlags != 0u ? observation.triangleClassAndFlags : observation.surfaceClassId;
         record->vertexFormat = observation.vertexFormat;
         record->modelEpoch = observation.modelEpoch;
         record->sourceRange.vertices.count = observation.numVerts;
@@ -2222,6 +2224,7 @@ RtSmokeGeometryUniverse::RigidMeshCandidateRecord* RtSmokeGeometryUniverse::Find
     record.materialId = observation.materialId;
     record.materialClassSignature = observation.materialClassSignature;
     record.surfaceClassId = observation.surfaceClassId;
+    record.triangleClassAndFlags = observation.triangleClassAndFlags != 0u ? observation.triangleClassAndFlags : observation.surfaceClassId;
     record.vertexFormat = observation.vertexFormat;
     record.modelEpoch = observation.modelEpoch;
     record.sourceRange.vertices.offset = 0;
@@ -3239,6 +3242,9 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
 
                 const uint32_t baseMaterialId = SmokeMaterialId(material);
                 const uint32_t materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surfaceIndex, material, baseMaterialId);
+                const uint32_t rigidSurfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                const uint32_t rigidTriangleClassAndFlags = rigidSurfaceClassId |
+                    (SmokeEntitySurfaceHasActiveEmissiveStage(viewDef, entity, material) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
                 if (materialStats)
                 {
                     SceneUniverseAddDynamicMaterialEvalStatsForId(*materialStats, viewDef, entity, material, tri->numIndexes, materialId);
@@ -3253,7 +3259,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                 meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
                 meshKey.materialId = materialId;
                 meshKey.materialClassSignature = materialClassSignature;
-                meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                meshKey.sourceKind = rigidSurfaceClassId;
                 const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 const uint32_t modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
                 uint32_t sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID;
@@ -3297,7 +3303,8 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     candidateObservation.sourceFlags = rigidSnapshot.sourceFlags;
                     candidateObservation.materialId = rigidSnapshot.materialId;
                     candidateObservation.materialClassSignature = rigidSnapshot.materialClassSignature;
-                    candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                    candidateObservation.surfaceClassId = rigidSurfaceClassId;
+                    candidateObservation.triangleClassAndFlags = rigidTriangleClassAndFlags;
                     candidateObservation.vertexFormat = meshKey.vertexFormat;
                     candidateObservation.drawSurfIndex = -1;
                     candidateObservation.entityIndex = entity->index;
@@ -3321,6 +3328,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     residentInstance.renderDefKey = rigidSnapshot.renderDefKey;
                     residentInstance.modelEpoch = rigidSnapshot.modelEpoch;
                     residentInstance.materialOverrideId = rigidSnapshot.materialId;
+                    residentInstance.triangleClassAndFlags = rigidTriangleClassAndFlags;
                     residentInstance.sourceFlags = rigidSnapshot.sourceFlags;
                     residentInstance.seenThisFrame = true;
                     residentInstance.wasMovingWhenLastSeen = RigidResidencyEntityMovedWithinGrace(entity);
@@ -4341,6 +4349,7 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
         uint32_t triangleCount = 0;
         uint32_t materialId = 0;
         uint32_t materialIndex = 0;
+        uint32_t triangleClassAndFlags = 0;
     };
 
     RtPathTraceRigidRouteBuild build;
@@ -4407,6 +4416,7 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
             geometryRange.triangleCount = static_cast<uint32_t>(localIndexes.size() / 3);
             geometryRange.materialId = record.materialId;
             geometryRange.materialIndex = FindRigidRouteMaterialTableIndex(materialTableIds, record.materialId, build.stats.missingMaterialTableIndex);
+            geometryRange.triangleClassAndFlags = record.triangleClassAndFlags != 0u ? record.triangleClassAndFlags : record.surfaceClassId;
 
             build.vertices.insert(build.vertices.end(), localVertices.begin(), localVertices.end());
             build.indexes.insert(build.indexes.end(), localIndexes.begin(), localIndexes.end());
@@ -4414,6 +4424,7 @@ RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(
             {
                 build.triangleMaterials.push_back(geometryRange.materialId);
                 build.triangleMaterialIndexes.push_back(geometryRange.materialIndex);
+                build.triangleClassAndFlags.push_back(geometryRange.triangleClassAndFlags);
             }
             emittedGeometryRanges[record.meshHash] = geometryRange;
         }

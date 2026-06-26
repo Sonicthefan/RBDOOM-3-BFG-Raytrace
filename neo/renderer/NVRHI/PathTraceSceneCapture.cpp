@@ -413,9 +413,8 @@ void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTri
     worldPosition.Set(vertex.position[0], vertex.position[1], vertex.position[2]);
 }
 
-static bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
+static bool SmokeMaterialRegistersHaveActiveEmissiveStage(const idMaterial* material, const float* regs)
 {
-    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
     if (!material)
     {
         return false;
@@ -423,7 +422,6 @@ static bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     const bool nameLooksEmissive = !classifier.hasAddDefault0200Texture && (classifier.nameLooksGlow || classifier.nameLooksSignage);
-    const float* regs = drawSurf->shaderRegisters ? drawSurf->shaderRegisters : material->ConstantRegisters();
     const int registerCount = material->GetNumRegisters();
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
@@ -467,6 +465,74 @@ static bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
     }
 
     return false;
+}
+
+bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    const float* regs = drawSurf && drawSurf->shaderRegisters ? drawSurf->shaderRegisters : (material ? material->ConstantRegisters() : nullptr);
+    return SmokeMaterialRegistersHaveActiveEmissiveStage(material, regs);
+}
+
+bool SmokeEntitySurfaceHasActiveEmissiveStage(const viewDef_t* viewDef, const idRenderEntityLocal* entity, const idMaterial* material)
+{
+    if (!viewDef || !entity || !material)
+    {
+        return false;
+    }
+
+    auto evalRegister = [](const float* regs, int registerCount, int registerIndex, float fallback, float& value) {
+        if (regs && registerIndex >= 0 && registerIndex < registerCount)
+        {
+            value = regs[registerIndex];
+            return;
+        }
+        value = fallback;
+    };
+
+    const renderEntity_t& renderEntity = entity->parms;
+    const float* shaderParms = renderEntity.shaderParms;
+    const float* globalParms = viewDef->renderView.shaderParms;
+    const int timeGroup = idMath::ClampInt(0, 1, renderEntity.timeGroup);
+    const float floatTime = viewDef->renderView.time[timeGroup] * 0.001f;
+
+    float generatedShaderParms[MAX_ENTITY_SHADER_PARMS];
+    if (renderEntity.referenceShader != nullptr)
+    {
+        float refRegs[MAX_EXPRESSION_REGISTERS];
+        renderEntity.referenceShader->EvaluateRegisters(
+            refRegs,
+            shaderParms,
+            globalParms,
+            floatTime,
+            renderEntity.referenceSound);
+
+        const shaderStage_t* referenceStage = renderEntity.referenceShader->GetStage(0);
+        memcpy(generatedShaderParms, shaderParms, sizeof(generatedShaderParms));
+        if (referenceStage)
+        {
+            const int referenceRegisterCount = renderEntity.referenceShader->GetNumRegisters();
+            evalRegister(refRegs, referenceRegisterCount, referenceStage->color.registers[0], generatedShaderParms[0], generatedShaderParms[0]);
+            evalRegister(refRegs, referenceRegisterCount, referenceStage->color.registers[1], generatedShaderParms[1], generatedShaderParms[1]);
+            evalRegister(refRegs, referenceRegisterCount, referenceStage->color.registers[2], generatedShaderParms[2], generatedShaderParms[2]);
+        }
+        shaderParms = generatedShaderParms;
+    }
+
+    const float* regs = material->ConstantRegisters();
+    float dynamicRegs[MAX_EXPRESSION_REGISTERS];
+    if (!regs)
+    {
+        material->EvaluateRegisters(
+            dynamicRegs,
+            shaderParms,
+            globalParms,
+            floatTime,
+            renderEntity.referenceSound);
+        regs = dynamicRegs;
+    }
+
+    return SmokeMaterialRegistersHaveActiveEmissiveStage(material, regs);
 }
 
 static bool SmokeDynamicEvalStageIsEmissiveLike(const shaderStage_t* stage)

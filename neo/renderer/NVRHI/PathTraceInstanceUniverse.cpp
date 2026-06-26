@@ -150,6 +150,10 @@ void RtPathTraceInstanceUniverse::RecordObservation(
     }
     m_frameMeshHashes.insert(meshObservation.stableHash);
     RtPathTraceInstanceObservation frameInstance = instanceObservation;
+    if (frameInstance.surfaceClassId == 0u)
+    {
+        frameInstance.surfaceClassId = meshObservation.surfaceClassId;
+    }
 
     ++m_frameStats.usableDrawSurfs;
     m_frameStats.instanceCount = m_frameStats.usableDrawSurfs;

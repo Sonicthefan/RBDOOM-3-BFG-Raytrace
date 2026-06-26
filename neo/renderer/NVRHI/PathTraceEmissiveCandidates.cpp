@@ -367,6 +367,16 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
                 continue;
             }
 
+            const uint32_t sourceTriangleClassAndFlags =
+                globalTriangleIndex < rigidRouteBuild.triangleClassAndFlags.size()
+                    ? rigidRouteBuild.triangleClassAndFlags[globalTriangleIndex]
+                    : rigidClassAndFlags;
+            if ((sourceTriangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u)
+            {
+                ++stats.skippedRuntimeInactiveTriangles;
+                continue;
+            }
+
             const PathTraceSmokeMaterial& material = materialViews[materialIndex];
             if ((material.flags & emissiveMaterialFlag) == 0)
             {
@@ -487,10 +497,10 @@ void AppendSmokeRigidRouteEmissiveTriangleInventory(
             const uint64 sourceInstanceId =
                 static_cast<uint64>(routeInstance.instanceIdLo) |
                 (static_cast<uint64>(routeInstance.instanceIdHi) << 32);
-            const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity64(record.materialId, sourceInstanceId, localTriangleIndex, materialIndex, rigidClassAndFlags);
+            const uint64 identityHash = BuildSmokeEmissiveTriangleIdentity64(record.materialId, sourceInstanceId, localTriangleIndex, materialIndex, sourceTriangleClassAndFlags);
             record.identityHashLo = static_cast<uint32_t>(identityHash & 0xffffffffu);
             record.identityHashHi = static_cast<uint32_t>(identityHash >> 32);
-            record.padding0 = rigidClassAndFlags;
+            record.padding0 = sourceTriangleClassAndFlags;
             emissiveTriangles.push_back(record);
             ++stats.routedRigidCapturedTriangles;
         }

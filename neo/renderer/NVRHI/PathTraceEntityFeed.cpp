@@ -592,6 +592,9 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                     }
                 }
                 const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
+                const uint32_t surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                const uint32_t surfaceClassAndFlags = surfaceClassId |
+                    (SmokeEntitySurfaceHasActiveEmissiveStage(viewDef, entity, material) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
                 RtPathTraceMeshKey meshKey;
                 meshKey.tri = tri;
                 meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri->ambientCache);
@@ -601,7 +604,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
                 meshKey.materialId = materialId;
                 meshKey.materialClassSignature = materialClassSignature;
-                meshKey.sourceKind = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                meshKey.sourceKind = surfaceClassId;
 
                 const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 const uint32_t modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
@@ -648,6 +651,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.meshObservation.key = rigidSnapshot.meshKey;
                 candidate.meshObservation.stableHash = rigidSnapshot.meshHash;
                 candidate.meshObservation.baseMaterial = material;
+                candidate.meshObservation.surfaceClassId = surfaceClassAndFlags;
                 candidate.meshObservation.materialName = material ? material->GetName() : "<none>";
                 candidate.meshObservation.modelName = model ? model->Name() : "<none>";
                 candidate.meshObservation.localSpaceValid = true;
@@ -662,6 +666,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
                 candidate.instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
                 candidate.instanceObservation.materialOverrideId = rigidSnapshot.materialId;
+                candidate.instanceObservation.surfaceClassId = surfaceClassAndFlags;
                 candidate.instanceObservation.sourceFlags = rigidSnapshot.sourceFlags;
                 memcpy(candidate.instanceObservation.objectToWorld, entity->modelMatrix, sizeof(candidate.instanceObservation.objectToWorld));
                 candidate.instanceObservation.instanceId = rigidSnapshot.instanceId;
@@ -676,7 +681,8 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.candidateObservation.sourceFlags = rigidSnapshot.sourceFlags;
                 candidate.candidateObservation.materialId = rigidSnapshot.materialId;
                 candidate.candidateObservation.materialClassSignature = rigidSnapshot.materialClassSignature;
-                candidate.candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                candidate.candidateObservation.surfaceClassId = surfaceClassId;
+                candidate.candidateObservation.triangleClassAndFlags = surfaceClassAndFlags;
                 candidate.candidateObservation.vertexFormat = meshKey.vertexFormat;
                 candidate.candidateObservation.drawSurfIndex = -1;
                 candidate.candidateObservation.entityIndex = entity->index;

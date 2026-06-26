@@ -469,6 +469,9 @@ void CapturePathTraceDrawSurfMirror(
         const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
         const uint32_t sourceKind = SmokeSurfaceClassId(surfaceClass);
         const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+        const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+        const uint32_t surfaceClassAndFlags = surfaceClassId |
+            (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
         const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
         const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
         const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
@@ -510,6 +513,7 @@ void CapturePathTraceDrawSurfMirror(
         meshObservation.key = rigidSnapshot.meshKey;
         meshObservation.stableHash = rigidSnapshot.meshHash;
         meshObservation.baseMaterial = material;
+        meshObservation.surfaceClassId = surfaceClassAndFlags;
         meshObservation.materialName = material ? material->GetName() : "<none>";
         meshObservation.modelName = modelName;
         meshObservation.localSpaceValid = true;
@@ -525,6 +529,7 @@ void CapturePathTraceDrawSurfMirror(
         instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
         instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
         instanceObservation.materialOverrideId = rigidSnapshot.materialId;
+        instanceObservation.surfaceClassId = surfaceClassAndFlags;
         instanceObservation.sourceFlags = rigidSnapshot.sourceFlags;
         CopyDrawSurfObjectToWorld(drawSurf, instanceObservation.objectToWorld);
         instanceObservation.instanceId = rigidSnapshot.instanceId;
@@ -552,7 +557,8 @@ void CapturePathTraceDrawSurfMirror(
             candidateObservation.sourceFlags = instanceObservation.sourceFlags;
             candidateObservation.materialId = materialId;
             candidateObservation.materialClassSignature = materialClassSignature;
-            candidateObservation.surfaceClassId = SmokeSurfaceClassId(surfaceClass);
+            candidateObservation.surfaceClassId = surfaceClassId;
+            candidateObservation.triangleClassAndFlags = surfaceClassAndFlags;
             candidateObservation.vertexFormat = meshObservation.key.vertexFormat;
             candidateObservation.drawSurfIndex = surfaceIndex;
             candidateObservation.entityIndex = instanceObservation.entityIndex;
