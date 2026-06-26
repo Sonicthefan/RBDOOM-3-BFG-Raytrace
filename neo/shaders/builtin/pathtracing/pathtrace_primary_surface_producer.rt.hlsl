@@ -828,7 +828,7 @@ RAB_Material RAB_BuildMaterialFromSmokePayload(PathTraceSmokePayload payload)
     material.specularF0 = specularF0;
     material.opacity = SmokeAlphaCoverage(smokeMaterial, payload.texCoord);
     material.emissiveRadiance = SampleSmokeEmissive(smokeMaterial, payload.texCoord, payload.surfaceClass, activeEmissiveStage) * max(ToyPathInfo.z, 0.0);
-    if (SmokeMaterialUsesUnlitColorFallback(smokeMaterial, payload.surfaceClass, payload.translucentSubtype))
+    if (activeEmissiveStage && SmokeMaterialUsesUnlitColorFallback(smokeMaterial, payload.surfaceClass, payload.translucentSubtype))
     {
         material.emissiveRadiance = max(material.emissiveRadiance, materialAlbedo);
     }

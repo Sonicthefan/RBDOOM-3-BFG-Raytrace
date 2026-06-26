@@ -1661,7 +1661,7 @@ RAB_Material CleanGiBuildMaterialFromHit(
     material.specularF0 = max(specularF0, float3(0.0, 0.0, 0.0));
     material.opacity = CleanGiAlphaCoverage(smokeMaterial, texCoord);
     material.emissiveRadiance = CleanGiSampleEmissiveRadiance(smokeMaterial, texCoord, surfaceClass, activeEmissiveStage);
-    if (CleanGiMaterialUsesUnlitColorFallback(smokeMaterial, surfaceClass, translucentSubtype))
+    if (activeEmissiveStage && CleanGiMaterialUsesUnlitColorFallback(smokeMaterial, surfaceClass, translucentSubtype))
     {
         material.emissiveRadiance = max(material.emissiveRadiance, material.diffuseAlbedo);
     }
