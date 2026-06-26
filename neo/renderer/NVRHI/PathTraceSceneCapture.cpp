@@ -469,6 +469,24 @@ static bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
     return false;
 }
 
+static bool SmokeTriangleVertexAlphaTurnsOffLightSurface(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int i0, int i1, int i2)
+{
+    const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+    const char* materialName = material ? material->GetName() : nullptr;
+    if (!materialName ||
+        idStr::FindText(materialName, "models/mapobjects/swinglights/", false) < 0 ||
+        !tri ||
+        !tri->verts)
+    {
+        return false;
+    }
+
+    const int alphaCutoff = 8;
+    return tri->verts[i0].color[3] <= alphaCutoff &&
+        tri->verts[i1].color[3] <= alphaCutoff &&
+        tri->verts[i2].color[3] <= alphaCutoff;
+}
+
 static bool SmokeDynamicEvalStageIsEmissiveLike(const shaderStage_t* stage)
 {
     if (!stage)
@@ -734,6 +752,10 @@ int AppendSmokeSurfaceGeometry(
         const idVec3 p1 = SmokeVertexPosition(v1);
         const idVec3 p2 = SmokeVertexPosition(v2);
         if (IsZeroAreaSmokeTriangle(p0, p1, p2))
+        {
+            continue;
+        }
+        if (SmokeTriangleVertexAlphaTurnsOffLightSurface(drawSurf, tri, i0, i1, i2))
         {
             continue;
         }
