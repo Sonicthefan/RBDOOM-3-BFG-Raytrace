@@ -14,6 +14,7 @@
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGuiSurfaces.h"
+#include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../GLMatrix.h"
@@ -1582,6 +1583,7 @@ uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint
     {
         return baseMaterialId;
     }
+    RegisterSmokeMaterialTextureInfo(drawSurf ? drawSurf->material : nullptr);
     return RegisterSmokeMaterialTextureVariant(variantMaterialId, baseMaterialId) ? variantMaterialId : baseMaterialId;
 }
 
