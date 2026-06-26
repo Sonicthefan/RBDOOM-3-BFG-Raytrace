@@ -69,6 +69,10 @@ bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material
     {
         return false;
     }
+    if (material->Coverage() != MC_TRANSLUCENT)
+    {
+        return false;
+    }
 
     const char* materialName = material->GetName();
     if (!allowSwinglightRuntimeState && materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
@@ -96,8 +100,7 @@ bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material
         classifier.hasAmbientBlendStage ||
         (classifier.hasAmbientStage && !classifier.hasDiffuseStage);
 
-    return hasEmissiveCardStage &&
-        (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
+    return hasEmissiveCardStage;
 }
 
 }

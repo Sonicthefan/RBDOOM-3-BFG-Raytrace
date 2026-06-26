@@ -588,11 +588,12 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 const bool promotedEmissiveCard =
                     feedClass == RtPtFeedClass::Transient &&
                     EntityFeedCanPromoteRigidEmissiveCard(entity, model, tri, material);
-                if (promotedEmissiveCard && EntityFeedSurfaceHasVisibleDrawSurf(viewDef, entity, surfaceIndex, tri, material))
+                const bool visibleDrawSurf = EntityFeedSurfaceHasVisibleDrawSurf(viewDef, entity, surfaceIndex, tri, material);
+                if (promotedEmissiveCard && visibleDrawSurf)
                 {
                     continue;
                 }
-                if (feedClass == RtPtFeedClass::RigidEntity && entity->viewCount == tr.viewCount)
+                if (feedClass == RtPtFeedClass::RigidEntity && visibleDrawSurf)
                 {
                     continue;
                 }
