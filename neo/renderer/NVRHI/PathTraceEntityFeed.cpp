@@ -571,6 +571,10 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 const bool promotedEmissiveCard =
                     feedClass == RtPtFeedClass::Transient &&
                     EntityFeedCanPromoteRigidEmissiveCard(entity, model, tri, material);
+                if (promotedEmissiveCard && entity->viewCount == tr.viewCount)
+                {
+                    continue;
+                }
                 if (feedClass != RtPtFeedClass::RigidEntity && !promotedEmissiveCard)
                 {
                     continue;
