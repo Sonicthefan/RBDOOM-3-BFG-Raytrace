@@ -60,11 +60,6 @@ static bool SmokeDrawSurfaceHasAnyActiveStage(const drawSurf_t* drawSurf)
         return true;
     }
 
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    const bool nameLooksEmissiveCard =
-        !classifier.hasAddDefault0200Texture &&
-        !classifier.nameLooksDecal &&
-        (classifier.nameLooksGlow || classifier.nameLooksSignage);
     const int registerCount = material->GetNumRegisters();
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
     {
@@ -78,33 +73,6 @@ static bool SmokeDrawSurfaceHasAnyActiveStage(const drawSurf_t* drawSurf)
         const float condition = conditionRegister >= 0 && conditionRegister < registerCount ? regs[conditionRegister] : 1.0f;
         if (condition != 0.0f)
         {
-            const uint64 srcBlend = stage->drawStateBits & GLS_SRCBLEND_BITS;
-            const uint64 dstBlend = stage->drawStateBits & GLS_DSTBLEND_BITS;
-            const bool ambientBlendStage =
-                stage->lighting == SL_AMBIENT &&
-                (dstBlend != GLS_DSTBLEND_ZERO ||
-                    srcBlend == GLS_SRCBLEND_DST_COLOR ||
-                    srcBlend == GLS_SRCBLEND_ONE_MINUS_DST_COLOR);
-            const bool glowCardStage =
-                stage->texture.image != nullptr &&
-                (SmokeStageIsAdditiveBlend(stage) || (nameLooksEmissiveCard && ambientBlendStage));
-            if (glowCardStage)
-            {
-                float color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-                for (int component = 0; component < 4; ++component)
-                {
-                    const int colorRegister = stage->color.registers[component];
-                    if (colorRegister >= 0 && colorRegister < registerCount)
-                    {
-                        color[component] = regs[colorRegister];
-                    }
-                }
-                const float luminance = Max(color[0], Max(color[1], color[2])) * Max(color[3], 0.0f);
-                if (luminance <= 1.0e-4f)
-                {
-                    continue;
-                }
-            }
             return true;
         }
     }
