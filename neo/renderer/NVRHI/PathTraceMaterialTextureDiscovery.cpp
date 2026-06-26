@@ -1422,11 +1422,13 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         return timing;
     }
 
+    std::unordered_set<uint32_t> visitedMaterialIds;
+    visitedMaterialIds.reserve(materialIds.size());
     std::unordered_set<uint32_t> missingMaterialIds;
     missingMaterialIds.reserve(materialIds.size());
     for (uint32_t materialId : materialIds)
     {
-        if (materialId == 0u)
+        if (materialId == 0u || !visitedMaterialIds.insert(materialId).second)
         {
             continue;
         }
