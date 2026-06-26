@@ -770,6 +770,7 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 {
                     ++skippedRoutedRigidDynamicByInstance;
                 }
+                AddSmokeDynamicMaterialEvalStatsForMaterialId(materialStats, drawSurf, tri->numIndexes, materialId);
                 continue;
             }
         }
