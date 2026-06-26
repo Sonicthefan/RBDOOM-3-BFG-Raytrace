@@ -5,11 +5,14 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceEntityFeed.h"
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceMaterialUniverse.h"
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSurfaceClassification.h"
+#include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
 
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -87,6 +90,92 @@ bool EntityFeedSurfaceUsableForRigidRoute(const modelSurface_t* surface, const s
         tri->numIndexes > 0 &&
         material != nullptr &&
         material->IsDrawn();
+}
+
+struct EntityFeedRigidCandidate
+{
+    RtPathTraceMeshKey meshKey;
+    RtPathTraceRigidInstanceSnapshot rigidSnapshot;
+    RtPathTraceMeshObservation meshObservation;
+    RtPathTraceInstanceObservation instanceObservation;
+    RtPathTraceRigidMeshCandidateObservation candidateObservation;
+    float priority = 0.0f;
+    float distance = 0.0f;
+    bool onScreen = false;
+    bool emissive = false;
+};
+
+idVec3 EntityFeedEntityOrigin(const idRenderEntityLocal* entity)
+{
+    return idVec3(entity->modelMatrix[12], entity->modelMatrix[13], entity->modelMatrix[14]);
+}
+
+float EntityFeedEntityDistance(const idRenderEntityLocal* entity, const idVec3& viewOrigin)
+{
+    return (EntityFeedEntityOrigin(entity) - viewOrigin).Length();
+}
+
+float EntityFeedProjectedSizeProxy(const idRenderEntityLocal* entity, float distance)
+{
+    if (!entity || entity->localReferenceBounds.IsCleared())
+    {
+        return 0.0f;
+    }
+
+    const idVec3 extent = entity->localReferenceBounds[1] - entity->localReferenceBounds[0];
+    const float radius = extent.Length() * 0.5f;
+    const float safeDistance = distance > 1.0f ? distance : 1.0f;
+    return radius / safeDistance;
+}
+
+bool EntityFeedMaterialIsEmissive(uint32_t materialId)
+{
+    const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
+    const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
+    return facts.emissive;
+}
+
+float EntityFeedCandidatePriority(bool onScreen, bool emissive, float projectedSize, float distance)
+{
+    // These weights intentionally make current-frame and emissive entities dominate, then use
+    // apparent size and distance to keep the bounded offscreen set stable and nearby.
+    constexpr float onScreenWeight = 1000000.0f;
+    constexpr float emissiveWeight = 10000.0f;
+    constexpr float projectedSizeWeight = 1000.0f;
+    constexpr float distanceWeight = 0.01f;
+    return
+        (onScreen ? onScreenWeight : 0.0f) +
+        (emissive ? emissiveWeight : 0.0f) +
+        projectedSize * projectedSizeWeight -
+        distance * distanceWeight;
+}
+
+int CountVisibleDurableRigidInstances(const RtPathTraceInstanceUniverse& instanceUniverse)
+{
+    int count = 0;
+    const std::vector<RtPathTraceInstanceObservation>& frameInstances = instanceUniverse.FrameInstances();
+    for (const RtPathTraceInstanceObservation& instance : frameInstances)
+    {
+        if (RtPathTraceSourceFlagsAreDurableRigid(instance.sourceFlags))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void RecordEntityFeedRigidCandidate(
+    const EntityFeedRigidCandidate& candidate,
+    RtSmokeGeometryUniverse& geometryUniverse,
+    RtPathTraceInstanceUniverse& instanceUniverse)
+{
+    instanceUniverse.RecordObservation(
+        candidate.meshObservation,
+        candidate.instanceObservation,
+        RtSmokeSurfaceClass::RigidEntity,
+        candidate.meshKey.numVerts,
+        candidate.meshKey.numIndexes);
+    geometryUniverse.RecordRigidMeshCandidate(candidate.candidateObservation);
 }
 
 }
@@ -400,9 +489,21 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
         return;
     }
 
+    const idVec3& viewOrigin = viewDef->renderView.vieworg;
+    const float maxDistance = r_pathTracingEntityFeedMaxDistance.GetFloat();
+    const int rigidRouteMaxInstances = idMath::ClampInt(1, 510, r_pathTracingRigidRouteMaxInstances.GetInteger());
+    const int reservedForVisible = CountVisibleDurableRigidInstances(instanceUniverse);
+    int offscreenBudget = rigidRouteMaxInstances - reservedForVisible;
+    if (offscreenBudget < 0)
+    {
+        offscreenBudget = 0;
+    }
+
     RtPathTraceEntityFeedStats stats;
     stats.frameIndex = tr.frameCount;
 
+    std::vector<EntityFeedRigidCandidate> candidates;
+    std::unordered_set<uint64> candidateInstanceIds;
     for (int areaIndex = 0; areaIndex < static_cast<int>(reachableAreas.size()); ++areaIndex)
     {
         if (!reachableAreas[areaIndex])
@@ -474,62 +575,109 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                     renderEntity.entityNum,
                     surfaceIndex,
                     sourceFlags);
-                if (instanceUniverse.HasFrameInstance(rigidSnapshot.instanceId))
+                if (instanceUniverse.HasFrameInstance(rigidSnapshot.instanceId) || !candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
                 {
                     continue;
                 }
 
-                RtPathTraceMeshObservation meshObservation;
-                meshObservation.key = rigidSnapshot.meshKey;
-                meshObservation.stableHash = rigidSnapshot.meshHash;
-                meshObservation.baseMaterial = material;
-                meshObservation.materialName = material ? material->GetName() : "<none>";
-                meshObservation.modelName = model ? model->Name() : "<none>";
-                meshObservation.localSpaceValid = true;
+                const float distance = EntityFeedEntityDistance(entity, viewOrigin);
+                if (maxDistance > 0.0f && distance > maxDistance)
+                {
+                    ++stats.droppedBudget;
+                    continue;
+                }
 
-                RtPathTraceInstanceObservation instanceObservation;
-                instanceObservation.meshHash = rigidSnapshot.meshHash;
-                instanceObservation.entity = entity;
-                instanceObservation.entityIndex = rigidSnapshot.entityIndex;
-                instanceObservation.renderEntityNum = rigidSnapshot.renderEntityNum;
-                instanceObservation.drawSurfIndex = -1;
-                instanceObservation.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
-                instanceObservation.currentArea = areaIndex;
-                instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
-                instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
-                instanceObservation.materialOverrideId = rigidSnapshot.materialId;
-                instanceObservation.sourceFlags = rigidSnapshot.sourceFlags;
-                memcpy(instanceObservation.objectToWorld, entity->modelMatrix, sizeof(instanceObservation.objectToWorld));
-                instanceObservation.instanceId = rigidSnapshot.instanceId;
-                instanceObservation.materialName = meshObservation.materialName;
-                instanceObservation.modelName = meshObservation.modelName;
+                EntityFeedRigidCandidate candidate;
+                candidate.meshKey = meshKey;
+                candidate.rigidSnapshot = rigidSnapshot;
+                candidate.distance = distance;
+                candidate.onScreen = entity->viewCount == tr.viewCount;
+                candidate.emissive = EntityFeedMaterialIsEmissive(materialId);
+                candidate.priority = EntityFeedCandidatePriority(
+                    candidate.onScreen,
+                    candidate.emissive,
+                    EntityFeedProjectedSizeProxy(entity, distance),
+                    distance);
 
-                instanceUniverse.RecordObservation(meshObservation, instanceObservation, RtSmokeSurfaceClass::RigidEntity, tri->numVerts, tri->numIndexes);
+                candidate.meshObservation.key = rigidSnapshot.meshKey;
+                candidate.meshObservation.stableHash = rigidSnapshot.meshHash;
+                candidate.meshObservation.baseMaterial = material;
+                candidate.meshObservation.materialName = material ? material->GetName() : "<none>";
+                candidate.meshObservation.modelName = model ? model->Name() : "<none>";
+                candidate.meshObservation.localSpaceValid = true;
 
-                RtPathTraceRigidMeshCandidateObservation candidateObservation;
-                candidateObservation.tri = tri;
-                candidateObservation.meshHash = rigidSnapshot.meshHash;
-                candidateObservation.instanceId = rigidSnapshot.instanceId;
-                candidateObservation.vertexBufferIdentity = meshKey.vertexBufferIdentity;
-                candidateObservation.indexBufferIdentity = meshKey.indexBufferIdentity;
-                candidateObservation.sourceFlags = rigidSnapshot.sourceFlags;
-                candidateObservation.materialId = rigidSnapshot.materialId;
-                candidateObservation.materialClassSignature = rigidSnapshot.materialClassSignature;
-                candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
-                candidateObservation.vertexFormat = meshKey.vertexFormat;
-                candidateObservation.drawSurfIndex = -1;
-                candidateObservation.entityIndex = entity->index;
-                candidateObservation.renderEntityNum = renderEntity.entityNum;
-                candidateObservation.modelEpoch = rigidSnapshot.modelEpoch;
-                candidateObservation.numVerts = tri->numVerts;
-                candidateObservation.numIndexes = tri->numIndexes;
-                candidateObservation.localSpaceValid = meshObservation.localSpaceValid;
-                candidateObservation.materialName = meshObservation.materialName;
-                candidateObservation.modelName = meshObservation.modelName;
-                geometryUniverse.RecordRigidMeshCandidate(candidateObservation);
+                candidate.instanceObservation.meshHash = rigidSnapshot.meshHash;
+                candidate.instanceObservation.entity = entity;
+                candidate.instanceObservation.entityIndex = rigidSnapshot.entityIndex;
+                candidate.instanceObservation.renderEntityNum = rigidSnapshot.renderEntityNum;
+                candidate.instanceObservation.drawSurfIndex = -1;
+                candidate.instanceObservation.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
+                candidate.instanceObservation.currentArea = areaIndex;
+                candidate.instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
+                candidate.instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
+                candidate.instanceObservation.materialOverrideId = rigidSnapshot.materialId;
+                candidate.instanceObservation.sourceFlags = rigidSnapshot.sourceFlags;
+                memcpy(candidate.instanceObservation.objectToWorld, entity->modelMatrix, sizeof(candidate.instanceObservation.objectToWorld));
+                candidate.instanceObservation.instanceId = rigidSnapshot.instanceId;
+                candidate.instanceObservation.materialName = candidate.meshObservation.materialName;
+                candidate.instanceObservation.modelName = candidate.meshObservation.modelName;
 
-                ++stats.admitted;
+                candidate.candidateObservation.tri = tri;
+                candidate.candidateObservation.meshHash = rigidSnapshot.meshHash;
+                candidate.candidateObservation.instanceId = rigidSnapshot.instanceId;
+                candidate.candidateObservation.vertexBufferIdentity = meshKey.vertexBufferIdentity;
+                candidate.candidateObservation.indexBufferIdentity = meshKey.indexBufferIdentity;
+                candidate.candidateObservation.sourceFlags = rigidSnapshot.sourceFlags;
+                candidate.candidateObservation.materialId = rigidSnapshot.materialId;
+                candidate.candidateObservation.materialClassSignature = rigidSnapshot.materialClassSignature;
+                candidate.candidateObservation.surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                candidate.candidateObservation.vertexFormat = meshKey.vertexFormat;
+                candidate.candidateObservation.drawSurfIndex = -1;
+                candidate.candidateObservation.entityIndex = entity->index;
+                candidate.candidateObservation.renderEntityNum = renderEntity.entityNum;
+                candidate.candidateObservation.modelEpoch = rigidSnapshot.modelEpoch;
+                candidate.candidateObservation.numVerts = tri->numVerts;
+                candidate.candidateObservation.numIndexes = tri->numIndexes;
+                candidate.candidateObservation.localSpaceValid = candidate.meshObservation.localSpaceValid;
+                candidate.candidateObservation.materialName = candidate.meshObservation.materialName;
+                candidate.candidateObservation.modelName = candidate.meshObservation.modelName;
+                candidates.push_back(candidate);
             }
+        }
+    }
+
+    std::stable_sort(
+        candidates.begin(),
+        candidates.end(),
+        [](const EntityFeedRigidCandidate& lhs, const EntityFeedRigidCandidate& rhs) {
+            if (lhs.onScreen != rhs.onScreen)
+            {
+                return lhs.onScreen;
+            }
+            if (lhs.priority != rhs.priority)
+            {
+                return lhs.priority > rhs.priority;
+            }
+            if (lhs.distance != rhs.distance)
+            {
+                return lhs.distance < rhs.distance;
+            }
+            return lhs.rigidSnapshot.instanceId < rhs.rigidSnapshot.instanceId;
+        });
+
+    for (const EntityFeedRigidCandidate& candidate : candidates)
+    {
+        if (!candidate.onScreen && offscreenBudget <= 0)
+        {
+            ++stats.droppedBudget;
+            continue;
+        }
+
+        RecordEntityFeedRigidCandidate(candidate, geometryUniverse, instanceUniverse);
+        ++stats.admitted;
+        if (!candidate.onScreen)
+        {
+            --offscreenBudget;
         }
     }
 
