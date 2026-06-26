@@ -1,5 +1,7 @@
 #pragma once
 
+struct viewDef_t;
+
 struct RtPathTraceEntityFeedStats
 {
     int frameIndex = 0;
@@ -14,3 +16,4 @@ struct RtPathTraceEntityFeedStats
 };
 
 void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s);
+void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef);

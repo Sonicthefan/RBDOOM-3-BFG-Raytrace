@@ -18,6 +18,7 @@
 #include "PathTraceDrawSurfCapture.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceEmissiveCandidates.h"
+#include "PathTraceEntityFeed.h"
 #include "PathTraceMaterialClassifier.h"
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
@@ -2600,6 +2601,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool dumpSceneUniverse = r_pathTracingSceneUniverseDump.GetInteger() != 0;
     const bool dumpInstanceUniverse = r_pathTracingInstanceUniverseDump.GetInteger() != 0;
     const bool dumpRigidMeshUniverse = r_pathTracingRigidMeshUniverseDump.GetInteger() != 0;
+    DumpEntityFeedSingleBoneDiagnostics(viewDef);
     const RtSmokeStaticDrawSurfCounts currentStaticDrawSurfs = useSceneUniverseStaticGeometry ? CountCurrentStaticDrawSurfs(viewDef) : RtSmokeStaticDrawSurfCounts();
     if (sceneSource != m_smokeSceneSourceLast || (useSceneUniverseStaticGeometry && source2RigidEntities != m_smokeSceneSource2RigidEntitiesLast))
     {
