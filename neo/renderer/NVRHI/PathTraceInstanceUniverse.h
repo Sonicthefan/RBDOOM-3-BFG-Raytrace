@@ -225,6 +225,7 @@ public:
         int numIndexes);
     const RtPathTraceInstanceUniverseStats& GetFrameStats() const;
     const std::vector<RtPathTraceInstanceObservation>& FrameInstances() const;
+    bool HasFrameInstance(uint64 instanceId) const;
     void RunDiagnostics(const RtPathTraceInstanceUniverseDiagnosticDesc& desc);
 
 private:

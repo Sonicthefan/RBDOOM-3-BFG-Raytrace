@@ -152,6 +152,7 @@ void RtPathTraceInstanceUniverse::RecordObservation(
     RtPathTraceInstanceObservation frameInstance = instanceObservation;
 
     ++m_frameStats.usableDrawSurfs;
+    m_frameStats.instanceCount = m_frameStats.usableDrawSurfs;
     switch (surfaceClass)
     {
         case RtSmokeSurfaceClass::StaticWorld:
@@ -296,6 +297,24 @@ const RtPathTraceInstanceUniverseStats& RtPathTraceInstanceUniverse::GetFrameSta
 const std::vector<RtPathTraceInstanceObservation>& RtPathTraceInstanceUniverse::FrameInstances() const
 {
     return m_frameInstances;
+}
+
+bool RtPathTraceInstanceUniverse::HasFrameInstance(uint64 instanceId) const
+{
+    if (instanceId == 0)
+    {
+        return false;
+    }
+
+    for (const RtPathTraceInstanceObservation& instance : m_frameInstances)
+    {
+        if (instance.instanceId == instanceId)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void RtPathTraceInstanceUniverse::RunDiagnostics(const RtPathTraceInstanceUniverseDiagnosticDesc& desc)
