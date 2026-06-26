@@ -5,6 +5,7 @@
 struct viewDef_t;
 class RtPathTraceInstanceUniverse;
 class RtSmokeGeometryUniverse;
+struct RtSmokeMaterialStats;
 
 struct RtPathTraceEntityFeedStats
 {
@@ -24,4 +25,4 @@ std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int ma
 void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef);
 void DumpEntityFeedJointAdvanceProbe(const viewDef_t* viewDef);
 void DumpEntityFeedReachableCandidateStats(const viewDef_t* viewDef);
-void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtPathTraceInstanceUniverse& instanceUniverse);
+void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtPathTraceInstanceUniverse& instanceUniverse, RtSmokeMaterialStats& materialStats);

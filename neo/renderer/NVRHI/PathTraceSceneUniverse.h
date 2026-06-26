@@ -14,6 +14,8 @@
 
 class idRenderWorldLocal;
 class RtSmokeGeometryUniverse;
+class idRenderEntityLocal;
+class idMaterial;
 struct viewDef_t;
 
 struct RtPathTraceSceneUniverseSurface
@@ -131,6 +133,13 @@ struct RtPathTraceSceneUniverseBuildStats
     int rigidEntitySurfaces = 0;
     int rigidEntityTriangles = 0;
 };
+
+void SceneUniverseAddDynamicMaterialEvalStats(
+    RtSmokeMaterialStats& stats,
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entity,
+    const idMaterial* material,
+    int indexes);
 
 class RtPathTraceSceneUniverse
 {

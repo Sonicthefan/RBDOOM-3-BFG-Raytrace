@@ -8,6 +8,7 @@
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceRigidIdentity.h"
+#include "PathTraceSceneUniverse.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
 #include "../RenderCommon.h"
@@ -498,7 +499,7 @@ void DumpEntityFeedReachableCandidateStats(const viewDef_t* viewDef)
     DumpEntityFeedStats(stats);
 }
 
-void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtPathTraceInstanceUniverse& instanceUniverse)
+void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUniverse& geometryUniverse, RtPathTraceInstanceUniverse& instanceUniverse, RtSmokeMaterialStats& materialStats)
 {
     if (r_pathTracingEntityFeed.GetInteger() == 0)
     {
@@ -714,6 +715,12 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
         }
 
         RecordEntityFeedRigidCandidate(candidate, geometryUniverse, instanceUniverse);
+        SceneUniverseAddDynamicMaterialEvalStats(
+            materialStats,
+            viewDef,
+            candidate.instanceObservation.entity,
+            candidate.meshObservation.baseMaterial,
+            static_cast<int>(candidate.meshKey.numIndexes));
         ++stats.admitted;
         if (!candidate.onScreen)
         {
