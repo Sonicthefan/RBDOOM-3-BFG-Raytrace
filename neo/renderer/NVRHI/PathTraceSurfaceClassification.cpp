@@ -6,6 +6,65 @@
 #include "PathTraceGuiSurfaces.h"
 #include "../RenderCommon.h"
 
+namespace {
+
+bool SmokeMaterialLooksTransient(const idMaterial* material, bool guiSurface, float modelDepthHack)
+{
+    if (!material)
+    {
+        return false;
+    }
+
+    const deform_t deform = material->Deform();
+    return
+        guiSurface ||
+        material->Coverage() == MC_TRANSLUCENT ||
+        deform == DFRM_SPRITE ||
+        deform == DFRM_TUBE ||
+        deform == DFRM_FLARE ||
+        deform == DFRM_PARTICLE ||
+        deform == DFRM_PARTICLE2 ||
+        material->GetSort() >= SS_MEDIUM ||
+        modelDepthHack != 0.0f;
+}
+
+bool EntityFeedRigidEntityEligible(const idRenderEntityLocal* entity, const idRenderModel* model)
+{
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    if (!entity || !renderEntity || !model || model->IsStaticWorldModel())
+    {
+        return false;
+    }
+    if (model->IsDynamicModel() != DM_STATIC)
+    {
+        return false;
+    }
+    if (renderEntity->joints != nullptr || renderEntity->numJoints > 0)
+    {
+        return false;
+    }
+    if (renderEntity->callback != nullptr || renderEntity->forceUpdate != 0)
+    {
+        return false;
+    }
+    if (renderEntity->weaponDepthHack || renderEntity->modelDepthHack != 0.0f)
+    {
+        return false;
+    }
+    return true;
+}
+
+bool EntityFeedSurfaceHasJointData(const idRenderEntityLocal* entity, const idRenderModel* model, const srfTriangles_t* tri)
+{
+    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
+    return
+        (tri && tri->staticModelWithJoints != nullptr) ||
+        (renderEntity && renderEntity->joints != nullptr && renderEntity->numJoints > 0) ||
+        (model && model->NumJoints() > 0);
+}
+
+}
+
 uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass)
 {
     switch (surfaceClass)
@@ -48,6 +107,23 @@ const char* SmokeSurfaceClassNameByIndex(int classIndex)
     }
 
     return SmokeSurfaceClassName(static_cast<RtSmokeSurfaceClass>(classIndex));
+}
+
+const char* RtPtFeedClassName(RtPtFeedClass feedClass)
+{
+    switch (feedClass)
+    {
+        case RtPtFeedClass::StaticWorld:
+            return "static-world";
+        case RtPtFeedClass::RigidEntity:
+            return "rigid-entity";
+        case RtPtFeedClass::RigidSkinned:
+            return "rigid-skinned";
+        case RtPtFeedClass::TrueDeform:
+            return "true-deform";
+        default:
+            return "transient";
+    }
 }
 
 uint32_t SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype subtype)
@@ -146,6 +222,87 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
     }
 
     return RtSmokeSurfaceClass::Unknown;
+}
+
+bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
+{
+    if (!tri || !tri->verts || tri->numVerts <= 0)
+    {
+        return false;
+    }
+
+    int surfaceJoint = -1;
+    for (int vertIndex = 0; vertIndex < tri->numVerts; ++vertIndex)
+    {
+        const idDrawVert& vert = tri->verts[vertIndex];
+        int weightedComponent = -1;
+        for (int component = 0; component < 4; ++component)
+        {
+            if (vert.color2[component] == 0)
+            {
+                continue;
+            }
+            if (vert.color2[component] != 255 || weightedComponent >= 0)
+            {
+                return false;
+            }
+            weightedComponent = component;
+        }
+
+        if (weightedComponent < 0)
+        {
+            return false;
+        }
+
+        const int jointIndex = vert.color[weightedComponent];
+        if (surfaceJoint < 0)
+        {
+            surfaceJoint = jointIndex;
+        }
+        else if (surfaceJoint != jointIndex)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+RtPtFeedClass ClassifyEntityFeedSurface(const idRenderEntityLocal* entity, const idRenderModel* model, const modelSurface_t* surface)
+{
+    if (!entity || !model)
+    {
+        return RtPtFeedClass::Transient;
+    }
+
+    const renderEntity_t& renderEntity = entity->parms;
+    const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
+    const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
+    const idMaterial* material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
+
+    if (SmokeMaterialLooksTransient(material, false, renderEntity.modelDepthHack) ||
+        renderEntity.callback != nullptr ||
+        renderEntity.forceUpdate != 0)
+    {
+        return RtPtFeedClass::Transient;
+    }
+
+    if (model->IsStaticWorldModel())
+    {
+        return RtPtFeedClass::StaticWorld;
+    }
+
+    if (EntityFeedSurfaceHasJointData(entity, model, tri))
+    {
+        return IsEntityFeedSingleBoneSurface(tri) ? RtPtFeedClass::RigidSkinned : RtPtFeedClass::TrueDeform;
+    }
+
+    if (EntityFeedRigidEntityEligible(entity, model))
+    {
+        return RtPtFeedClass::RigidEntity;
+    }
+
+    return RtPtFeedClass::Transient;
 }
 
 RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* drawSurf)

@@ -9,7 +9,10 @@
 #include <stdint.h>
 
 struct drawSurf_t;
+class idRenderEntityLocal;
 class idMaterial;
+class idRenderModel;
+struct modelSurface_t;
 struct srfTriangles_t;
 struct viewDef_t;
 
@@ -38,13 +41,25 @@ enum class RtSmokeTranslucentSubtype
     Unknown
 };
 
+enum class RtPtFeedClass
+{
+    StaticWorld,
+    RigidEntity,
+    RigidSkinned,
+    TrueDeform,
+    Transient
+};
+
 uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass);
 const char* SmokeSurfaceClassName(RtSmokeSurfaceClass surfaceClass);
 const char* SmokeSurfaceClassNameByIndex(int classIndex);
+const char* RtPtFeedClassName(RtPtFeedClass feedClass);
 uint32_t SmokeTranslucentSubtypeId(RtSmokeTranslucentSubtype subtype);
 const char* SmokeTranslucentSubtypeName(RtSmokeTranslucentSubtype subtype);
 const char* SmokeTranslucentSubtypeNameByIndex(int subtypeIndex);
 RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri);
+RtPtFeedClass ClassifyEntityFeedSurface(const idRenderEntityLocal* entity, const idRenderModel* model, const modelSurface_t* surface);
+bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri);
 RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* drawSurf);
 uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype);
 uint32_t SmokeMaterialRouteClassSignature(const idMaterial* material, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype);

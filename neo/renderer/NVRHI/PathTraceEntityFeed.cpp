@@ -3,6 +3,7 @@
 
 #include "PathTraceCVars.h"
 #include "PathTraceEntityFeed.h"
+#include "PathTraceSurfaceClassification.h"
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
 
@@ -38,50 +39,6 @@ bool EntityFeedModelHasJointData(const idRenderEntityLocal* entity, const idRend
     return false;
 }
 
-bool IsSingleBoneSurface(const srfTriangles_t* tri)
-{
-    if (!tri || !tri->verts || tri->numVerts <= 0)
-    {
-        return false;
-    }
-
-    int surfaceJoint = -1;
-    for (int vertIndex = 0; vertIndex < tri->numVerts; ++vertIndex)
-    {
-        const idDrawVert& vert = tri->verts[vertIndex];
-        int weightedComponent = -1;
-        for (int component = 0; component < 4; ++component)
-        {
-            if (vert.color2[component] == 0)
-            {
-                continue;
-            }
-            if (vert.color2[component] != 255 || weightedComponent >= 0)
-            {
-                return false;
-            }
-            weightedComponent = component;
-        }
-
-        if (weightedComponent < 0)
-        {
-            return false;
-        }
-
-        const int jointIndex = vert.color[weightedComponent];
-        if (surfaceJoint < 0)
-        {
-            surfaceJoint = jointIndex;
-        }
-        else if (surfaceJoint != jointIndex)
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 unsigned int HashEntityFeedJoints(const renderEntity_t& renderEntity)
 {
     if (!renderEntity.joints || renderEntity.numJoints <= 0)
@@ -92,70 +49,28 @@ unsigned int HashEntityFeedJoints(const renderEntity_t& renderEntity)
     return MD5_BlockChecksum(renderEntity.joints, renderEntity.numJoints * sizeof(idJointMat));
 }
 
-bool EntityFeedRigidEntityEligible(const idRenderEntityLocal* entity, const idRenderModel* model)
-{
-    const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
-    if (!entity || !renderEntity || !model || model->IsStaticWorldModel())
-    {
-        return false;
-    }
-    if (model->IsDynamicModel() != DM_STATIC)
-    {
-        return false;
-    }
-    if (renderEntity->joints != nullptr || renderEntity->numJoints > 0)
-    {
-        return false;
-    }
-    if (renderEntity->callback != nullptr || renderEntity->forceUpdate != 0)
-    {
-        return false;
-    }
-    if (renderEntity->weaponDepthHack || renderEntity->modelDepthHack != 0.0f)
-    {
-        return false;
-    }
-    return true;
-}
-
 void AccumulateEntityFeedSurfaceClass(
     RtPathTraceEntityFeedStats& stats,
-    const idRenderEntityLocal* entity,
-    const idRenderModel* sourceModel,
-    const srfTriangles_t* tri)
+    RtPtFeedClass feedClass)
 {
-    if (!sourceModel)
+    switch (feedClass)
     {
-        ++stats.candidatesS4;
-        return;
-    }
-
-    if (sourceModel->IsStaticWorldModel())
-    {
-        ++stats.candidatesS0;
-        return;
-    }
-
-    if (EntityFeedRigidEntityEligible(entity, sourceModel))
-    {
-        ++stats.candidatesS1;
-        return;
-    }
-
-    if (EntityFeedModelHasJointData(entity, sourceModel))
-    {
-        if (IsSingleBoneSurface(tri))
-        {
+        case RtPtFeedClass::StaticWorld:
+            ++stats.candidatesS0;
+            break;
+        case RtPtFeedClass::RigidEntity:
+            ++stats.candidatesS1;
+            break;
+        case RtPtFeedClass::RigidSkinned:
             ++stats.candidatesS2;
-        }
-        else
-        {
+            break;
+        case RtPtFeedClass::TrueDeform:
             ++stats.candidatesS3;
-        }
-        return;
+            break;
+        default:
+            ++stats.candidatesS4;
+            break;
     }
-
-    ++stats.candidatesS4;
 }
 
 }
@@ -315,7 +230,7 @@ void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef)
                 sourceModel->Name(),
                 surfaceIndex,
                 tri ? tri->numVerts : 0,
-                IsSingleBoneSurface(tri) ? 1 : 0);
+                IsEntityFeedSingleBoneSurface(tri) ? 1 : 0);
         }
 
         if (temporaryModel && temporaryModel != sourceModel)
@@ -429,13 +344,12 @@ void DumpEntityFeedReachableCandidateStats(const viewDef_t* viewDef)
             const int surfaceCount = diagnosticModel ? diagnosticModel->NumSurfaces() : 0;
             if (surfaceCount <= 0)
             {
-                AccumulateEntityFeedSurfaceClass(stats, entity, sourceModel, nullptr);
+                AccumulateEntityFeedSurfaceClass(stats, ClassifyEntityFeedSurface(entity, sourceModel, nullptr));
             }
             for (int surfaceIndex = 0; surfaceIndex < surfaceCount; ++surfaceIndex)
             {
                 const modelSurface_t* surface = diagnosticModel->Surface(surfaceIndex);
-                const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
-                AccumulateEntityFeedSurfaceClass(stats, entity, sourceModel, tri);
+                AccumulateEntityFeedSurfaceClass(stats, ClassifyEntityFeedSurface(entity, sourceModel, surface));
             }
 
             if (temporaryModel && temporaryModel != sourceModel)
