@@ -556,6 +556,10 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 {
                     continue;
                 }
+                if (feedClass == RtPtFeedClass::RigidEntity && entity->viewCount == tr.viewCount)
+                {
+                    continue;
+                }
                 if (feedClass != RtPtFeedClass::RigidEntity && !promotedEmissiveCard)
                 {
                     continue;
