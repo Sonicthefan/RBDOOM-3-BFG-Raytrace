@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 struct viewDef_t;
 
 struct RtPathTraceEntityFeedStats
@@ -16,5 +18,7 @@ struct RtPathTraceEntityFeedStats
 };
 
 void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s);
+std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int maxDepth, float maxDistance);
 void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef);
 void DumpEntityFeedJointAdvanceProbe(const viewDef_t* viewDef);
+void DumpEntityFeedReachableCandidateStats(const viewDef_t* viewDef);

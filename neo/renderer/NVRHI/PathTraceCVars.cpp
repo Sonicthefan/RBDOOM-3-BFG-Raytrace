@@ -375,6 +375,18 @@ idCVar r_pathTracingEntityFeedDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Print entityDef-feed diagnostics when != 0." );
 
+idCVar r_pathTracingEntityFeedMaxDepth(
+    "r_pathTracingEntityFeedMaxDepth",
+    "32",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Maximum portal flood depth for entityDef-feed diagnostics and producers." );
+
+idCVar r_pathTracingEntityFeedMaxDistance(
+    "r_pathTracingEntityFeedMaxDistance",
+    "4096",
+    CVAR_RENDERER | CVAR_FLOAT,
+    "Maximum area-center distance for entityDef-feed diagnostics and producers." );
+
 idCVar r_pathTracingResidencyFramesToKeep(
     "r_pathTracingResidencyFramesToKeep",
     "100000",
