@@ -59,7 +59,6 @@ const char* SmokeTranslucentSubtypeName(RtSmokeTranslucentSubtype subtype);
 const char* SmokeTranslucentSubtypeNameByIndex(int subtypeIndex);
 RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSurf_t* drawSurf, const srfTriangles_t* tri);
 RtPtFeedClass ClassifyEntityFeedSurface(const idRenderEntityLocal* entity, const idRenderModel* model, const modelSurface_t* surface);
-int ResolveEntityFeedSingleBoneSurfaceJoint(const srfTriangles_t* tri);
 bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri);
 bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material);
 bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material);

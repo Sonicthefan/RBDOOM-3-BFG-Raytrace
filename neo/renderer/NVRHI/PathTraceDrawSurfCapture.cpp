@@ -459,22 +459,15 @@ void CapturePathTraceDrawSurfMirror(
 
         const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
         const RtSmokeSurfaceClass surfaceClass = PtMirrorEffectiveSurfaceClass(drawSurf, tri, classifiedSurfaceClass);
+        if (r_pathTracingEntityFeed.GetInteger() != 0 && surfaceClass == RtSmokeSurfaceClass::RigidEntity)
+        {
+            continue;
+        }
         const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
         const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
         const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
         const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
         const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
-        const int modelSurfaceIndex = drawSurf ? drawSurf->modelSurfaceIndex : -1;
-        const modelSurface_t* entityFeedSurface =
-            renderModel && modelSurfaceIndex >= 0 && modelSurfaceIndex < renderModel->NumSurfaces()
-                ? renderModel->Surface(modelSurfaceIndex)
-                : nullptr;
-        if (r_pathTracingEntityFeed.GetInteger() != 0 &&
-            (surfaceClass == RtSmokeSurfaceClass::RigidEntity ||
-                ClassifyEntityFeedSurface(entity, renderModel, entityFeedSurface) == RtPtFeedClass::RigidSkinned))
-        {
-            continue;
-        }
         const char* modelName = renderModel ? "<live render model>" : "<none>";
         const uint32_t baseMaterialId = SmokeMaterialId(material);
         const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);

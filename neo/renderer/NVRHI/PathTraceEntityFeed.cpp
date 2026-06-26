@@ -12,7 +12,6 @@
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
-#include "../Model_local.h"
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
 
@@ -147,61 +146,6 @@ idVec3 EntityFeedEntityOrigin(const idRenderEntityLocal* entity)
 float EntityFeedEntityDistance(const idRenderEntityLocal* entity, const idVec3& viewOrigin)
 {
     return (EntityFeedEntityOrigin(entity) - viewOrigin).Length();
-}
-
-bool BuildEntityFeedRigidSkinnedObjectToWorld(
-    const idRenderEntityLocal* entity,
-    const srfTriangles_t* tri,
-    int jointIndex,
-    float objectToWorld[16])
-{
-    if (!entity ||
-        !tri ||
-        !tri->staticModelWithJoints ||
-        !tri->staticModelWithJoints->jointsInverted ||
-        jointIndex < 0 ||
-        jointIndex >= tri->staticModelWithJoints->numInvertedJoints)
-    {
-        return false;
-    }
-    if (!objectToWorld)
-    {
-        return true;
-    }
-
-    const float* entityMatrix = entity->modelMatrix;
-    const idJointMat& joint = tri->staticModelWithJoints->jointsInverted[jointIndex];
-    const float* jointMatrix = joint.ToFloatPtr();
-
-    for (int worldColumn = 0; worldColumn < 3; ++worldColumn)
-    {
-        const float e0 = entityMatrix[0 * 4 + worldColumn];
-        const float e1 = entityMatrix[1 * 4 + worldColumn];
-        const float e2 = entityMatrix[2 * 4 + worldColumn];
-        objectToWorld[0 * 4 + worldColumn] =
-            jointMatrix[0 * 4 + 0] * e0 +
-            jointMatrix[1 * 4 + 0] * e1 +
-            jointMatrix[2 * 4 + 0] * e2;
-        objectToWorld[1 * 4 + worldColumn] =
-            jointMatrix[0 * 4 + 1] * e0 +
-            jointMatrix[1 * 4 + 1] * e1 +
-            jointMatrix[2 * 4 + 1] * e2;
-        objectToWorld[2 * 4 + worldColumn] =
-            jointMatrix[0 * 4 + 2] * e0 +
-            jointMatrix[1 * 4 + 2] * e1 +
-            jointMatrix[2 * 4 + 2] * e2;
-        objectToWorld[3 * 4 + worldColumn] =
-            jointMatrix[0 * 4 + 3] * e0 +
-            jointMatrix[1 * 4 + 3] * e1 +
-            jointMatrix[2 * 4 + 3] * e2 +
-            entityMatrix[3 * 4 + worldColumn];
-    }
-
-    objectToWorld[0 * 4 + 3] = 0.0f;
-    objectToWorld[1 * 4 + 3] = 0.0f;
-    objectToWorld[2 * 4 + 3] = 0.0f;
-    objectToWorld[3 * 4 + 3] = 1.0f;
-    return true;
 }
 
 float EntityFeedProjectedSizeProxy(const idRenderEntityLocal* entity, float distance)
@@ -612,24 +556,11 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 {
                     continue;
                 }
-                const bool rigidSkinned = feedClass == RtPtFeedClass::RigidSkinned;
-                const int jointIndex = rigidSkinned ? ResolveEntityFeedSingleBoneSurfaceJoint(tri) : -1;
-                if (rigidSkinned && !BuildEntityFeedRigidSkinnedObjectToWorld(entity, tri, jointIndex, nullptr))
+                if (feedClass != RtPtFeedClass::RigidEntity && !promotedEmissiveCard)
                 {
                     continue;
                 }
-                if (feedClass != RtPtFeedClass::RigidEntity && !rigidSkinned && !promotedEmissiveCard)
-                {
-                    continue;
-                }
-                if (rigidSkinned)
-                {
-                    ++stats.candidatesS2;
-                }
-                else
-                {
-                    ++stats.candidatesS1;
-                }
+                ++stats.candidatesS1;
 
                 if (!EntityFeedSurfaceUsableForRigidRoute(surface, tri, material))
                 {
@@ -677,8 +608,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                     entity->index,
                     renderEntity.entityNum,
                     surfaceIndex,
-                    sourceFlags,
-                    jointIndex);
+                    sourceFlags);
                 if (!candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
                 {
                     continue;
@@ -726,14 +656,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.instanceObservation.surfaceClassId = surfaceClassId;
                 candidate.instanceObservation.triangleClassAndFlags = surfaceClassAndFlags;
                 candidate.instanceObservation.sourceFlags = rigidSnapshot.sourceFlags;
-                if (rigidSkinned)
-                {
-                    BuildEntityFeedRigidSkinnedObjectToWorld(entity, tri, jointIndex, candidate.instanceObservation.objectToWorld);
-                }
-                else
-                {
-                    memcpy(candidate.instanceObservation.objectToWorld, entity->modelMatrix, sizeof(candidate.instanceObservation.objectToWorld));
-                }
+                memcpy(candidate.instanceObservation.objectToWorld, entity->modelMatrix, sizeof(candidate.instanceObservation.objectToWorld));
                 candidate.instanceObservation.instanceId = rigidSnapshot.instanceId;
                 candidate.instanceObservation.materialName = candidate.meshObservation.materialName;
                 candidate.instanceObservation.modelName = candidate.meshObservation.modelName;
