@@ -17,3 +17,4 @@ struct RtPathTraceEntityFeedStats
 
 void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s);
 void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef);
+void DumpEntityFeedJointAdvanceProbe(const viewDef_t* viewDef);

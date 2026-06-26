@@ -6,6 +6,8 @@
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
 
+#include <unordered_map>
+
 namespace {
 
 bool SurfaceUsesStaticModelWithJoints(const idRenderModel* model, int surfaceIndex)
@@ -77,6 +79,16 @@ bool IsSingleBoneSurface(const srfTriangles_t* tri)
     }
 
     return true;
+}
+
+unsigned int HashEntityFeedJoints(const renderEntity_t& renderEntity)
+{
+    if (!renderEntity.joints || renderEntity.numJoints <= 0)
+    {
+        return 0;
+    }
+
+    return MD5_BlockChecksum(renderEntity.joints, renderEntity.numJoints * sizeof(idJointMat));
 }
 
 }
@@ -157,5 +169,44 @@ void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef)
         {
             delete temporaryModel;
         }
+    }
+}
+
+void DumpEntityFeedJointAdvanceProbe(const viewDef_t* viewDef)
+{
+    if (r_pathTracingEntityFeedDump.GetInteger() == 0)
+    {
+        return;
+    }
+
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld)
+    {
+        return;
+    }
+
+    static std::unordered_map<int, unsigned int> previousJointHashes;
+    int printed = 0;
+    for (int entityIndex = 0; entityIndex < renderWorld->entityDefs.Num() && printed < 4; ++entityIndex)
+    {
+        const idRenderEntityLocal* entity = renderWorld->entityDefs[entityIndex];
+        const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
+        if (!entity || !model || !EntityFeedModelHasJointData(entity, model))
+        {
+            continue;
+        }
+
+        const unsigned int jointHash = HashEntityFeedJoints(entity->parms);
+        const auto previousHash = previousJointHashes.find(entityIndex);
+        const bool jointHashChanged = previousHash != previousJointHashes.end() && previousHash->second != jointHash;
+        previousJointHashes[entityIndex] = jointHash;
+
+        common->Printf(
+            "PathTracePrimaryPass: PT entityFeed jointProbe entity=%d model='%s' jointHashChangedThisFrame=%d onScreenThisFrame=%d\n",
+            entityIndex,
+            model->Name(),
+            jointHashChanged ? 1 : 0,
+            entity->viewCount == tr.viewCount ? 1 : 0);
+        ++printed;
     }
 }
