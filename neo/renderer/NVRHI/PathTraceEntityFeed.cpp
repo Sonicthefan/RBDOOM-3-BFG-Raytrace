@@ -6,6 +6,7 @@
 #include "PathTraceEntityFeed.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceMaterialUniverse.h"
+#include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
@@ -504,6 +505,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
 
     std::vector<EntityFeedRigidCandidate> candidates;
     std::unordered_set<uint64> candidateInstanceIds;
+    std::unordered_set<uint32_t> registeredMaterialIds;
     for (int areaIndex = 0; areaIndex < static_cast<int>(reachableAreas.size()); ++areaIndex)
     {
         if (!reachableAreas[areaIndex])
@@ -545,6 +547,10 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 }
 
                 const uint32_t materialId = SmokeMaterialId(material);
+                if (registeredMaterialIds.insert(materialId).second)
+                {
+                    RegisterSmokeMaterialTextureInfo(material);
+                }
                 const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
                 RtPathTraceMeshKey meshKey;
                 meshKey.tri = tri;
