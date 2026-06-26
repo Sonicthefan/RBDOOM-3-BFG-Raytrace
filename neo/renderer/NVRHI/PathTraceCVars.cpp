@@ -363,6 +363,18 @@ idCVar r_pathTracingGeometryResidencyV2(
     CVAR_RENDERER | CVAR_INTEGER,
     "Master gate for the Remix-style frame-age + frustum residency model. Set 0 for legacy behavior." );
 
+idCVar r_pathTracingEntityFeed(
+    "r_pathTracingEntityFeed",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Master gate for the entityDef-feed BVH producer. 0 = legacy behavior." );
+
+idCVar r_pathTracingEntityFeedDump(
+    "r_pathTracingEntityFeedDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Print entityDef-feed diagnostics when != 0." );
+
 idCVar r_pathTracingResidencyFramesToKeep(
     "r_pathTracingResidencyFramesToKeep",
     "100000",
