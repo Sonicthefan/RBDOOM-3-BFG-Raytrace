@@ -1398,9 +1398,14 @@ float SmokeAdditiveDecalMaterialOpacity(PathTraceSmokeMaterial material, float3 
     return SmokeAdditiveDecalOpacity(albedo);
 }
 
-bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, bool shadowRay)
+bool SmokeAdditiveDecalRejectsHit(PathTraceSmokeMaterial material, float2 texCoord, uint triangleClassAndFlags, bool shadowRay)
 {
     if ((material.flags & RT_SMOKE_MATERIAL_ADDITIVE_DECAL) == 0u)
+    {
+        return false;
+    }
+
+    if (!shadowRay && (triangleClassAndFlags & RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF) != 0u)
     {
         return false;
     }
@@ -3279,7 +3284,7 @@ bool SmokeAlphaRejectsHit(uint instanceId, uint primitiveIndex, float2 barycentr
         return true;
     }
 
-    if (SmokeAdditiveDecalRejectsHit(material, texCoord, shadowRay))
+    if (SmokeAdditiveDecalRejectsHit(material, texCoord, triangleClassAndFlags, shadowRay))
     {
         return true;
     }
