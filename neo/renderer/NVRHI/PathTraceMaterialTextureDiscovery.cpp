@@ -1426,8 +1426,14 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
     missingMaterialIds.reserve(materialIds.size());
     for (uint32_t materialId : materialIds)
     {
-        if (materialId == 0u || FindSmokeMaterialTextureInfo(materialId))
+        if (materialId == 0u)
         {
+            continue;
+        }
+        RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(materialId);
+        if (existing)
+        {
+            RefreshSmokeMaterialTextureHandleState(*existing);
             continue;
         }
         missingMaterialIds.insert(materialId);

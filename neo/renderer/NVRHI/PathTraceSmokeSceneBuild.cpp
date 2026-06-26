@@ -2404,6 +2404,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticBlasSignature = 0;
             m_smokeSceneUniverseStaticBuildGeneration = 0;
             m_smokeSceneRebuildLogged = false;
+            ClearSmokeMaterialTextureRegistry();
+            ClearSmokeMaterialUniverse();
             m_smokeGeometryUniverse.Clear();
             m_smokeSkinnedSurfaceRecords.clear();
             m_smokePreviousSkinnedSurfaceRecords.clear();

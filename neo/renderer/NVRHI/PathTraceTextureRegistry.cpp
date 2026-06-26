@@ -279,6 +279,16 @@ int ClearSmokeMaterialTextureVariants()
     return removedCount;
 }
 
+int ClearSmokeMaterialTextureRegistry()
+{
+    const int removedCount = static_cast<int>(g_smokeMaterialTextureRegistry.size());
+    g_smokeMaterialTextureRegistry.clear();
+    g_smokeMaterialTextureRegistryLookup.clear();
+    g_smokeMaterialTextureVariantBases.clear();
+    ++g_smokeMaterialTextureRegistryGeneration;
+    return removedCount;
+}
+
 void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
 {
     const bool oldHasTextureHandle = info.hasTextureHandle;

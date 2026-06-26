@@ -96,6 +96,7 @@ bool RegisterSmokeMaterialTextureVariant(uint32_t variantMaterialId, uint32_t ba
 bool IsSmokeMaterialTextureVariant(uint32_t materialId);
 uint32_t SmokeMaterialTextureVariantBase(uint32_t materialId);
 int ClearSmokeMaterialTextureVariants();
+int ClearSmokeMaterialTextureRegistry();
 void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info);
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex);
 bool SmokeMaterialTextureInfoHasMaterialMetadata(const RtSmokeMaterialTextureInfo& info);
