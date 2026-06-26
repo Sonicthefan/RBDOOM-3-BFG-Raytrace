@@ -271,11 +271,11 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
     return RtSmokeSurfaceClass::Unknown;
 }
 
-bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
+int ResolveEntityFeedSingleBoneSurfaceJoint(const srfTriangles_t* tri)
 {
     if (!tri || !tri->verts || tri->numVerts <= 0)
     {
-        return false;
+        return -1;
     }
 
     int surfaceJoint = -1;
@@ -291,14 +291,14 @@ bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
             }
             if (vert.color2[component] != 255 || weightedComponent >= 0)
             {
-                return false;
+                return -1;
             }
             weightedComponent = component;
         }
 
         if (weightedComponent < 0)
         {
-            return false;
+            return -1;
         }
 
         const int jointIndex = vert.color[weightedComponent];
@@ -308,11 +308,16 @@ bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
         }
         else if (surfaceJoint != jointIndex)
         {
-            return false;
+            return -1;
         }
     }
 
-    return true;
+    return surfaceJoint;
+}
+
+bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
+{
+    return ResolveEntityFeedSingleBoneSurfaceJoint(tri) >= 0;
 }
 
 RtPtFeedClass ClassifyEntityFeedSurface(const idRenderEntityLocal* entity, const idRenderModel* model, const modelSurface_t* surface)
@@ -327,8 +332,7 @@ RtPtFeedClass ClassifyEntityFeedSurface(const idRenderEntityLocal* entity, const
     const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
     const idMaterial* material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
 
-    if (SmokeMaterialLooksTransient(material, false, renderEntity.modelDepthHack) ||
-        renderEntity.callback != nullptr ||
+    if (renderEntity.callback != nullptr ||
         renderEntity.forceUpdate != 0)
     {
         return RtPtFeedClass::Transient;
@@ -341,7 +345,16 @@ RtPtFeedClass ClassifyEntityFeedSurface(const idRenderEntityLocal* entity, const
 
     if (EntityFeedSurfaceHasJointData(entity, model, tri))
     {
+        if ((material && material->Deform() != DFRM_NONE) || renderEntity.modelDepthHack != 0.0f)
+        {
+            return RtPtFeedClass::Transient;
+        }
         return IsEntityFeedSingleBoneSurface(tri) ? RtPtFeedClass::RigidSkinned : RtPtFeedClass::TrueDeform;
+    }
+
+    if (SmokeMaterialLooksTransient(material, false, renderEntity.modelDepthHack))
+    {
+        return RtPtFeedClass::Transient;
     }
 
     if (EntityFeedRigidEntityEligible(entity, model))
