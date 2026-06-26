@@ -97,6 +97,7 @@ struct RtPathTraceRigidMeshCandidateObservation
     int entityIndex = -1;
     int renderEntityNum = -1;
     uint32_t modelEpoch = 0;
+    int jointIndex = -1;
     int numVerts = 0;
     int numIndexes = 0;
     bool localSpaceValid = false;
@@ -496,6 +497,7 @@ struct RtPathTraceRigidRouteInstanceObservation
     int renderEntityNum = -1;
     int drawSurfIndex = -1;
     int modelSurfaceIndex = -1;
+    int jointIndex = -1;
     int currentArea = -1;
     PtRenderDefKey renderDefKey;
     uint32_t modelEpoch = 0;
@@ -682,6 +684,7 @@ public:
         uint32_t sourceFlags = 0;
         uint32_t vertexFormat = 0;
         uint32_t modelEpoch = 0;
+        int jointIndex = -1;
         RtSmokeGeometryRangeRecord sourceRange;
         int firstSeenFrame = 0;
         int lastSeenFrame = 0;

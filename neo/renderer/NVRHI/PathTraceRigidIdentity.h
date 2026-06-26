@@ -15,6 +15,7 @@ struct RtPathTraceRigidInstanceSnapshot
     int entityIndex = -1;
     int renderEntityNum = -1;
     int modelSurfaceIndex = -1;
+    int jointIndex = -1;
     uint32_t materialId = 0;
     uint32_t materialClassSignature = 0;
     uint32_t sourceFlags = 0;
@@ -31,7 +32,8 @@ uint64 BuildPathTraceRigidMeshHash(
     const RtPathTraceMeshKey& key,
     const idRenderModel* model,
     uint32_t modelEpoch,
-    int modelSurfaceIndex);
+    int modelSurfaceIndex,
+    int jointIndex = -1);
 
 uint64 BuildPathTraceRigidInstanceId(
     uint64 meshHash,
@@ -40,7 +42,8 @@ uint64 BuildPathTraceRigidInstanceId(
     int entityIndex,
     int renderEntityNum,
     int modelSurfaceIndex,
-    uint32_t materialId);
+    uint32_t materialId,
+    int jointIndex = -1);
 
 RtPathTraceRigidInstanceSnapshot BuildPathTraceRigidInstanceSnapshot(
     const RtPathTraceMeshKey& key,
@@ -51,4 +54,5 @@ RtPathTraceRigidInstanceSnapshot BuildPathTraceRigidInstanceSnapshot(
     int entityIndex,
     int renderEntityNum,
     int requestedModelSurfaceIndex,
-    uint32_t sourceFlags);
+    uint32_t sourceFlags,
+    int jointIndex = -1);

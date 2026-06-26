@@ -518,6 +518,7 @@ void CapturePathTraceDrawSurfMirror(
         meshObservation.stableHash = rigidSnapshot.meshHash;
         meshObservation.baseMaterial = material;
         meshObservation.surfaceClassId = surfaceClassId;
+        meshObservation.jointIndex = rigidSnapshot.jointIndex;
         meshObservation.materialName = material ? material->GetName() : "<none>";
         meshObservation.modelName = modelName;
         meshObservation.localSpaceValid = true;
@@ -529,6 +530,7 @@ void CapturePathTraceDrawSurfMirror(
         instanceObservation.renderEntityNum = rigidSnapshot.renderEntityNum;
         instanceObservation.drawSurfIndex = surfaceIndex;
         instanceObservation.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
+        instanceObservation.jointIndex = rigidSnapshot.jointIndex;
         instanceObservation.currentArea = PtMirrorResolveDrawSurfArea(viewDef, drawSurf, tri);
         instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
         instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
@@ -569,6 +571,7 @@ void CapturePathTraceDrawSurfMirror(
             candidateObservation.entityIndex = instanceObservation.entityIndex;
             candidateObservation.renderEntityNum = instanceObservation.renderEntityNum;
             candidateObservation.modelEpoch = modelEpoch;
+            candidateObservation.jointIndex = rigidSnapshot.jointIndex;
             candidateObservation.numVerts = tri->numVerts;
             candidateObservation.numIndexes = tri->numIndexes;
             candidateObservation.localSpaceValid = meshObservation.localSpaceValid;

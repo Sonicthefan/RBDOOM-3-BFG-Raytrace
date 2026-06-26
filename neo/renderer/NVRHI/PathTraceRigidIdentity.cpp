@@ -49,7 +49,8 @@ uint64 BuildPathTraceRigidMeshHash(
     const RtPathTraceMeshKey& key,
     const idRenderModel* model,
     uint32_t modelEpoch,
-    int modelSurfaceIndex)
+    int modelSurfaceIndex,
+    int jointIndex)
 {
     uint64 hash = 14695981039346656037ull;
     const uintptr_t modelIdentity = reinterpret_cast<uintptr_t>(model);
@@ -64,6 +65,10 @@ uint64 BuildPathTraceRigidMeshHash(
     hash = HashRigidIdentityBytes(hash, &key.materialId, sizeof(key.materialId));
     hash = HashRigidIdentityBytes(hash, &key.materialClassSignature, sizeof(key.materialClassSignature));
     hash = HashRigidIdentityBytes(hash, &key.sourceKind, sizeof(key.sourceKind));
+    if (jointIndex >= 0)
+    {
+        hash = HashRigidIdentityBytes(hash, &jointIndex, sizeof(jointIndex));
+    }
     return hash;
 }
 
@@ -74,7 +79,8 @@ uint64 BuildPathTraceRigidInstanceId(
     int entityIndex,
     int renderEntityNum,
     int modelSurfaceIndex,
-    uint32_t materialId)
+    uint32_t materialId,
+    int jointIndex)
 {
     uint64 hash = 14695981039346656037ull;
     hash = HashRigidIdentityBytes(hash, &renderDefKey.world, sizeof(renderDefKey.world));
@@ -85,6 +91,10 @@ uint64 BuildPathTraceRigidInstanceId(
     hash = HashRigidIdentityBytes(hash, &renderEntityNum, sizeof(renderEntityNum));
     hash = HashRigidIdentityBytes(hash, &modelSurfaceIndex, sizeof(modelSurfaceIndex));
     hash = HashRigidIdentityBytes(hash, &materialId, sizeof(materialId));
+    if (jointIndex >= 0)
+    {
+        hash = HashRigidIdentityBytes(hash, &jointIndex, sizeof(jointIndex));
+    }
     hash = HashRigidIdentityBytes(hash, &meshHash, sizeof(meshHash));
     return hash;
 }
@@ -98,7 +108,8 @@ RtPathTraceRigidInstanceSnapshot BuildPathTraceRigidInstanceSnapshot(
     int entityIndex,
     int renderEntityNum,
     int requestedModelSurfaceIndex,
-    uint32_t sourceFlags)
+    uint32_t sourceFlags,
+    int jointIndex)
 {
     RtPathTraceRigidInstanceSnapshot snapshot;
     snapshot.meshKey = key;
@@ -107,13 +118,14 @@ RtPathTraceRigidInstanceSnapshot BuildPathTraceRigidInstanceSnapshot(
     snapshot.modelEpoch = modelEpoch;
     snapshot.entityIndex = entityIndex;
     snapshot.renderEntityNum = renderEntityNum;
+    snapshot.jointIndex = jointIndex;
     snapshot.modelSurfaceIndex = (requestedModelSurfaceIndex >= 0 || RtPathTraceSourceFlagsAreDurableRigid(sourceFlags))
         ? ResolvePathTraceRigidModelSurfaceIndex(model, tri, requestedModelSurfaceIndex)
         : -1;
     snapshot.materialId = key.materialId;
     snapshot.materialClassSignature = key.materialClassSignature;
     snapshot.sourceFlags = sourceFlags;
-    snapshot.meshHash = BuildPathTraceRigidMeshHash(snapshot.meshKey, model, modelEpoch, snapshot.modelSurfaceIndex);
+    snapshot.meshHash = BuildPathTraceRigidMeshHash(snapshot.meshKey, model, modelEpoch, snapshot.modelSurfaceIndex, snapshot.jointIndex);
     snapshot.instanceId = BuildPathTraceRigidInstanceId(
         snapshot.meshHash,
         renderDefKey,
@@ -121,6 +133,7 @@ RtPathTraceRigidInstanceSnapshot BuildPathTraceRigidInstanceSnapshot(
         entityIndex,
         renderEntityNum,
         snapshot.modelSurfaceIndex,
-        snapshot.materialId);
+        snapshot.materialId,
+        snapshot.jointIndex);
     return snapshot;
 }

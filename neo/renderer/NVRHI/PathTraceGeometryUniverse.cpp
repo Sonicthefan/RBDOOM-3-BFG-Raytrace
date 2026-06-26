@@ -428,6 +428,7 @@ RtPathTraceRigidRouteInstanceObservation MakeRigidRouteInstanceObservation(const
     routeInstance.renderEntityNum = instance.renderEntityNum;
     routeInstance.drawSurfIndex = instance.drawSurfIndex;
     routeInstance.modelSurfaceIndex = instance.modelSurfaceIndex;
+    routeInstance.jointIndex = instance.jointIndex;
     routeInstance.currentArea = instance.currentArea;
     routeInstance.renderDefKey = instance.renderDefKey;
     routeInstance.modelEpoch = instance.modelEpoch;
@@ -2034,6 +2035,7 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
         record->sourceFlags = observation.sourceFlags;
         record->vertexFormat = observation.vertexFormat;
         record->modelEpoch = observation.modelEpoch;
+        record->jointIndex = observation.jointIndex;
         record->sourceRange.vertices.count = observation.numVerts;
         record->sourceRange.indexes.count = observation.numIndexes;
         record->sourceRange.triangles.count = observation.numIndexes / 3;
@@ -2231,6 +2233,7 @@ RtSmokeGeometryUniverse::RigidMeshCandidateRecord* RtSmokeGeometryUniverse::Find
     record.sourceFlags = observation.sourceFlags;
     record.vertexFormat = observation.vertexFormat;
     record.modelEpoch = observation.modelEpoch;
+    record.jointIndex = observation.jointIndex;
     record.sourceRange.vertices.offset = 0;
     record.sourceRange.vertices.count = observation.numVerts;
     record.sourceRange.indexes.offset = 0;
@@ -3317,6 +3320,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     candidateObservation.entityIndex = entity->index;
                     candidateObservation.renderEntityNum = renderEntity.entityNum;
                     candidateObservation.modelEpoch = rigidSnapshot.modelEpoch;
+                    candidateObservation.jointIndex = rigidSnapshot.jointIndex;
                     candidateObservation.numVerts = tri->numVerts;
                     candidateObservation.numIndexes = tri->numIndexes;
                     candidateObservation.localSpaceValid = true;
@@ -3331,6 +3335,7 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     residentInstance.renderEntityNum = renderEntity.entityNum;
                     residentInstance.drawSurfIndex = -1;
                     residentInstance.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
+                    residentInstance.jointIndex = rigidSnapshot.jointIndex;
                     residentInstance.currentArea = areaIndex;
                     residentInstance.renderDefKey = rigidSnapshot.renderDefKey;
                     residentInstance.modelEpoch = rigidSnapshot.modelEpoch;

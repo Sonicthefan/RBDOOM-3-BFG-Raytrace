@@ -637,6 +637,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.meshObservation.stableHash = rigidSnapshot.meshHash;
                 candidate.meshObservation.baseMaterial = material;
                 candidate.meshObservation.surfaceClassId = surfaceClassId;
+                candidate.meshObservation.jointIndex = rigidSnapshot.jointIndex;
                 candidate.meshObservation.materialName = material ? material->GetName() : "<none>";
                 candidate.meshObservation.modelName = model ? model->Name() : "<none>";
                 candidate.meshObservation.localSpaceValid = true;
@@ -647,6 +648,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.instanceObservation.renderEntityNum = rigidSnapshot.renderEntityNum;
                 candidate.instanceObservation.drawSurfIndex = -1;
                 candidate.instanceObservation.modelSurfaceIndex = rigidSnapshot.modelSurfaceIndex;
+                candidate.instanceObservation.jointIndex = rigidSnapshot.jointIndex;
                 candidate.instanceObservation.currentArea = areaIndex;
                 candidate.instanceObservation.renderDefKey = rigidSnapshot.renderDefKey;
                 candidate.instanceObservation.modelEpoch = rigidSnapshot.modelEpoch;
@@ -674,6 +676,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 candidate.candidateObservation.entityIndex = entity->index;
                 candidate.candidateObservation.renderEntityNum = renderEntity.entityNum;
                 candidate.candidateObservation.modelEpoch = rigidSnapshot.modelEpoch;
+                candidate.candidateObservation.jointIndex = rigidSnapshot.jointIndex;
                 candidate.candidateObservation.numVerts = tri->numVerts;
                 candidate.candidateObservation.numIndexes = tri->numIndexes;
                 candidate.candidateObservation.localSpaceValid = candidate.meshObservation.localSpaceValid;

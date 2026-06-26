@@ -88,6 +88,7 @@ struct RtPathTraceMeshObservation
     uint64 stableHash = 0;
     const idMaterial* baseMaterial = nullptr;
     uint32_t surfaceClassId = 0;
+    int jointIndex = -1;
     idStr materialName;
     idStr modelName;
     bool localSpaceValid = false;
@@ -102,6 +103,7 @@ struct RtPathTraceInstanceObservation
     int renderEntityNum = -1;
     int drawSurfIndex = -1;
     int modelSurfaceIndex = -1;
+    int jointIndex = -1;
     int currentArea = -1;
     PtRenderDefKey renderDefKey;
     uint32_t modelEpoch = 0;
