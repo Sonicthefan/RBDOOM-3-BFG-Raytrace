@@ -109,7 +109,7 @@ bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
 
 bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material)
 {
-    return SmokeMaterialCanPromoteRigidEmissiveCardInternal(material, false);
+    return SmokeMaterialCanPromoteRigidEmissiveCardInternal(material, true);
 }
 
 uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass)

@@ -125,6 +125,42 @@ bool EntityFeedCanPromoteRigidEmissiveCard(const idRenderEntityLocal* entity, co
     return SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(material);
 }
 
+bool EntityFeedSurfaceHasVisibleDrawSurf(
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entity,
+    int modelSurfaceIndex,
+    const srfTriangles_t* tri,
+    const idMaterial* material)
+{
+    if (!viewDef || !viewDef->drawSurfs || !entity)
+    {
+        return false;
+    }
+
+    for (int drawSurfIndex = 0; drawSurfIndex < viewDef->numDrawSurfs; ++drawSurfIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[drawSurfIndex];
+        if (!drawSurf || !drawSurf->space || drawSurf->space->entityDef != entity)
+        {
+            continue;
+        }
+        if (modelSurfaceIndex >= 0 && drawSurf->modelSurfaceIndex == modelSurfaceIndex)
+        {
+            return true;
+        }
+        if (tri && drawSurf->frontEndGeo == tri)
+        {
+            return true;
+        }
+        if (material && drawSurf->material == material)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 struct EntityFeedRigidCandidate
 {
     RtPathTraceMeshKey meshKey;
@@ -552,7 +588,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 const bool promotedEmissiveCard =
                     feedClass == RtPtFeedClass::Transient &&
                     EntityFeedCanPromoteRigidEmissiveCard(entity, model, tri, material);
-                if (promotedEmissiveCard && entity->viewCount == tr.viewCount)
+                if (promotedEmissiveCard && EntityFeedSurfaceHasVisibleDrawSurf(viewDef, entity, surfaceIndex, tri, material))
                 {
                     continue;
                 }
