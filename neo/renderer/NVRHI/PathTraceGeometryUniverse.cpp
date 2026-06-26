@@ -3100,12 +3100,15 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
 
         const RtPathTraceRigidRouteInstanceObservation& instance = residentRecord.observation;
         const bool retainedFromCache = !residentRecord.seenThisFrame;
-        if (!retainedFromCache && instance.currentArea < 0)
+        const bool entityFeedOwned =
+            r_pathTracingEntityFeed.GetInteger() != 0 &&
+            (instance.sourceFlags & RT_PT_INSTANCE_SOURCE_ENTITY_FEED) != 0;
+        if (!entityFeedOwned && !retainedFromCache && instance.currentArea < 0)
         {
             ++m_rigidResidencyStats.skippedUnknownArea;
         }
-        const bool selectedArea = RigidResidencyAreaSelected(instance.currentArea, selectedAreas);
-        if (!retainedFromCache && instance.currentArea >= 0 && !selectedArea)
+        const bool selectedArea = entityFeedOwned || RigidResidencyAreaSelected(instance.currentArea, selectedAreas);
+        if (!entityFeedOwned && !retainedFromCache && instance.currentArea >= 0 && !selectedArea)
         {
             ++m_rigidResidencyStats.skippedOutsideArea;
             continue;
