@@ -26,6 +26,7 @@ const int RT_PT_RIGID_TLAS_PLAN_SAMPLES = 8;
 const int RT_PT_RIGID_RESIDENCY_SAMPLES = 8;
 
 struct RtSmokeSurfaceClassStats;
+struct RtSmokeMaterialStats;
 struct srfTriangles_t;
 struct viewDef_t;
 class RtPathTraceInstanceUniverse;
@@ -625,7 +626,7 @@ public:
         const RtPathTraceInstanceUniverse& instanceUniverse,
         bool enabled,
         int portalSteps);
-    void RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps, bool recordResidents = true);
+    void RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps, bool recordResidents = true, RtSmokeMaterialStats* materialStats = nullptr);
     const RtPathTraceRigidResidencyStats& GetRigidResidencyStats() const;
     void DumpRigidResidencyStats(const RtPathTraceRigidResidencyStats& stats, int sceneSource, bool includeSamples = true) const;
     void CollectRigidResidencyBoundsBoxes(std::vector<RtPathTraceRigidResidencyBoundsBox>& boxes, int maxBoxes) const;

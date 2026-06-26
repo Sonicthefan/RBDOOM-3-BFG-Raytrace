@@ -2794,7 +2794,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     viewDef,
                     m_instanceUniverse,
                     idMath::ClampInt(0, 8, r_pathTracingRigidResidencyPortalSteps.GetInteger()),
-                    !residencyV2);
+                    !residencyV2,
+                    &materialStats);
             }
             m_smokeBoundsOverlayLineCount = static_cast<int>(m_smokeBoundsOverlayLines.size());
         }

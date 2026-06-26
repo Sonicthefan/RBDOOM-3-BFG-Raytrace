@@ -17,6 +17,7 @@
 struct drawSurf_t;
 struct srfTriangles_t;
 struct viewDef_t;
+class idRenderEntityLocal;
 class idJointMat;
 class idImage;
 
@@ -397,6 +398,7 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
 void AddSmokeDynamicMaterialEvalStatsForMaterialId(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes, uint32_t materialId);
 uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId);
 uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId);
+uint32_t SmokeRuntimeMaterialTableIdForEntitySurface(const idRenderEntityLocal* entity, int modelSurfaceIndex, const idMaterial* material, uint32_t baseMaterialId);
 bool FindCenterCameraRayAnchor(const viewDef_t* viewDef, idVec3& anchorPoint, int& anchorSurface, int& anchorTriangle, RtSmokeSceneCaptureTiming* captureTiming = nullptr);
 PathTraceSmokeVertex BuildSmokeSurfaceVertex(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints);
 void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTriangles_t* tri, int vertexIndex, const idJointMat* rtCpuSkinningJoints, idVec3& worldPosition);

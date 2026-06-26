@@ -10,6 +10,8 @@
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceRigidIdentity.h"
+#include "PathTraceSceneCapture.h"
+#include "PathTraceSceneUniverse.h"
 #include "PathTraceSurfaceClassification.h"
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
@@ -219,35 +221,7 @@ bool RigidResidencyCanPromoteEmissiveCard(const idRenderEntityLocal* entity, con
         return false;
     }
 
-    const char* materialName = material->GetName();
-    if (materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
-    {
-        return false;
-    }
-
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    if (classifier.hasScreenTexgen ||
-        classifier.hasAddDefault0200Texture ||
-        classifier.nameLooksGui ||
-        classifier.nameLooksParticle ||
-        classifier.nameLooksGlass ||
-        classifier.sortIsPostProcess ||
-        classifier.sortIsGuiOrSubview)
-    {
-        return false;
-    }
-
-    const bool looksLikeRigidEmissiveCard =
-        classifier.nameLooksSignage ||
-        classifier.nameLooksGlow;
-    const bool hasEmissiveCardStage =
-        classifier.hasAdditiveBlend ||
-        classifier.hasAmbientBlendStage ||
-        (classifier.hasAmbientStage && !classifier.hasDiffuseStage);
-
-    return looksLikeRigidEmissiveCard &&
-        hasEmissiveCardStage &&
-        (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
+    return SmokeMaterialCanPromoteRigidEmissiveCard(material);
 }
 
 bool RigidRouteEntityKeyKnownAlive(const PtRenderDefKey& key)
@@ -3197,7 +3171,7 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     return m_rigidResidencyStats;
 }
 
-void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps, bool recordResidents)
+void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* viewDef, const RtPathTraceInstanceUniverse& instanceUniverse, int portalSteps, bool recordResidents, RtSmokeMaterialStats* materialStats)
 {
     if (!m_frameActive || !viewDef || !viewDef->renderWorld)
     {
@@ -3263,7 +3237,12 @@ void RtSmokeGeometryUniverse::RefreshRigidResidencyAreaWalk(const viewDef_t* vie
                     continue;
                 }
 
-                const uint32_t materialId = SmokeMaterialId(material);
+                const uint32_t baseMaterialId = SmokeMaterialId(material);
+                const uint32_t materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surfaceIndex, material, baseMaterialId);
+                if (materialStats)
+                {
+                    SceneUniverseAddDynamicMaterialEvalStatsForId(*materialStats, viewDef, entity, material, tri->numIndexes, materialId);
+                }
                 const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
                 RtPathTraceMeshKey meshKey;
                 meshKey.tri = tri;

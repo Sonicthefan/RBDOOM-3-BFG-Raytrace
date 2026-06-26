@@ -140,6 +140,13 @@ void SceneUniverseAddDynamicMaterialEvalStats(
     const idRenderEntityLocal* entity,
     const idMaterial* material,
     int indexes);
+void SceneUniverseAddDynamicMaterialEvalStatsForId(
+    RtSmokeMaterialStats& stats,
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entity,
+    const idMaterial* material,
+    int indexes,
+    uint32_t materialId);
 
 class RtPathTraceSceneUniverse
 {

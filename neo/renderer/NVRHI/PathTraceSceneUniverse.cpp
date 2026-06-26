@@ -6,6 +6,7 @@
 #include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometryUniverse.h"
+#include "PathTraceSceneCapture.h"
 #include "../Material.h"
 #include "../Model.h"
 #include "../GLMatrix.h"
@@ -512,7 +513,7 @@ bool SceneUniverseStageUsesPerSurfaceMaterialState(const idMaterial* material, c
         stage->newStage != nullptr;
 }
 
-void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const idMaterial* material, const float* regs, int indexes)
+void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const idMaterial* material, const float* regs, int indexes, uint32_t materialId)
 {
     if (!material || !regs)
     {
@@ -523,7 +524,7 @@ void SceneUniverseAccumulateDynamicMaterialEvalStats(RtSmokeMaterialStats& stats
     const int registerCount = material->GetNumRegisters();
     RtSmokeDynamicMaterialEvalSample surfaceSample;
     surfaceSample.valid = false;
-    surfaceSample.id = SmokeMaterialId(material);
+    surfaceSample.id = materialId != 0u ? materialId : SmokeMaterialId(material);
     surfaceSample.name = material->GetName();
 
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
@@ -679,6 +680,17 @@ void SceneUniverseAddDynamicMaterialEvalStats(
     const idMaterial* material,
     int indexes)
 {
+    SceneUniverseAddDynamicMaterialEvalStatsForId(stats, viewDef, entity, material, indexes, SmokeMaterialId(material));
+}
+
+void SceneUniverseAddDynamicMaterialEvalStatsForId(
+    RtSmokeMaterialStats& stats,
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entity,
+    const idMaterial* material,
+    int indexes,
+    uint32_t materialId)
+{
     if (!viewDef || !entity || !material)
     {
         return;
@@ -725,7 +737,7 @@ void SceneUniverseAddDynamicMaterialEvalStats(
             renderEntity.referenceSound);
         regs = dynamicRegs;
     }
-    SceneUniverseAccumulateDynamicMaterialEvalStats(stats, material, regs, indexes);
+    SceneUniverseAccumulateDynamicMaterialEvalStats(stats, material, regs, indexes, materialId);
 }
 
 PathTraceSmokeVertex BuildSceneUniverseStaticVertex(const idRenderEntityLocal* entity, const srfTriangles_t* tri, int vertexIndex)
@@ -1154,7 +1166,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
             const uint64 key = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
             const RtSmokeSurfaceClass surfaceClass = isRigidEntityModel ? RtSmokeSurfaceClass::RigidEntity : RtSmokeSurfaceClass::StaticWorld;
             const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, RtSmokeTranslucentSubtype::Unknown);
-            const uint32_t materialId = SmokeMaterialId(material);
+            const uint32_t baseMaterialId = SmokeMaterialId(material);
+            const uint32_t materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surfaceIndex, material, baseMaterialId);
             const bool emissiveCapable = SceneUniverseMaterialCanEmit(material);
             if (emissiveCapable)
             {
@@ -1192,7 +1205,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                     classStats.staticWorldTriangles += record->currentRange.triangles.count;
                 }
                 SceneUniverseAddSmokeMaterialStats(materialStats, material, record->currentRange.indexes.count);
-                SceneUniverseAddDynamicMaterialEvalStats(materialStats, viewDef, entity, material, record->currentRange.indexes.count);
+                SceneUniverseAddDynamicMaterialEvalStatsForId(materialStats, viewDef, entity, material, record->currentRange.indexes.count, materialId);
                 continue;
             }
 
@@ -1246,7 +1259,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                 classStats.staticWorldTriangles += emittedIndexes / 3;
             }
             SceneUniverseAddSmokeMaterialStats(materialStats, material, emittedIndexes);
-            SceneUniverseAddDynamicMaterialEvalStats(materialStats, viewDef, entity, material, emittedIndexes);
+            SceneUniverseAddDynamicMaterialEvalStatsForId(materialStats, viewDef, entity, material, emittedIndexes, materialId);
         }
     }
 
@@ -1350,7 +1363,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
 
         const uint64 key = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
         const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass::StaticWorld, RtSmokeTranslucentSubtype::Unknown);
-        const uint32_t materialId = SmokeMaterialId(material);
+        const uint32_t baseMaterialId = SmokeMaterialId(material);
+        const uint32_t materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surface.surfaceIndex, material, baseMaterialId);
         const bool emissiveCapable = SceneUniverseMaterialCanEmit(material);
         if (emissiveCapable)
         {
@@ -1376,7 +1390,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             classStats.staticWorldIndexes += record->currentRange.indexes.count;
             classStats.staticWorldTriangles += record->currentRange.triangles.count;
             SceneUniverseAddSmokeMaterialStats(materialStats, material, record->currentRange.indexes.count);
-            SceneUniverseAddDynamicMaterialEvalStats(materialStats, viewDef, entity, material, record->currentRange.indexes.count);
+            SceneUniverseAddDynamicMaterialEvalStatsForId(materialStats, viewDef, entity, material, record->currentRange.indexes.count, materialId);
             continue;
         }
 
@@ -1418,7 +1432,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         classStats.staticWorldIndexes += emittedIndexes;
         classStats.staticWorldTriangles += emittedIndexes / 3;
         SceneUniverseAddSmokeMaterialStats(materialStats, material, emittedIndexes);
-        SceneUniverseAddDynamicMaterialEvalStats(materialStats, viewDef, entity, material, emittedIndexes);
+        SceneUniverseAddDynamicMaterialEvalStatsForId(materialStats, viewDef, entity, material, emittedIndexes, materialId);
     }
 
     RtSmokeBucketRange& staticRange = bucketRanges.buckets[0];

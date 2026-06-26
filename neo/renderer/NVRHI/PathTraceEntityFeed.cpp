@@ -8,6 +8,7 @@
 #include "PathTraceMaterialUniverse.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceRigidIdentity.h"
+#include "PathTraceSceneCapture.h"
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
@@ -581,10 +582,14 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                     continue;
                 }
 
-                const uint32_t materialId = SmokeMaterialId(material);
+                const uint32_t baseMaterialId = SmokeMaterialId(material);
+                const uint32_t materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surfaceIndex, material, baseMaterialId);
                 if (registeredMaterialIds.insert(materialId).second)
                 {
-                    RegisterSmokeMaterialTextureInfo(material);
+                    if (materialId == baseMaterialId)
+                    {
+                        RegisterSmokeMaterialTextureInfo(material);
+                    }
                 }
                 const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
                 RtPathTraceMeshKey meshKey;
@@ -715,12 +720,13 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
         }
 
         RecordEntityFeedRigidCandidate(candidate, geometryUniverse, instanceUniverse);
-        SceneUniverseAddDynamicMaterialEvalStats(
+        SceneUniverseAddDynamicMaterialEvalStatsForId(
             materialStats,
             viewDef,
             candidate.instanceObservation.entity,
             candidate.meshObservation.baseMaterial,
-            static_cast<int>(candidate.meshKey.numIndexes));
+            static_cast<int>(candidate.meshKey.numIndexes),
+            candidate.candidateObservation.materialId);
         ++stats.admitted;
         if (!candidate.onScreen)
         {

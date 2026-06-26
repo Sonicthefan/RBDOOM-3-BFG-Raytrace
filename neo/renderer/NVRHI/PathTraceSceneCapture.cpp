@@ -1583,6 +1583,62 @@ uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, ui
     return variantMaterialId != 0u ? variantMaterialId : baseMaterialId;
 }
 
+static bool SmokeMaterialUsesRuntimeMaterialState(const idMaterial* material)
+{
+    if (!material)
+    {
+        return false;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        const shaderStage_t* stage = material->GetStage(stageIndex);
+        if (!stage)
+        {
+            continue;
+        }
+        if (SmokeRegisterDependsOnRuntime(material, stage->conditionRegister))
+        {
+            return true;
+        }
+        if (stage->hasAlphaTest && SmokeRegisterDependsOnRuntime(material, stage->alphaTestRegister))
+        {
+            return true;
+        }
+        for (int component = 0; component < 4; ++component)
+        {
+            if (SmokeRegisterDependsOnRuntime(material, stage->color.registers[component]))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static uint32_t SmokeRuntimeMaterialVariantIdForEntitySurface(const idRenderEntityLocal* entity, int modelSurfaceIndex, const idMaterial* material, uint32_t baseMaterialId)
+{
+    if (!entity || !material || baseMaterialId == 0u || !SmokeMaterialUsesRuntimeMaterialState(material))
+    {
+        return baseMaterialId;
+    }
+
+    const renderEntity_t& renderEntity = entity->parms;
+    uint32_t hash = 2166136261u;
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, 0x72746573u);
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, baseMaterialId);
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(entity->index));
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(renderEntity.entityNum));
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(modelSurfaceIndex));
+
+    uint32_t variantMaterialId = hash | 0x80000000u;
+    if (variantMaterialId == 0u || variantMaterialId == baseMaterialId)
+    {
+        variantMaterialId = (hash ^ 0x5bd1e995u) | 0x80000000u;
+    }
+    return variantMaterialId != 0u ? variantMaterialId : baseMaterialId;
+}
+
 uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId)
 {
     const uint32_t variantMaterialId = SmokeRuntimeMaterialVariantIdForDrawSurf(drawSurf, baseMaterialId);
@@ -1591,6 +1647,28 @@ uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint
         return baseMaterialId;
     }
     RegisterSmokeMaterialTextureInfo(drawSurf ? drawSurf->material : nullptr);
+    uint32_t candidateMaterialId = variantMaterialId;
+    for (uint32_t attempt = 0; attempt < 16u; ++attempt)
+    {
+        if (candidateMaterialId != 0u &&
+            candidateMaterialId != baseMaterialId &&
+            RegisterSmokeMaterialTextureVariant(candidateMaterialId, baseMaterialId))
+        {
+            return candidateMaterialId;
+        }
+        candidateMaterialId = SmokeRuntimeMaterialVariantHashValue(candidateMaterialId ^ 0x9e3779b9u, attempt + 1u) | 0x80000000u;
+    }
+    return baseMaterialId;
+}
+
+uint32_t SmokeRuntimeMaterialTableIdForEntitySurface(const idRenderEntityLocal* entity, int modelSurfaceIndex, const idMaterial* material, uint32_t baseMaterialId)
+{
+    const uint32_t variantMaterialId = SmokeRuntimeMaterialVariantIdForEntitySurface(entity, modelSurfaceIndex, material, baseMaterialId);
+    if (variantMaterialId == baseMaterialId)
+    {
+        return baseMaterialId;
+    }
+    RegisterSmokeMaterialTextureInfo(material);
     uint32_t candidateMaterialId = variantMaterialId;
     for (uint32_t attempt = 0; attempt < 16u; ++attempt)
     {
