@@ -1584,7 +1584,18 @@ uint32_t SmokeRuntimeMaterialTableIdForDrawSurf(const drawSurf_t* drawSurf, uint
         return baseMaterialId;
     }
     RegisterSmokeMaterialTextureInfo(drawSurf ? drawSurf->material : nullptr);
-    return RegisterSmokeMaterialTextureVariant(variantMaterialId, baseMaterialId) ? variantMaterialId : baseMaterialId;
+    uint32_t candidateMaterialId = variantMaterialId;
+    for (uint32_t attempt = 0; attempt < 16u; ++attempt)
+    {
+        if (candidateMaterialId != 0u &&
+            candidateMaterialId != baseMaterialId &&
+            RegisterSmokeMaterialTextureVariant(candidateMaterialId, baseMaterialId))
+        {
+            return candidateMaterialId;
+        }
+        candidateMaterialId = SmokeRuntimeMaterialVariantHashValue(candidateMaterialId ^ 0x9e3779b9u, attempt + 1u) | 0x80000000u;
+    }
+    return baseMaterialId;
 }
 
 bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
