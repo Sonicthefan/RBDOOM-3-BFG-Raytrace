@@ -63,9 +63,7 @@ bool EntityFeedSurfaceHasJointData(const idRenderEntityLocal* entity, const idRe
         (model && model->NumJoints() > 0);
 }
 
-}
-
-bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
+bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material, bool allowSwinglightRuntimeState)
 {
     if (!material || material->Deform() != DFRM_NONE)
     {
@@ -73,7 +71,7 @@ bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
     }
 
     const char* materialName = material->GetName();
-    if (materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
+    if (!allowSwinglightRuntimeState && materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
     {
         return false;
     }
@@ -100,6 +98,18 @@ bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
 
     return hasEmissiveCardStage &&
         (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
+}
+
+}
+
+bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
+{
+    return SmokeMaterialCanPromoteRigidEmissiveCardInternal(material, false);
+}
+
+bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material)
+{
+    return SmokeMaterialCanPromoteRigidEmissiveCardInternal(material, true);
 }
 
 uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass)

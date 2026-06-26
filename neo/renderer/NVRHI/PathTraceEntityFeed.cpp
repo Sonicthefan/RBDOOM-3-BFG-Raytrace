@@ -122,7 +122,7 @@ bool EntityFeedCanPromoteRigidEmissiveCard(const idRenderEntityLocal* entity, co
         return false;
     }
 
-    return SmokeMaterialCanPromoteRigidEmissiveCard(material);
+    return SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(material);
 }
 
 struct EntityFeedRigidCandidate
