@@ -459,6 +459,10 @@ void CapturePathTraceDrawSurfMirror(
 
         const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
         const RtSmokeSurfaceClass surfaceClass = PtMirrorEffectiveSurfaceClass(drawSurf, tri, classifiedSurfaceClass);
+        if (r_pathTracingEntityFeed.GetInteger() != 0 && surfaceClass == RtSmokeSurfaceClass::RigidEntity)
+        {
+            continue;
+        }
         const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
         const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
         const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;

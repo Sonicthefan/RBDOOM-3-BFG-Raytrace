@@ -183,20 +183,6 @@ float EntityFeedCandidatePriority(bool onScreen, bool emissive, float projectedS
         distance * distanceWeight;
 }
 
-int CountVisibleDurableRigidInstances(const RtPathTraceInstanceUniverse& instanceUniverse)
-{
-    int count = 0;
-    const std::vector<RtPathTraceInstanceObservation>& frameInstances = instanceUniverse.FrameInstances();
-    for (const RtPathTraceInstanceObservation& instance : frameInstances)
-    {
-        if (RtPathTraceSourceFlagsAreDurableRigid(instance.sourceFlags))
-        {
-            ++count;
-        }
-    }
-    return count;
-}
-
 void RecordEntityFeedRigidCandidate(
     const EntityFeedRigidCandidate& candidate,
     RtSmokeGeometryUniverse& geometryUniverse,
@@ -525,12 +511,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     const idVec3& viewOrigin = viewDef->renderView.vieworg;
     const float maxDistance = r_pathTracingEntityFeedMaxDistance.GetFloat();
     const int rigidRouteMaxInstances = idMath::ClampInt(1, 510, r_pathTracingRigidRouteMaxInstances.GetInteger());
-    const int reservedForVisible = CountVisibleDurableRigidInstances(instanceUniverse);
-    int offscreenBudget = rigidRouteMaxInstances - reservedForVisible;
-    if (offscreenBudget < 0)
-    {
-        offscreenBudget = 0;
-    }
+    int offscreenBudget = rigidRouteMaxInstances;
 
     RtPathTraceEntityFeedStats stats;
     stats.frameIndex = tr.frameCount;
@@ -628,7 +609,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                     renderEntity.entityNum,
                     surfaceIndex,
                     sourceFlags);
-                if (instanceUniverse.HasFrameInstance(rigidSnapshot.instanceId) || !candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
+                if (!candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
                 {
                     continue;
                 }
