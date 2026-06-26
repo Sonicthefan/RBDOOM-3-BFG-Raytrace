@@ -772,6 +772,12 @@ DoomLightRecord BuildDoomLightRecord(
             record.color = DoomAnalyticColorFromVec3(record.baseColor);
             record.active = record.color.w > 0.0f && !record.suppressed && !record.gameHidden && record.currentLevel > 0;
         }
+
+        if (record.gameHidden || record.currentLevel <= 0)
+        {
+            record.color = idVec4(0.0f, 0.0f, 0.0f, 0.0f);
+            record.active = false;
+        }
     }
     FillDoomLightCrosshairMetrics(viewDef, record);
     return record;
