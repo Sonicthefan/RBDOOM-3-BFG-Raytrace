@@ -124,8 +124,6 @@ bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTr
     const idRenderEntityLocal* entity = space->entityDef;
     const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
     const idMaterial* material = drawSurf->material;
-    const char* materialName = material->GetName();
-
     if (!entity ||
         IsSmokeGuiDrawSurface(drawSurf) ||
         drawSurf->jointCache != 0 ||
@@ -139,34 +137,7 @@ bool PtMirrorCanPromoteRigidEmissiveCard(const drawSurf_t* drawSurf, const srfTr
         return false;
     }
 
-    if (materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
-    {
-        return false;
-    }
-
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
-    if (classifier.hasScreenTexgen ||
-        classifier.hasAddDefault0200Texture ||
-        classifier.nameLooksGui ||
-        classifier.nameLooksParticle ||
-        classifier.nameLooksGlass ||
-        classifier.sortIsPostProcess ||
-        classifier.sortIsGuiOrSubview)
-    {
-        return false;
-    }
-
-    const bool looksLikeRigidEmissiveCard =
-        classifier.nameLooksSignage ||
-        classifier.nameLooksGlow;
-    const bool hasEmissiveCardStage =
-        classifier.hasAdditiveBlend ||
-        classifier.hasAmbientBlendStage ||
-        (classifier.hasAmbientStage && !classifier.hasDiffuseStage);
-
-    return looksLikeRigidEmissiveCard &&
-        hasEmissiveCardStage &&
-        (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
+    return SmokeMaterialCanPromoteRigidEmissiveCard(material);
 }
 
 RtSmokeSurfaceClass PtMirrorEffectiveSurfaceClass(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass)

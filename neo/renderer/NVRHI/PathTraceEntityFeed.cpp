@@ -93,6 +93,36 @@ bool EntityFeedSurfaceUsableForRigidRoute(const modelSurface_t* surface, const s
         material->IsDrawn();
 }
 
+bool EntityFeedCanPromoteRigidEmissiveCard(const idRenderEntityLocal* entity, const idRenderModel* model, const srfTriangles_t* tri, const idMaterial* material)
+{
+    if (r_pathTracingRigidRouteEmissiveCards.GetInteger() == 0 ||
+        !entity ||
+        !model ||
+        !tri ||
+        !material ||
+        model->IsStaticWorldModel() ||
+        model->IsDynamicModel() != DM_STATIC)
+    {
+        return false;
+    }
+
+    const renderEntity_t& renderEntity = entity->parms;
+    if (renderEntity.joints != nullptr ||
+        renderEntity.numJoints > 0 ||
+        renderEntity.callback != nullptr ||
+        renderEntity.forceUpdate != 0 ||
+        renderEntity.weaponDepthHack ||
+        renderEntity.modelDepthHack != 0.0f ||
+        entity->dynamicModel != nullptr ||
+        entity->cachedDynamicModel != nullptr ||
+        tri->staticModelWithJoints != nullptr)
+    {
+        return false;
+    }
+
+    return SmokeMaterialCanPromoteRigidEmissiveCard(material);
+}
+
 struct EntityFeedRigidCandidate
 {
     RtPathTraceMeshKey meshKey;
@@ -532,15 +562,19 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
                 const modelSurface_t* surface = model->Surface(surfaceIndex);
-                if (ClassifyEntityFeedSurface(entity, model, surface) != RtPtFeedClass::RigidEntity)
+                const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
+                const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
+                const idMaterial* material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
+                const RtPtFeedClass feedClass = ClassifyEntityFeedSurface(entity, model, surface);
+                const bool promotedEmissiveCard =
+                    feedClass == RtPtFeedClass::Transient &&
+                    EntityFeedCanPromoteRigidEmissiveCard(entity, model, tri, material);
+                if (feedClass != RtPtFeedClass::RigidEntity && !promotedEmissiveCard)
                 {
                     continue;
                 }
                 ++stats.candidatesS1;
 
-                const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
-                const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
-                const idMaterial* material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
                 if (!EntityFeedSurfaceUsableForRigidRoute(surface, tri, material))
                 {
                     continue;

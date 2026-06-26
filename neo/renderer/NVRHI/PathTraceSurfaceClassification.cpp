@@ -65,6 +65,43 @@ bool EntityFeedSurfaceHasJointData(const idRenderEntityLocal* entity, const idRe
 
 }
 
+bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
+{
+    if (!material || material->Deform() != DFRM_NONE)
+    {
+        return false;
+    }
+
+    const char* materialName = material->GetName();
+    if (materialName && idStr::FindText(materialName, "swinglight", false) >= 0)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    if (classifier.hasScreenTexgen ||
+        classifier.hasAddDefault0200Texture ||
+        classifier.nameLooksGui ||
+        classifier.nameLooksParticle ||
+        classifier.nameLooksDecal ||
+        classifier.nameLooksGlass ||
+        classifier.sortIsPostProcess ||
+        classifier.sortIsGuiOrSubview ||
+        classifier.sortIsDecal ||
+        classifier.polygonOffsetDecal)
+    {
+        return false;
+    }
+
+    const bool hasEmissiveCardStage =
+        classifier.hasAdditiveBlend ||
+        classifier.hasAmbientBlendStage ||
+        (classifier.hasAmbientStage && !classifier.hasDiffuseStage);
+
+    return hasEmissiveCardStage &&
+        (material->Coverage() == MC_TRANSLUCENT || classifier.hasAdditiveBlend || classifier.hasAmbientBlendStage);
+}
+
 uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass)
 {
     switch (surfaceClass)
