@@ -2031,6 +2031,7 @@ void RtSmokeGeometryUniverse::RecordRigidMeshCandidate(const RtPathTraceRigidMes
         record->materialClassSignature = observation.materialClassSignature;
         record->surfaceClassId = observation.surfaceClassId;
         record->triangleClassAndFlags = observation.triangleClassAndFlags != 0u ? observation.triangleClassAndFlags : observation.surfaceClassId;
+        record->sourceFlags = observation.sourceFlags;
         record->vertexFormat = observation.vertexFormat;
         record->modelEpoch = observation.modelEpoch;
         record->sourceRange.vertices.count = observation.numVerts;
@@ -2227,6 +2228,7 @@ RtSmokeGeometryUniverse::RigidMeshCandidateRecord* RtSmokeGeometryUniverse::Find
     record.materialClassSignature = observation.materialClassSignature;
     record.surfaceClassId = observation.surfaceClassId;
     record.triangleClassAndFlags = observation.triangleClassAndFlags != 0u ? observation.triangleClassAndFlags : observation.surfaceClassId;
+    record.sourceFlags = observation.sourceFlags;
     record.vertexFormat = observation.vertexFormat;
     record.modelEpoch = observation.modelEpoch;
     record.sourceRange.vertices.offset = 0;
@@ -3776,7 +3778,14 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
             bool retainedOffscreen = false;
             if (v2 && !record.seenThisFrame)
             {
-                const bool withinWindow = record.lastSeenFrame + framesToKeep >= m_currentFrameIndex;
+                uint64 recordFramesToKeep = framesToKeep;
+                if (r_pathTracingEntityFeed.GetInteger() != 0 &&
+                    (record.observation.sourceFlags & RT_PT_INSTANCE_SOURCE_ENTITY_FEED) != 0 &&
+                    recordFramesToKeep > 2u)
+                {
+                    recordFramesToKeep = 2u;
+                }
+                const bool withinWindow = record.lastSeenFrame + recordFramesToKeep >= m_currentFrameIndex;
                 if (withinWindow)
                 {
                     const std::unordered_map<uint64, size_t>::const_iterator meshIt = m_rigidMeshCandidateLookup.find(record.observation.meshHash);
@@ -3839,8 +3848,15 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
         {
             const bool referencedByResident =
                 residentMeshHashes.find(record.meshHash) != residentMeshHashes.end();
+            uint64 recordMeshFramesToKeep = meshFramesToKeep;
+            if (r_pathTracingEntityFeed.GetInteger() != 0 &&
+                (record.sourceFlags & RT_PT_INSTANCE_SOURCE_ENTITY_FEED) != 0 &&
+                recordMeshFramesToKeep > 2u)
+            {
+                recordMeshFramesToKeep = 2u;
+            }
             const bool keepRecord = v2
-                ? record.valid && (referencedByResident || record.seenThisFrame || record.lastSeenFrame + meshFramesToKeep >= m_currentFrameIndex)
+                ? record.valid && (referencedByResident || record.seenThisFrame || record.lastSeenFrame + recordMeshFramesToKeep >= m_currentFrameIndex)
                 : record.valid && record.seenThisFrame;
             if (keepRecord)
             {

@@ -593,7 +593,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
 
                 const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 const uint32_t modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
-                uint32_t sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID;
+                uint32_t sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID | RT_PT_INSTANCE_SOURCE_ENTITY_FEED;
                 if (renderEntity.customShader != nullptr || renderEntity.customSkin != nullptr)
                 {
                     sourceFlags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;

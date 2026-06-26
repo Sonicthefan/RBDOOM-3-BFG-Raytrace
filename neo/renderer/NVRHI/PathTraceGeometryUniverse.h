@@ -679,6 +679,7 @@ public:
         uint32_t materialClassSignature = 0;
         uint32_t surfaceClassId = 0;
         uint32_t triangleClassAndFlags = 0;
+        uint32_t sourceFlags = 0;
         uint32_t vertexFormat = 0;
         uint32_t modelEpoch = 0;
         RtSmokeGeometryRangeRecord sourceRange;
