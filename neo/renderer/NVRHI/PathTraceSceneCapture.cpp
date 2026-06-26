@@ -1567,6 +1567,13 @@ uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, ui
     hash = SmokeRuntimeMaterialVariantHashValue(hash, baseMaterialId);
     hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(entity ? entity->index : -1));
     hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(renderEntity ? renderEntity->entityNum : -1));
+    hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(drawSurf->modelSurfaceIndex));
+    if (drawSurf->modelSurfaceIndex < 0)
+    {
+        const uintptr_t triIdentity = reinterpret_cast<uintptr_t>(drawSurf->frontEndGeo);
+        hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(triIdentity));
+        hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(triIdentity >> 32));
+    }
 
     uint32_t variantMaterialId = hash | 0x80000000u;
     if (variantMaterialId == 0u || variantMaterialId == baseMaterialId)
