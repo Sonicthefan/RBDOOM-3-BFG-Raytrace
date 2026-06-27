@@ -2310,6 +2310,8 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
     r_pathTracingRigidRouteRemoveDynamic.SetInteger(1);
     r_pathTracingRigidRouteEmissiveCards.SetInteger(1);
     r_pathTracingRigidResidency.SetInteger(1);
+    r_pathTracingGeometryResidencyV2.SetInteger(1);
+    r_pathTracingEntityFeed.SetInteger(1);
     r_pathTracingStaticAreaPreload.SetInteger(1);
 
     const int portalSteps = 4;
@@ -2328,7 +2330,7 @@ void ApplySmokeRoutedScenePreset(int debugMode, int requestedPreset, const char*
         r_pathTracingRigidRouteMaxInstances.SetInteger(presetRigidRouteMaxInstances);
     }
 
-    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d lightAreaDiag=%d lightAreaApply=%d bvhValidation=%d churn=%d lightOverflowMax=512 rigidRouteMax=%d tlasMax=512\n",
+    common->Printf("PathTracePrimaryPass: applied %s preset %d source3=1 rigidRoute=1 rigidResidency=1 residencyV2=1 entityFeed=1 staticPreload=1 rigidEmissiveCards=1 portalSteps=%d lightAreaDiag=%d lightAreaApply=%d bvhValidation=%d churn=%d lightOverflowMax=512 rigidRouteMax=%d tlasMax=512\n",
         label ? label : "mode test",
         preset,
         portalSteps,

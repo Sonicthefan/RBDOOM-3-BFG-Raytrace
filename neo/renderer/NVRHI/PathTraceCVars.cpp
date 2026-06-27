@@ -377,9 +377,9 @@ idCVar r_pathTracingGeometryResidencyV2(
 
 idCVar r_pathTracingEntityFeed(
     "r_pathTracingEntityFeed",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Master gate for the entityDef-feed BVH producer. 0 = legacy behavior." );
+    "Master gate for the entityDef-feed BVH producer. 0 = legacy fallback behavior." );
 
 idCVar r_pathTracingEntityFeedDump(
     "r_pathTracingEntityFeedDump",
