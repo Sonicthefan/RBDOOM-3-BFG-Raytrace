@@ -2460,6 +2460,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
             m_smokeRigidRouteTriangleMaterialIndexBuffer = nullptr;
             m_smokeRigidRouteInstanceBuffer = nullptr;
+            for (int slotIndex = 0; slotIndex < RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS; ++slotIndex)
+            {
+                m_smokeRigidRouteSideBufferSlots[slotIndex] = RtSmokeRigidRouteSideBufferSlot();
+            }
+            m_smokeRigidRouteSideBufferReadSlot = -1;
+            m_smokeRigidRouteSideBufferWriteSlot = 0;
             m_smokeSkinnedSourceVertexBuffer = nullptr;
             m_smokeSkinnedCurrentOutputVertexBuffer = nullptr;
             m_smokeSkinnedPreviousPositionBuffer = nullptr;
@@ -4706,6 +4712,30 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     const int bufferCreateStartMs = Sys_Milliseconds();
+    RtPathTraceCpuWorkGeneration rigidRouteSideBufferGeneration;
+    rigidRouteSideBufferGeneration.frameIndex = 0;
+    rigidRouteSideBufferGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
+    rigidRouteSideBufferGeneration.geometryGeneration = sceneUniverseGeneration;
+    rigidRouteSideBufferGeneration.materialGeneration = materialTableSignature;
+    rigidRouteSideBufferGeneration.lightGeneration =
+        rigidTlasPlanValid ? rigidTlasPlan.tlasInstanceSignature : rigidTlasPlanInputToken;
+    const bool asyncRigidRouteSideBufferRing =
+        asyncBvhFramePlanning &&
+        buildRigidRouteBuffers;
+    int rigidRouteSideBufferWriteSlot = -1;
+    if (asyncRigidRouteSideBufferRing)
+    {
+        rigidRouteSideBufferWriteSlot = m_smokeRigidRouteSideBufferReadSlot >= 0
+            ? (m_smokeRigidRouteSideBufferReadSlot + 1) % RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS
+            : m_smokeRigidRouteSideBufferWriteSlot;
+        if (rigidRouteSideBufferWriteSlot == m_smokeRigidRouteSideBufferReadSlot)
+        {
+            rigidRouteSideBufferWriteSlot =
+                (rigidRouteSideBufferWriteSlot + 1) % RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS;
+        }
+        m_smokeRigidRouteSideBufferWriteSlot = rigidRouteSideBufferWriteSlot;
+    }
+
     RtSmokeSceneBufferCreateDesc bufferCreateDesc;
     bufferCreateDesc.device = device;
     bufferCreateDesc.existingBuffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
@@ -4744,11 +4774,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.existingBuffers.restirLightManagerPreviousToCurrentBuffer = m_smokeRestirLightManagerPreviousToCurrentBuffer;
     bufferCreateDesc.existingBuffers.restirLightManagerCurrentPayloadBuffer = m_smokeRestirLightManagerCurrentPayloadBuffer;
     bufferCreateDesc.existingBuffers.restirLightManagerPreviousPayloadBuffer = m_smokeRestirLightManagerPreviousPayloadBuffer;
-    bufferCreateDesc.existingBuffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
-    bufferCreateDesc.existingBuffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
-    bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
-    bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
-    bufferCreateDesc.existingBuffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+    if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
+    {
+        const RtSmokeRigidRouteSideBufferSlot& sideSlot =
+            m_smokeRigidRouteSideBufferSlots[rigidRouteSideBufferWriteSlot];
+        bufferCreateDesc.existingBuffers.rigidRouteVertexBuffer = sideSlot.vertexBuffer;
+        bufferCreateDesc.existingBuffers.rigidRouteIndexBuffer = sideSlot.indexBuffer;
+        bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialBuffer = sideSlot.triangleMaterialBuffer;
+        bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer = sideSlot.triangleMaterialIndexBuffer;
+        bufferCreateDesc.existingBuffers.rigidRouteInstanceBuffer = sideSlot.instanceBuffer;
+    }
+    else
+    {
+        bufferCreateDesc.existingBuffers.rigidRouteVertexBuffer = m_smokeRigidRouteVertexBuffer;
+        bufferCreateDesc.existingBuffers.rigidRouteIndexBuffer = m_smokeRigidRouteIndexBuffer;
+        bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialBuffer = m_smokeRigidRouteTriangleMaterialBuffer;
+        bufferCreateDesc.existingBuffers.rigidRouteTriangleMaterialIndexBuffer = m_smokeRigidRouteTriangleMaterialIndexBuffer;
+        bufferCreateDesc.existingBuffers.rigidRouteInstanceBuffer = m_smokeRigidRouteInstanceBuffer;
+    }
     bufferCreateDesc.existingBuffers.skinnedSourceVertexBuffer = m_smokeSkinnedSourceVertexBuffer;
     bufferCreateDesc.existingBuffers.skinnedCurrentOutputVertexBuffer = m_smokeSkinnedCurrentOutputVertexBuffer;
     bufferCreateDesc.existingBuffers.skinnedPreviousPositionBuffer = m_smokeSkinnedPreviousPositionBuffer;
@@ -4815,6 +4858,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
     RtSmokeSceneBufferHandles smokeBuffers = bufferCreateResult.buffers;
+    if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
+    {
+        RtSmokeRigidRouteSideBufferSlot& sideSlot =
+            m_smokeRigidRouteSideBufferSlots[rigidRouteSideBufferWriteSlot];
+        sideSlot.vertexBuffer = smokeBuffers.rigidRouteVertexBuffer;
+        sideSlot.indexBuffer = smokeBuffers.rigidRouteIndexBuffer;
+        sideSlot.triangleMaterialBuffer = smokeBuffers.rigidRouteTriangleMaterialBuffer;
+        sideSlot.triangleMaterialIndexBuffer = smokeBuffers.rigidRouteTriangleMaterialIndexBuffer;
+        sideSlot.instanceBuffer = smokeBuffers.rigidRouteInstanceBuffer;
+        sideSlot.generation = rigidRouteSideBufferGeneration;
+        sideSlot.generationValid = true;
+    }
     nvrhi::BufferHandle smokeStaticVertexBuffer = smokeBuffers.staticVertexBuffer;
     nvrhi::BufferHandle smokeStaticIndexBuffer = smokeBuffers.staticIndexBuffer;
     nvrhi::BufferHandle smokeStaticTriangleClassBuffer = smokeBuffers.staticTriangleClassBuffer;
@@ -5470,6 +5525,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
 
+    if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
+    {
+        const RtSmokeRigidRouteSideBufferSlot& sideSlot =
+            m_smokeRigidRouteSideBufferSlots[rigidRouteSideBufferWriteSlot];
+        if (!sideSlot.generationValid ||
+            !RtPathTraceCpuWorkGenerationEquals(sideSlot.generation, rigidRouteSideBufferGeneration))
+        {
+            common->Printf("PathTracePrimaryPass: async BVH side-buffer generation mismatch slot=%d expected(scene=%llu geometry=%llu material=%llu input=%llu)\n",
+                rigidRouteSideBufferWriteSlot,
+                static_cast<unsigned long long>(rigidRouteSideBufferGeneration.sceneGeneration),
+                static_cast<unsigned long long>(rigidRouteSideBufferGeneration.geometryGeneration),
+                static_cast<unsigned long long>(rigidRouteSideBufferGeneration.materialGeneration),
+                static_cast<unsigned long long>(rigidRouteSideBufferGeneration.lightGeneration));
+        }
+    }
+
     RtSmokeBindingBuildDesc bindingBuildDesc;
     bindingBuildDesc.device = device;
     bindingBuildDesc.tlas = m_smokeTlas;
@@ -5990,6 +6061,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         OPTICK_EVENT("PT Commit Scene Resources");
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
+    }
+    if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
+    {
+        m_smokeRigidRouteSideBufferReadSlot = rigidRouteSideBufferWriteSlot;
     }
     m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
     m_smokePreviousEmissiveTriangles = emissiveTriangles;

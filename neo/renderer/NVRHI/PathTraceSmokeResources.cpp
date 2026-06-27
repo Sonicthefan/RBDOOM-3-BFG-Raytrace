@@ -2128,6 +2128,12 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeRigidRouteTriangleMaterialBuffer = nullptr;
     m_smokeRigidRouteTriangleMaterialIndexBuffer = nullptr;
     m_smokeRigidRouteInstanceBuffer = nullptr;
+    for (int slotIndex = 0; slotIndex < RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS; ++slotIndex)
+    {
+        m_smokeRigidRouteSideBufferSlots[slotIndex] = RtSmokeRigidRouteSideBufferSlot();
+    }
+    m_smokeRigidRouteSideBufferReadSlot = -1;
+    m_smokeRigidRouteSideBufferWriteSlot = 0;
     m_smokeSkinnedSourceVertexBuffer = nullptr;
     m_smokeSkinnedCurrentOutputVertexBuffer = nullptr;
     m_smokeSkinnedPreviousPositionBuffer = nullptr;

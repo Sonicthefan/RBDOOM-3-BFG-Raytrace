@@ -52,6 +52,19 @@ struct RtRetiredSmokeScenePackage
     std::vector<nvrhi::TextureHandle> activeTextureTable;
 };
 
+static constexpr int RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS = 3;
+
+struct RtSmokeRigidRouteSideBufferSlot
+{
+    nvrhi::BufferHandle vertexBuffer;
+    nvrhi::BufferHandle indexBuffer;
+    nvrhi::BufferHandle triangleMaterialBuffer;
+    nvrhi::BufferHandle triangleMaterialIndexBuffer;
+    nvrhi::BufferHandle instanceBuffer;
+    RtPathTraceCpuWorkGeneration generation;
+    bool generationValid = false;
+};
+
 class PathTracePrimaryPass {
 public:
     explicit PathTracePrimaryPass(idRenderBackend* backend);
@@ -193,6 +206,9 @@ private:
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteTriangleMaterialIndexBuffer;
     nvrhi::BufferHandle m_smokeRigidRouteInstanceBuffer;
+    RtSmokeRigidRouteSideBufferSlot m_smokeRigidRouteSideBufferSlots[RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS];
+    int m_smokeRigidRouteSideBufferReadSlot = -1;
+    int m_smokeRigidRouteSideBufferWriteSlot = 0;
     nvrhi::BufferHandle m_smokeSkinnedSourceVertexBuffer;
     nvrhi::BufferHandle m_smokeSkinnedCurrentOutputVertexBuffer;
     nvrhi::BufferHandle m_smokeSkinnedPreviousPositionBuffer;
