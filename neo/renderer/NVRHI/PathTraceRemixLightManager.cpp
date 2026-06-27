@@ -647,7 +647,7 @@ uint64_t BuildPathTraceRemixLightManagerPrepareInputToken(
     const PathTraceRemixLightManagerPrepareDesc& desc)
 {
     uint64_t hash = 1469598103934665603ull;
-    const uint64_t version = 1;
+    const uint64_t version = 2;
     hash = RemixHashValue(hash, version);
 
     const uint32_t resetReasonFlags = desc.framePackage ? desc.framePackage->resetReasonFlags : 0u;
@@ -659,13 +659,16 @@ uint64_t BuildPathTraceRemixLightManagerPrepareInputToken(
     hash = RemixHashValue(hash, desc.strictRemixMapping ? 1u : 0u);
     hash = RemixHashValue(hash, desc.lightUniverseEnabled ? 1u : 0u);
     hash = RemixHashVectorPointer(hash, desc.currentEmissiveTriangles);
-    hash = RemixHashVectorPointer(hash, desc.previousEmissiveTriangles);
-    hash = RemixHashVectorPointer(hash, desc.emissiveRemap);
     hash = RemixHashVectorPointer(hash, desc.currentAnalyticLights);
-    hash = RemixHashVectorPointer(hash, desc.previousAnalyticLights);
     hash = RemixHashVectorPointer(hash, desc.currentAnalyticIdentities);
-    hash = RemixHashVectorPointer(hash, desc.previousAnalyticIdentities);
-    hash = RemixHashVectorPointer(hash, desc.analyticRemap);
+    if (!desc.lightUniverseEnabled)
+    {
+        hash = RemixHashVectorPointer(hash, desc.previousEmissiveTriangles);
+        hash = RemixHashVectorPointer(hash, desc.emissiveRemap);
+        hash = RemixHashVectorPointer(hash, desc.previousAnalyticLights);
+        hash = RemixHashVectorPointer(hash, desc.previousAnalyticIdentities);
+        hash = RemixHashVectorPointer(hash, desc.analyticRemap);
+    }
     return hash;
 }
 
