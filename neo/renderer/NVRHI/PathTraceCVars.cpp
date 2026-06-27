@@ -389,9 +389,9 @@ idCVar r_pathTracingEntityFeedDump(
 
 idCVar r_pathTracingEntityFeedMaxDepth(
     "r_pathTracingEntityFeedMaxDepth",
-    "32",
+    "4",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Maximum portal flood depth for entityDef-feed diagnostics and producers." );
+    "Maximum portal flood depth for entityDef-feed diagnostics and producers; default 4 matches the routed residency portal budget." );
 
 idCVar r_pathTracingEntityFeedMaxDistance(
     "r_pathTracingEntityFeedMaxDistance",
