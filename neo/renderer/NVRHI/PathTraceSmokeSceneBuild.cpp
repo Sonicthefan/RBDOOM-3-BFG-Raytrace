@@ -47,6 +47,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <future>
 #include <unordered_map>
 #include <vector>
@@ -1443,6 +1444,53 @@ void RefreshSmokeRigidRouteBuildInstanceTransforms(
             ++build.stats.emittedFromCache;
         }
     }
+}
+
+const RtSmokeRigidTlasObservation* FindSmokeRigidTlasObservationForPlanInstance(
+    const RtSmokeRigidTlasPlanSnapshot& snapshot,
+    const RtSmokePlanTlasInstance& instance)
+{
+    for (const RtSmokeRigidTlasObservation& observation : snapshot.observations)
+    {
+        if (observation.meshHash == instance.meshHash &&
+            observation.instanceId == instance.sourceInstanceId &&
+            observation.routeRecordIndex == instance.routeRecordIndex)
+        {
+            return &observation;
+        }
+    }
+    return nullptr;
+}
+
+void RefreshSmokeRigidTlasPlanTransforms(
+    RtSmokeRigidTlasPlan& plan,
+    const RtSmokeRigidTlasPlanSnapshot& snapshot)
+{
+    for (RtSmokePlanTlasInstance& instance : plan.instances)
+    {
+        const RtSmokeRigidTlasObservation* observation =
+            FindSmokeRigidTlasObservationForPlanInstance(snapshot, instance);
+        if (!observation)
+        {
+            continue;
+        }
+
+        instance.sourceSeenThisFrame = observation->seenThisFrame;
+        instance.hasPreviousTransform = observation->hasPreviousObjectToWorld;
+        instance.transformContinuous =
+            observation->hasPreviousObjectToWorld && observation->transformContinuous;
+        std::memcpy(instance.transform, observation->objectToWorld, sizeof(instance.transform));
+        if (observation->hasPreviousObjectToWorld)
+        {
+            std::memcpy(instance.previousTransform, observation->previousObjectToWorld, sizeof(instance.previousTransform));
+        }
+        else
+        {
+            std::memcpy(instance.previousTransform, observation->objectToWorld, sizeof(instance.previousTransform));
+        }
+    }
+
+    UpdateSmokeRigidTlasPlanInstanceSignature(plan, snapshot);
 }
 
 bool SmokeRigidRouteSideBufferSlotHasCapacity(
@@ -3352,7 +3400,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         RtPathTraceCpuWorkGeneration rigidTlasPlanGeneration;
         rigidTlasPlanGeneration.frameIndex = 0;
         rigidTlasPlanGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
-        rigidTlasPlanGeneration.geometryGeneration = sceneUniverseGeneration;
+        // The rigid TLAS worker produces membership/identity. Current-frame
+        // transforms are refreshed from rigidTlasSnapshot after accept, so do
+        // not key the worker generation on broad scene transform churn.
+        rigidTlasPlanGeneration.geometryGeneration = 0;
         rigidTlasPlanGeneration.materialGeneration = 0;
         rigidTlasPlanGeneration.lightGeneration = rigidTlasPlanInputToken;
         RtPathTraceCpuWorkPublishSnapshot(m_smokeRigidTlasCpuWorkState, rigidTlasPlanGeneration);
@@ -3419,6 +3470,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RtPathTraceCpuWorkPublishCompletedResult(m_smokeRigidTlasCpuWorkState, rigidTlasEnvelope);
             RtPathTraceCpuWorkAcceptLatest(m_smokeRigidTlasCpuWorkState, rigidTlasPlanGeneration, nullptr, true);
         }
+
+        RefreshSmokeRigidTlasPlanTransforms(rigidTlasPlan, rigidTlasSnapshot);
 
         const bool rigidAsyncPlanAlreadyCached =
             m_smokeRigidTlasPlanAsyncCachedPlanValid &&

@@ -1813,19 +1813,9 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
             continue;
         }
 
-        const uint32_t observationFlags =
-            (observation.seenThisFrame ? 1u : 0u) |
-            (observation.hasPreviousObjectToWorld ? 2u : 0u) |
-            (observation.hasPreviousObjectToWorld && observation.transformContinuous ? 4u : 0u);
         hash = HashSmokePlanBytes(hash, &observation.meshHash, sizeof(observation.meshHash));
         hash = HashSmokePlanBytes(hash, &observation.instanceId, sizeof(observation.instanceId));
         hash = HashSmokePlanBytes(hash, &observation.routeRecordIndex, sizeof(observation.routeRecordIndex));
-        hash = HashSmokePlanBytes(hash, &observationFlags, sizeof(observationFlags));
-        hash = HashSmokePlanBytes(hash, observation.objectToWorld, sizeof(observation.objectToWorld));
-        if (observation.hasPreviousObjectToWorld)
-        {
-            hash = HashSmokePlanBytes(hash, observation.previousObjectToWorld, sizeof(observation.previousObjectToWorld));
-        }
         ++emittedInstances;
     }
     hash = HashSmokePlanBytes(hash, &processedObservations, sizeof(processedObservations));
@@ -1874,6 +1864,14 @@ static uint64_t BuildSmokeRigidTlasInstanceSignature(
         hash = HashSmokePlanBytes(hash, instance.previousTransform, sizeof(instance.previousTransform));
     }
     return hash;
+}
+
+void UpdateSmokeRigidTlasPlanInstanceSignature(
+    RtSmokeRigidTlasPlan& plan,
+    const RtSmokeRigidTlasPlanSnapshot& snapshot)
+{
+    const RtSmokeRigidTlasPlanDesc desc = MakeRigidTlasPlanDescFromSnapshot(snapshot);
+    plan.tlasInstanceSignature = BuildSmokeRigidTlasInstanceSignature(plan, desc);
 }
 
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc)

@@ -882,6 +882,10 @@ uint64_t BuildSmokeRigidTlasPlanInputToken(
 uint64_t BuildSmokeRigidTlasPlanInputToken(
     const RtSmokeRigidTlasPlanSnapshot& snapshot);
 
+void UpdateSmokeRigidTlasPlanInstanceSignature(
+    RtSmokeRigidTlasPlan& plan,
+    const RtSmokeRigidTlasPlanSnapshot& snapshot);
+
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(const RtSmokeRigidTlasPlanDesc& desc);
 
 RtSmokeRigidTlasPlan BuildSmokeRigidTlasPlan(
