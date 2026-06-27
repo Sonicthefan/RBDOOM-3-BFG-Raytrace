@@ -282,10 +282,12 @@ private:
     RtPathTraceCpuWorkGeneration m_smokeRigidRouteBuildAsyncCachedGeneration;
     RtPathTraceCpuWorkTiming m_smokeRigidRouteBuildAsyncTiming;
     RtPathTraceRigidRouteBuild m_smokeRigidRouteBuildAsyncCachedBuild;
+    uint64_t m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature = 0;
     RtPathTraceAsyncWorker<RtPathTraceRigidRouteBuildTimedResult> m_smokeRigidRouteBuildFuture;
     int m_smokeRigidRouteBuildAsyncLaunchMs = 0;
     bool m_smokeRigidRouteBuildAsyncGenerationValid = false;
     bool m_smokeRigidRouteBuildAsyncCachedBuildValid = false;
+    bool m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = false;
     RtPathTraceCpuWorkGeneration m_smokeBvhFramePlanningAsyncGeneration;
     RtPathTraceCpuWorkGeneration m_smokeBvhFramePlanningAsyncCachedGeneration;
     RtPathTraceCpuWorkTiming m_smokeBvhFramePlanningAsyncTiming;

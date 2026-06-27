@@ -26,6 +26,16 @@ namespace {
 
 constexpr uint64 RT_SMOKE_RIGID_BLAS_RETIRE_FRAMES = 3;
 
+template< typename T >
+RtSmokePlanDataSpan MakeRigidRoutePlanDataSpan(const std::vector<T>& data)
+{
+    RtSmokePlanDataSpan span;
+    span.data = data.empty() ? nullptr : data.data();
+    span.elementSize = sizeof(T);
+    span.elementCount = data.size();
+    return span;
+}
+
 bool IsSmokeGeometryElementRangeValid(const RtSmokeGeometryElementRange& range, int elementCount)
 {
     if (range.offset < 0 || range.count < 0 || elementCount < 0)
@@ -4650,12 +4660,27 @@ RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
     return build;
 }
 
+uint64_t BuildRigidRouteGeometryUploadSignature(const RtPathTraceRigidRouteBuild& build)
+{
+    const RtSmokePlanDataSpan spans[] = {
+        MakeRigidRoutePlanDataSpan(build.vertices),
+        MakeRigidRoutePlanDataSpan(build.indexes),
+        MakeRigidRoutePlanDataSpan(build.triangleMaterials),
+        MakeRigidRoutePlanDataSpan(build.triangleMaterialIndexes)
+    };
+    return BuildSmokePlanDataSpanSignature(
+        spans,
+        static_cast<int>(sizeof(spans) / sizeof(spans[0])));
+}
+
 RtPathTraceRigidRouteBuildTimedResult BuildRigidRouteBuffersTimedResult(
     const RtPathTraceRigidRouteBuildSnapshot& snapshot)
 {
     const auto start = std::chrono::steady_clock::now();
     RtPathTraceRigidRouteBuildTimedResult result;
     result.build = BuildRigidRouteBuffersFromSnapshot(snapshot);
+    result.geometryUploadSignature = BuildRigidRouteGeometryUploadSignature(result.build);
+    result.geometryUploadSignatureValid = true;
     const auto end = std::chrono::steady_clock::now();
     result.buildTimeMicros = static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());

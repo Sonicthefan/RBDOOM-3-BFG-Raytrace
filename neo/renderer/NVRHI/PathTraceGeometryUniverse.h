@@ -436,6 +436,8 @@ struct RtPathTraceRigidRouteBuildSnapshot
 struct RtPathTraceRigidRouteBuildTimedResult
 {
     RtPathTraceRigidRouteBuild build;
+    uint64_t geometryUploadSignature = 0;
+    bool geometryUploadSignatureValid = false;
     uint64_t buildTimeMicros = 0;
 };
 
@@ -818,6 +820,9 @@ private:
 
 RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
     const RtPathTraceRigidRouteBuildSnapshot& snapshot);
+
+uint64_t BuildRigidRouteGeometryUploadSignature(
+    const RtPathTraceRigidRouteBuild& build);
 
 RtPathTraceRigidRouteBuildTimedResult BuildRigidRouteBuffersTimedResult(
     const RtPathTraceRigidRouteBuildSnapshot& snapshot);

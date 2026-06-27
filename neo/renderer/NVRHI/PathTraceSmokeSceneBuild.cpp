@@ -1256,19 +1256,6 @@ bool SmokeBufferHasPayloadCapacity(nvrhi::BufferHandle buffer, size_t byteSize, 
     return buffer && buffer->getDesc().byteSize >= SmokeRequiredBufferBytes(byteSize, structStride);
 }
 
-uint64_t BuildSmokeRigidRouteGeometryUploadSignature(const RtPathTraceRigidRouteBuild& build)
-{
-    const RtSmokePlanDataSpan spans[] = {
-        MakeSmokePlanDataSpan(build.vertices),
-        MakeSmokePlanDataSpan(build.indexes),
-        MakeSmokePlanDataSpan(build.triangleMaterials),
-        MakeSmokePlanDataSpan(build.triangleMaterialIndexes)
-    };
-    return BuildSmokePlanDataSpanSignature(
-        spans,
-        static_cast<int>(sizeof(spans) / sizeof(spans[0])));
-}
-
 uint64_t BuildSmokeRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
 {
     const RtSmokePlanDataSpan spans[] = {
@@ -3712,6 +3699,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bool rigidRouteBuildAcceptedFromAsync = false;
     bool rigidRouteBuildAsyncCached = false;
     bool rigidRouteBuildAsyncQueued = false;
+    uint64_t rigidRouteGeometryUploadSignature = 0;
+    bool rigidRouteGeometryUploadSignatureValid = false;
     if (buildRigidRouteBuffers)
     {
         OPTICK_EVENT("PT Rigid Route Buffers");
@@ -3786,8 +3775,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     if (asyncDecision.accepted)
                     {
                         rigidRouteBuild = timedResult.build;
+                        rigidRouteGeometryUploadSignature = timedResult.geometryUploadSignature;
+                        rigidRouteGeometryUploadSignatureValid = timedResult.geometryUploadSignatureValid;
                         rigidRouteBuildMs = 0;
                         m_smokeRigidRouteBuildAsyncCachedBuild = timedResult.build;
+                        m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature = timedResult.geometryUploadSignature;
+                        m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = timedResult.geometryUploadSignatureValid;
                         m_smokeRigidRouteBuildAsyncCachedGeneration = m_smokeRigidRouteBuildAsyncGeneration;
                         m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
                         rigidRouteBuildAcceptedFromAsync = true;
@@ -3804,6 +3797,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 RtPathTraceCpuWorkGenerationEquals(m_smokeRigidRouteBuildAsyncCachedGeneration, rigidRouteBuildGeneration))
             {
                 rigidRouteBuild = m_smokeRigidRouteBuildAsyncCachedBuild;
+                rigidRouteGeometryUploadSignature = m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature;
+                rigidRouteGeometryUploadSignatureValid = m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid;
                 rigidRouteBuildMs = 0;
                 rigidRouteBuildAcceptedFromAsync = true;
                 rigidRouteBuildAsyncCached = true;
@@ -3815,6 +3810,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 {
                     OPTICK_EVENT("PT Rigid Route Sync Build");
                     rigidRouteBuild = BuildRigidRouteBuffersFromSnapshot(CaptureRigidRoutePayloadSnapshot());
+                    rigidRouteGeometryUploadSignature = BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
+                    rigidRouteGeometryUploadSignatureValid = true;
                 }
                 rigidRouteBuildMs = Sys_Milliseconds() - rigidRouteBuildStartMs;
                 RtPathTraceCpuWorkResultEnvelope rigidRouteEnvelope;
@@ -3852,6 +3849,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             if (!rigidRouteBuildAcceptedFromAsync)
             {
                 m_smokeRigidRouteBuildAsyncCachedBuild = rigidRouteBuild;
+                m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature = rigidRouteGeometryUploadSignature;
+                m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = rigidRouteGeometryUploadSignatureValid;
                 m_smokeRigidRouteBuildAsyncCachedGeneration = rigidRouteBuildGeneration;
                 m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
             }
@@ -3917,12 +3916,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             rigidRouteBuild.triangleMaterialIndexes,
             dynamicMaterialRecords);
     }();
-    const uint64_t rigidRouteGeometryUploadSignature = buildRigidRouteBuffers
-        ? [&]() {
-            OPTICK_EVENT("PT Rigid Route Geometry Upload Signature");
-            return BuildSmokeRigidRouteGeometryUploadSignature(rigidRouteBuild);
-        }()
-        : 0;
+    if (rigidRouteTexMatrixVertices > 0)
+    {
+        rigidRouteGeometryUploadSignatureValid = false;
+    }
+    if (buildRigidRouteBuffers && !rigidRouteGeometryUploadSignatureValid)
+    {
+        OPTICK_EVENT("PT Rigid Route Geometry Upload Signature");
+        rigidRouteGeometryUploadSignature = BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
+        rigidRouteGeometryUploadSignatureValid = true;
+    }
     const uint64_t rigidRouteInstanceUploadSignature = buildRigidRouteBuffers
         ? [&]() {
             OPTICK_EVENT("PT Rigid Route Instance Upload Signature");
