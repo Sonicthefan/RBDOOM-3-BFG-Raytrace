@@ -1308,6 +1308,47 @@ uint64_t BuildSmokeRigidRouteStructureToken(
     return hash;
 }
 
+uint64_t BuildSmokeRigidRoutePayloadToken(const RtPathTraceRigidRouteBuildSnapshot& snapshot)
+{
+    uint64_t hash = 14695981039346656037ull;
+    const uint64_t meshCount = static_cast<uint64_t>(snapshot.meshes.size());
+    hash = HashSmokeBytes(hash, &meshCount, sizeof(meshCount));
+    for (const RtPathTraceRigidRouteMeshSnapshot& mesh : snapshot.meshes)
+    {
+        const uint32_t valid = mesh.valid ? 1u : 0u;
+        const uint32_t routeReady = mesh.routeReady ? 1u : 0u;
+        const uint32_t localBoundsValid = mesh.localBoundsValid ? 1u : 0u;
+        const uint64_t vertexCount = static_cast<uint64_t>(mesh.vertices.size());
+        const uint64_t indexCount = static_cast<uint64_t>(mesh.indexes.size());
+        hash = HashSmokeBytes(hash, &mesh.routeRecordIndex, sizeof(mesh.routeRecordIndex));
+        hash = HashSmokeBytes(hash, &mesh.meshHash, sizeof(mesh.meshHash));
+        hash = HashSmokeBytes(hash, &mesh.gpuUploadSignature, sizeof(mesh.gpuUploadSignature));
+        hash = HashSmokeBytes(hash, &mesh.materialId, sizeof(mesh.materialId));
+        hash = HashSmokeBytes(hash, &mesh.surfaceClassId, sizeof(mesh.surfaceClassId));
+        hash = HashSmokeBytes(hash, &mesh.triangleClassAndFlags, sizeof(mesh.triangleClassAndFlags));
+        hash = HashSmokeBytes(hash, &valid, sizeof(valid));
+        hash = HashSmokeBytes(hash, &routeReady, sizeof(routeReady));
+        hash = HashSmokeBytes(hash, &localBoundsValid, sizeof(localBoundsValid));
+        hash = HashSmokeBytes(hash, &vertexCount, sizeof(vertexCount));
+        hash = HashSmokeBytes(hash, &indexCount, sizeof(indexCount));
+        if (mesh.localBoundsValid)
+        {
+            const idVec3& boundsMins = mesh.localBounds[0];
+            const idVec3& boundsMaxs = mesh.localBounds[1];
+            const float boundsValues[6] = {
+                boundsMins.x,
+                boundsMins.y,
+                boundsMins.z,
+                boundsMaxs.x,
+                boundsMaxs.y,
+                boundsMaxs.z
+            };
+            hash = HashSmokeBytes(hash, boundsValues, sizeof(boundsValues));
+        }
+    }
+    return hash;
+}
+
 void CopySmokeRigidRouteTransformRows(float dst[12], const float objectToWorld[16])
 {
     dst[0] = objectToWorld[0];
@@ -3504,11 +3545,13 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 BuildSmokeRigidRouteMaterialIdSignature(materialTable.materialIds);
             const uint64_t rigidRouteBuildStructureToken =
                 BuildSmokeRigidRouteStructureToken(rigidTlasPlan, materialTable.materialIds);
+            const uint64_t rigidRoutePayloadToken =
+                BuildSmokeRigidRoutePayloadToken(rigidRouteSnapshot);
 
             RtPathTraceCpuWorkGeneration rigidRouteBuildGeneration;
             rigidRouteBuildGeneration.frameIndex = 0;
             rigidRouteBuildGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
-            rigidRouteBuildGeneration.geometryGeneration = sceneUniverseGeneration;
+            rigidRouteBuildGeneration.geometryGeneration = rigidRoutePayloadToken;
             rigidRouteBuildGeneration.materialGeneration = rigidRouteMaterialIdSignature;
             rigidRouteBuildGeneration.lightGeneration = rigidRouteBuildStructureToken;
             RtPathTraceCpuWorkPublishSnapshot(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration);

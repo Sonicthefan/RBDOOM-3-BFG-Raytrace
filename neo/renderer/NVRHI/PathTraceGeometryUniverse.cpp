@@ -4435,6 +4435,7 @@ RtPathTraceRigidRouteBuildSnapshot RtSmokeGeometryUniverse::CaptureRigidRouteBui
         mesh.routeRecordIndex = plannedInstance.routeRecordIndex;
         mesh.valid = record.valid;
         mesh.meshHash = record.meshHash;
+        mesh.gpuUploadSignature = record.gpuUploadSignature;
         mesh.materialId = record.materialId;
         mesh.surfaceClassId = record.surfaceClassId;
         mesh.triangleClassAndFlags = record.triangleClassAndFlags;

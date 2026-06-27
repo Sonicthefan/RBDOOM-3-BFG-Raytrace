@@ -412,6 +412,7 @@ struct RtPathTraceRigidRouteMeshSnapshot
 {
     uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
     uint64 meshHash = 0;
+    uint64 gpuUploadSignature = 0;
     uint32_t materialId = 0;
     uint32_t surfaceClassId = 0;
     uint32_t triangleClassAndFlags = 0;
