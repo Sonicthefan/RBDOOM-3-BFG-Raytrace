@@ -93,6 +93,16 @@ public:
         return std::move(m_result);
     }
 
+    Result wait_and_get()
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_condition.wait(lock, [this]() {
+            return m_resultReady || m_stopRequested;
+        });
+        m_resultReady = false;
+        return std::move(m_result);
+    }
+
     template< typename Function >
     bool Start(Function&& function)
     {
@@ -181,6 +191,7 @@ private:
                     m_resultReady = true;
                 }
             }
+            m_condition.notify_all();
         }
     }
 

@@ -4118,6 +4118,110 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     // producer. The Remix Light Universe below owns current/previous light
     // domains and remaps; keep raw emissive extraction as its input.
     m_smokeLightUniverse.Clear();
+    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 77, r_pathTracingRestirPTDiDebugView.GetInteger());
+    const bool rrxDiLightUniverseRequested =
+        requestedDebugMode == 56 &&
+        ((requestedRestirPTDiDebugView >= 60 && requestedRestirPTDiDebugView <= 77) ||
+            r_pathTracingRestirPTRrxFinalConsumerOutput.GetInteger() != 0);
+    const bool regirLightUniverseRequested =
+        r_pathTracingReGIREnable.GetInteger() != 0 &&
+        r_pathTracingReGIRMode.GetInteger() != 0;
+    const bool cleanRtxdiDiRluRequested =
+        cleanRtxdiDiRealAnalyticRoute &&
+        r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0;
+    const bool pdfNeeRluCurrentProducerRequested =
+        requestedDebugMode != 56 &&
+        r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
+    const bool neeCacheRluCurrentProducerRequested =
+        requestedDebugMode != 56 &&
+        r_pathTracingNeeCacheEnable.GetInteger() != 0 &&
+        r_pathTracingNeeCacheMode.GetInteger() != 0;
+    const bool remixLightUniverseEnabled =
+        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
+        rrxDiLightUniverseRequested ||
+        regirLightUniverseRequested ||
+        cleanRtxdiDiRluRequested ||
+        pdfNeeRluCurrentProducerRequested ||
+        neeCacheRluCurrentProducerRequested;
+    const bool currentRluDenseProducerRequested =
+        cleanRtxdiDiRluRequested ||
+        pdfNeeRluCurrentProducerRequested ||
+        neeCacheRluCurrentProducerRequested;
+    const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
+        idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
+            ? r_pathTracingRemixLightUniverseDomain.GetInteger()
+            : (currentRluDenseProducerRequested ? 2 : (rrxDiLightUniverseRequested ? 2 : regirSceneLightDomain))));
+    const bool remixLightUniverseStrictMapping =
+        r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
+    const bool remixLightUniverseIncludeAnalytic =
+        !remixLightUniverseEnabled || remixLightUniverseDomain == 0u || remixLightUniverseDomain == 2u;
+    const bool remixLightUniverseIncludeEmissive =
+        !remixLightUniverseEnabled || remixLightUniverseDomain == 1u || remixLightUniverseDomain == 2u;
+    const std::vector<PathTraceSmokeEmissiveTriangle> emptyEmissiveTriangles;
+    const std::vector<PathTraceEmissiveLightRemap> emptyEmissiveRemap;
+    const std::vector<PathTraceDoomAnalyticLightCandidate> emptyAnalyticLights;
+    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity> emptyAnalyticIdentities;
+    const std::vector<PathTraceDoomAnalyticLightRemap> emptyAnalyticRemap;
+    PathTraceRemixFramePrepareObservationPackage remixLightPrepareFramePackage;
+    remixLightPrepareFramePackage.frameIndex = m_smokeGeometryFrameIndex;
+    remixLightPrepareFramePackage.resetReasonFlags = m_frameResources.settings.resetReasonFlags;
+    remixLightPrepareFramePackage.previousSceneInputsValid = m_sceneInputs.valid;
+    remixLightPrepareFramePackage.sceneSource = sceneSource;
+    remixLightPrepareFramePackage.debugMode = requestedDebugMode;
+    remixLightPrepareFramePackage.outputWidth = m_frameResources.width;
+    remixLightPrepareFramePackage.outputHeight = m_frameResources.height;
+    PathTraceRemixLightManagerPrepareDesc remixLightPrepareDesc;
+    remixLightPrepareDesc.framePackage = &remixLightPrepareFramePackage;
+    remixLightPrepareDesc.currentEmissiveTriangles = &(remixLightUniverseIncludeEmissive ? emissiveTriangles : emptyEmissiveTriangles);
+    remixLightPrepareDesc.previousEmissiveTriangles = &(remixLightUniverseIncludeEmissive ? previousEmissiveTriangles : emptyEmissiveTriangles);
+    remixLightPrepareDesc.emissiveRemap = &(remixLightUniverseIncludeEmissive ? emissiveLightRemap : emptyEmissiveRemap);
+    remixLightPrepareDesc.currentAnalyticLights = &(remixLightUniverseIncludeAnalytic ? doomAnalyticLights : emptyAnalyticLights);
+    remixLightPrepareDesc.previousAnalyticLights = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidates : emptyAnalyticLights);
+    remixLightPrepareDesc.currentAnalyticIdentities = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.currentCandidateIdentities : emptyAnalyticIdentities);
+    remixLightPrepareDesc.previousAnalyticIdentities = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidateIdentities : emptyAnalyticIdentities);
+    remixLightPrepareDesc.analyticRemap = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.universeRemap : emptyAnalyticRemap);
+    remixLightPrepareDesc.emissiveSampleCount = remixLightUniverseIncludeEmissive ? static_cast<uint32_t>(idMath::ClampInt(0, 64, r_pathTracingReservoirCandidateTrials.GetInteger())) : 0u;
+    remixLightPrepareDesc.doomAnalyticSampleCount = remixLightUniverseIncludeAnalytic ? static_cast<uint32_t>(idMath::ClampInt(0, 256, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())) : 0u;
+    remixLightPrepareDesc.analyticStateCompatibilityTolerance = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
+    remixLightPrepareDesc.domain = remixLightUniverseEnabled ? remixLightUniverseDomain : 2u;
+    remixLightPrepareDesc.strictRemixMapping = remixLightUniverseStrictMapping;
+    remixLightPrepareDesc.lightUniverseEnabled = remixLightUniverseEnabled;
+    const uint64_t remixLightPrepareInputToken = [&]() {
+        OPTICK_EVENT("PT Remix Light Manager Input Token");
+        return BuildPathTraceRemixLightManagerPrepareInputToken(remixLightPrepareDesc);
+    }();
+    const auto BuildRemixLightPrepareGeneration = [&](uint64_t managerStateToken) {
+        RtPathTraceCpuWorkGeneration generation;
+        generation.frameIndex = 0;
+        generation.sceneGeneration = managerStateToken;
+        generation.geometryGeneration = remixLightPrepareInputToken;
+        generation.materialGeneration = 0;
+        generation.lightGeneration = remixLightPrepareInputToken;
+        return generation;
+    };
+    const RtPathTraceCpuWorkGeneration remixLightPrepareGeneration =
+        BuildRemixLightPrepareGeneration(m_remixLightManager.BuildPrepareStateToken());
+    if (asyncBvhFramePlanning && !m_remixLightManagerPrepareFuture.valid())
+    {
+        OPTICK_EVENT("PT Remix Light Manager Queue");
+        const int remixLightSnapshotStartMs = Sys_Milliseconds();
+        PathTraceRemixLightManagerPrepareSnapshot queuedSnapshot =
+            CapturePathTraceRemixLightManagerPrepareSnapshot(remixLightPrepareDesc);
+        PathTraceRemixLightManager queuedManagerState = m_remixLightManager;
+        m_remixLightManagerPrepareAsyncTiming = RtPathTraceCpuWorkTiming();
+        m_remixLightManagerPrepareAsyncTiming.snapshotCaptureMs =
+            static_cast<double>(Max(0, Sys_Milliseconds() - remixLightSnapshotStartMs));
+        m_remixLightManagerPrepareAsyncGeneration = remixLightPrepareGeneration;
+        m_remixLightManagerPrepareAsyncGenerationValid = true;
+        m_remixLightManagerPrepareAsyncLaunchMs = Sys_Milliseconds();
+        m_remixLightManagerPrepareFuture.Start(
+            [queuedManagerState = std::move(queuedManagerState),
+             queuedSnapshot = std::move(queuedSnapshot)]() {
+                return BuildPathTraceRemixLightManagerTimedPrepareResult(
+                    queuedManagerState,
+                    queuedSnapshot);
+            });
+    }
     const std::vector<PathTraceRestirLightObservation> restirLightManagerObservations = [&]() {
         OPTICK_EVENT("PT Restir Light Observations");
         return BuildPathTraceRestirLightManagerObservations(
@@ -4178,83 +4282,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             remixFrameStats.shaderRouteCount);
         r_pathTracingRemixFramePrepareDump.SetInteger(0);
     }
-    const int requestedRestirPTDiDebugView = idMath::ClampInt(0, 77, r_pathTracingRestirPTDiDebugView.GetInteger());
-    const bool rrxDiLightUniverseRequested =
-        requestedDebugMode == 56 &&
-        ((requestedRestirPTDiDebugView >= 60 && requestedRestirPTDiDebugView <= 77) ||
-            r_pathTracingRestirPTRrxFinalConsumerOutput.GetInteger() != 0);
-    const bool regirLightUniverseRequested =
-        r_pathTracingReGIREnable.GetInteger() != 0 &&
-        r_pathTracingReGIRMode.GetInteger() != 0;
-    const bool cleanRtxdiDiRluRequested =
-        cleanRtxdiDiRealAnalyticRoute &&
-        r_pathTracingRemixLightUniverseUseForCleanRtxdiDi.GetInteger() != 0;
-    const bool pdfNeeRluCurrentProducerRequested =
-        requestedDebugMode != 56 &&
-        r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0;
-    const bool neeCacheRluCurrentProducerRequested =
-        requestedDebugMode != 56 &&
-        r_pathTracingNeeCacheEnable.GetInteger() != 0 &&
-        r_pathTracingNeeCacheMode.GetInteger() != 0;
-    const bool remixLightUniverseEnabled =
-        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
-        rrxDiLightUniverseRequested ||
-        regirLightUniverseRequested ||
-        cleanRtxdiDiRluRequested ||
-        pdfNeeRluCurrentProducerRequested ||
-        neeCacheRluCurrentProducerRequested;
-    const bool currentRluDenseProducerRequested =
-        cleanRtxdiDiRluRequested ||
-        pdfNeeRluCurrentProducerRequested ||
-        neeCacheRluCurrentProducerRequested;
-    const uint32_t remixLightUniverseDomain = static_cast<uint32_t>(
-        idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseEnable.GetInteger() != 0
-            ? r_pathTracingRemixLightUniverseDomain.GetInteger()
-            : (currentRluDenseProducerRequested ? 2 : (rrxDiLightUniverseRequested ? 2 : regirSceneLightDomain))));
-    const bool remixLightUniverseStrictMapping =
-        r_pathTracingRemixLightUniverseStrictRemixMapping.GetInteger() != 0;
-    const bool remixLightUniverseIncludeAnalytic =
-        !remixLightUniverseEnabled || remixLightUniverseDomain == 0u || remixLightUniverseDomain == 2u;
-    const bool remixLightUniverseIncludeEmissive =
-        !remixLightUniverseEnabled || remixLightUniverseDomain == 1u || remixLightUniverseDomain == 2u;
-    const std::vector<PathTraceSmokeEmissiveTriangle> emptyEmissiveTriangles;
-    const std::vector<PathTraceEmissiveLightRemap> emptyEmissiveRemap;
-    const std::vector<PathTraceDoomAnalyticLightCandidate> emptyAnalyticLights;
-    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity> emptyAnalyticIdentities;
-    const std::vector<PathTraceDoomAnalyticLightRemap> emptyAnalyticRemap;
-    PathTraceRemixLightManagerPrepareDesc remixLightPrepareDesc;
     remixLightPrepareDesc.framePackage = &m_remixFramePrepare.GetObservationPackage();
-    remixLightPrepareDesc.currentEmissiveTriangles = &(remixLightUniverseIncludeEmissive ? emissiveTriangles : emptyEmissiveTriangles);
-    remixLightPrepareDesc.previousEmissiveTriangles = &(remixLightUniverseIncludeEmissive ? previousEmissiveTriangles : emptyEmissiveTriangles);
-    remixLightPrepareDesc.emissiveRemap = &(remixLightUniverseIncludeEmissive ? emissiveLightRemap : emptyEmissiveRemap);
-    remixLightPrepareDesc.currentAnalyticLights = &(remixLightUniverseIncludeAnalytic ? doomAnalyticLights : emptyAnalyticLights);
-    remixLightPrepareDesc.previousAnalyticLights = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidates : emptyAnalyticLights);
-    remixLightPrepareDesc.currentAnalyticIdentities = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.currentCandidateIdentities : emptyAnalyticIdentities);
-    remixLightPrepareDesc.previousAnalyticIdentities = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidateIdentities : emptyAnalyticIdentities);
-    remixLightPrepareDesc.analyticRemap = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.universeRemap : emptyAnalyticRemap);
-    remixLightPrepareDesc.emissiveSampleCount = remixLightUniverseIncludeEmissive ? static_cast<uint32_t>(idMath::ClampInt(0, 64, r_pathTracingReservoirCandidateTrials.GetInteger())) : 0u;
-    remixLightPrepareDesc.doomAnalyticSampleCount = remixLightUniverseIncludeAnalytic ? static_cast<uint32_t>(idMath::ClampInt(0, 256, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())) : 0u;
-    remixLightPrepareDesc.analyticStateCompatibilityTolerance = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
-    remixLightPrepareDesc.domain = remixLightUniverseEnabled ? remixLightUniverseDomain : 2u;
-    remixLightPrepareDesc.strictRemixMapping = remixLightUniverseStrictMapping;
-    remixLightPrepareDesc.lightUniverseEnabled = remixLightUniverseEnabled;
-    const uint64_t remixLightPrepareInputToken = [&]() {
-        OPTICK_EVENT("PT Remix Light Manager Input Token");
-        return BuildPathTraceRemixLightManagerPrepareInputToken(remixLightPrepareDesc);
-    }();
-    const auto BuildRemixLightPrepareGeneration = [&](uint64_t managerStateToken) {
-        RtPathTraceCpuWorkGeneration generation;
-        generation.frameIndex = 0;
-        generation.sceneGeneration = managerStateToken;
-        generation.geometryGeneration = remixLightPrepareInputToken;
-        generation.materialGeneration = 0;
-        generation.lightGeneration = remixLightPrepareInputToken;
-        return generation;
-    };
     {
         OPTICK_EVENT("PT Remix Light Manager Prepare");
-        const RtPathTraceCpuWorkGeneration remixLightPrepareGeneration =
-            BuildRemixLightPrepareGeneration(m_remixLightManager.BuildPrepareStateToken());
         RtPathTraceCpuWorkPublishSnapshot(
             m_remixLightManagerPrepareCpuWorkState,
             remixLightPrepareGeneration);
@@ -4263,12 +4293,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         if (asyncBvhFramePlanning && m_remixLightManagerPrepareFuture.valid())
         {
             OPTICK_EVENT("PT Remix Light Manager Async Accept");
-            const std::future_status futureStatus =
-                m_remixLightManagerPrepareFuture.wait_for(std::chrono::seconds(0));
-            if (futureStatus == std::future_status::ready)
             {
-                PathTraceRemixLightManagerTimedPrepareResult timedResult =
-                    m_remixLightManagerPrepareFuture.get();
+                PathTraceRemixLightManagerTimedPrepareResult timedResult;
+                {
+                    OPTICK_EVENT("PT Remix Light Manager Wait");
+                    timedResult = m_remixLightManagerPrepareFuture.wait_and_get();
+                }
                 m_remixLightManagerPrepareAsyncGenerationValid = false;
 
                 RtPathTraceCpuWorkResultEnvelope asyncEnvelope;
@@ -4304,14 +4334,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     remixLightPrepareAcceptedFromAsync = true;
                 }
             }
-            else
-            {
-                RtPathTraceCpuWorkAcceptLatest(
-                    m_remixLightManagerPrepareCpuWorkState,
-                    remixLightPrepareGeneration,
-                    nullptr,
-                    false);
-            }
         }
 
         if (!remixLightPrepareAcceptedFromAsync)
@@ -4335,37 +4357,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 remixLightPrepareGeneration,
                 nullptr,
                 true);
-        }
-
-        const RtPathTraceCpuWorkGeneration remixLightQueuedGeneration =
-            BuildRemixLightPrepareGeneration(m_remixLightManager.BuildPrepareStateToken());
-        const bool remixLightPrepareAlreadyQueued =
-            m_remixLightManagerPrepareAsyncGenerationValid &&
-            RtPathTraceCpuWorkGenerationEquals(
-                m_remixLightManagerPrepareAsyncGeneration,
-                remixLightQueuedGeneration);
-        if (asyncBvhFramePlanning &&
-            !m_remixLightManagerPrepareFuture.valid() &&
-            !remixLightPrepareAlreadyQueued)
-        {
-            OPTICK_EVENT("PT Remix Light Manager Queue");
-            const int remixLightSnapshotStartMs = Sys_Milliseconds();
-            PathTraceRemixLightManagerPrepareSnapshot queuedSnapshot =
-                CapturePathTraceRemixLightManagerPrepareSnapshot(remixLightPrepareDesc);
-            PathTraceRemixLightManager queuedManagerState = m_remixLightManager;
-            m_remixLightManagerPrepareAsyncTiming = RtPathTraceCpuWorkTiming();
-            m_remixLightManagerPrepareAsyncTiming.snapshotCaptureMs =
-                static_cast<double>(Max(0, Sys_Milliseconds() - remixLightSnapshotStartMs));
-            m_remixLightManagerPrepareAsyncGeneration = remixLightQueuedGeneration;
-            m_remixLightManagerPrepareAsyncGenerationValid = true;
-            m_remixLightManagerPrepareAsyncLaunchMs = Sys_Milliseconds();
-            m_remixLightManagerPrepareFuture.Start(
-                [queuedManagerState = std::move(queuedManagerState),
-                 queuedSnapshot = std::move(queuedSnapshot)]() {
-                    return BuildPathTraceRemixLightManagerTimedPrepareResult(
-                        queuedManagerState,
-                        queuedSnapshot);
-                });
         }
     }
     const int remixLightUniverseDump = r_pathTracingRemixLightUniverseDump.GetInteger();
