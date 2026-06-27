@@ -4412,7 +4412,8 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
 
 RtPathTraceRigidRouteBuildSnapshot RtSmokeGeometryUniverse::CaptureRigidRouteBuildSnapshot(
     const RtSmokeRigidTlasPlan& plan,
-    const std::vector<uint32_t>& materialTableIds) const
+    const std::vector<uint32_t>& materialTableIds,
+    bool captureGeometryPayload) const
 {
     RtPathTraceRigidRouteBuildSnapshot snapshot;
     snapshot.plan = plan;
@@ -4443,7 +4444,9 @@ RtPathTraceRigidRouteBuildSnapshot RtSmokeGeometryUniverse::CaptureRigidRouteBui
         mesh.routeReady = RigidMeshHasCachedRouteGpuReady(record);
         mesh.localBounds = record.localBounds;
         mesh.localBoundsValid = record.localBoundsValid && !record.localBounds.IsCleared();
-        if (mesh.routeReady)
+        mesh.vertexCount = static_cast<uint32_t>(record.cachedLocalVertices.size());
+        mesh.indexCount = static_cast<uint32_t>(record.cachedLocalIndexes.size());
+        if (mesh.routeReady && captureGeometryPayload)
         {
             mesh.vertices = record.cachedLocalVertices;
             mesh.indexes = record.cachedLocalIndexes;

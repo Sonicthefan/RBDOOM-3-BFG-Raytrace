@@ -419,6 +419,8 @@ struct RtPathTraceRigidRouteMeshSnapshot
     bool valid = false;
     bool routeReady = false;
     bool localBoundsValid = false;
+    uint32_t vertexCount = 0;
+    uint32_t indexCount = 0;
     idBounds localBounds;
     std::vector<PathTraceSmokeVertex> vertices;
     std::vector<uint32_t> indexes;
@@ -702,7 +704,8 @@ public:
         int maxInstances) const;
     RtPathTraceRigidRouteBuildSnapshot CaptureRigidRouteBuildSnapshot(
         const RtSmokeRigidTlasPlan& plan,
-        const std::vector<uint32_t>& materialTableIds) const;
+        const std::vector<uint32_t>& materialTableIds,
+        bool captureGeometryPayload = true) const;
 
 public:
     struct RigidMeshCandidateRecord

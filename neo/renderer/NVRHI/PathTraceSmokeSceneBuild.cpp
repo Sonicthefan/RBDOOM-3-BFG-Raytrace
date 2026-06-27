@@ -1318,8 +1318,8 @@ uint64_t BuildSmokeRigidRoutePayloadToken(const RtPathTraceRigidRouteBuildSnapsh
         const uint32_t valid = mesh.valid ? 1u : 0u;
         const uint32_t routeReady = mesh.routeReady ? 1u : 0u;
         const uint32_t localBoundsValid = mesh.localBoundsValid ? 1u : 0u;
-        const uint64_t vertexCount = static_cast<uint64_t>(mesh.vertices.size());
-        const uint64_t indexCount = static_cast<uint64_t>(mesh.indexes.size());
+        const uint64_t vertexCount = static_cast<uint64_t>(mesh.vertexCount);
+        const uint64_t indexCount = static_cast<uint64_t>(mesh.indexCount);
         hash = HashSmokeBytes(hash, &mesh.routeRecordIndex, sizeof(mesh.routeRecordIndex));
         hash = HashSmokeBytes(hash, &mesh.meshHash, sizeof(mesh.meshHash));
         hash = HashSmokeBytes(hash, &mesh.gpuUploadSignature, sizeof(mesh.gpuUploadSignature));
@@ -3537,16 +3537,30 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         if (asyncBvhFramePlanning)
         {
-            const int rigidRouteSnapshotStartMs = Sys_Milliseconds();
-            RtPathTraceRigidRouteBuildSnapshot rigidRouteSnapshot =
-                m_smokeGeometryUniverse.CaptureRigidRouteBuildSnapshot(rigidTlasPlan, materialTable.materialIds);
-            const int rigidRouteSnapshotMs = Sys_Milliseconds() - rigidRouteSnapshotStartMs;
+            int rigidRouteSnapshotMs = 0;
+            const int rigidRouteMetadataSnapshotStartMs = Sys_Milliseconds();
+            const RtPathTraceRigidRouteBuildSnapshot rigidRouteMetadataSnapshot =
+                m_smokeGeometryUniverse.CaptureRigidRouteBuildSnapshot(rigidTlasPlan, materialTable.materialIds, false);
+            rigidRouteSnapshotMs += Sys_Milliseconds() - rigidRouteMetadataSnapshotStartMs;
+            RtPathTraceRigidRouteBuildSnapshot rigidRouteSnapshot;
+            bool rigidRouteSnapshotValid = false;
+            const auto CaptureRigidRoutePayloadSnapshot = [&]() -> const RtPathTraceRigidRouteBuildSnapshot& {
+                if (!rigidRouteSnapshotValid)
+                {
+                    const int payloadSnapshotStartMs = Sys_Milliseconds();
+                    rigidRouteSnapshot =
+                        m_smokeGeometryUniverse.CaptureRigidRouteBuildSnapshot(rigidTlasPlan, materialTable.materialIds, true);
+                    rigidRouteSnapshotMs += Sys_Milliseconds() - payloadSnapshotStartMs;
+                    rigidRouteSnapshotValid = true;
+                }
+                return rigidRouteSnapshot;
+            };
             const uint64_t rigidRouteMaterialIdSignature =
                 BuildSmokeRigidRouteMaterialIdSignature(materialTable.materialIds);
             const uint64_t rigidRouteBuildStructureToken =
                 BuildSmokeRigidRouteStructureToken(rigidTlasPlan, materialTable.materialIds);
             const uint64_t rigidRoutePayloadToken =
-                BuildSmokeRigidRoutePayloadToken(rigidRouteSnapshot);
+                BuildSmokeRigidRoutePayloadToken(rigidRouteMetadataSnapshot);
 
             RtPathTraceCpuWorkGeneration rigidRouteBuildGeneration;
             rigidRouteBuildGeneration.frameIndex = 0;
@@ -3605,7 +3619,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             if (!rigidRouteBuildAcceptedFromAsync)
             {
                 const int rigidRouteBuildStartMs = Sys_Milliseconds();
-                rigidRouteBuild = BuildRigidRouteBuffersFromSnapshot(rigidRouteSnapshot);
+                rigidRouteBuild = BuildRigidRouteBuffersFromSnapshot(CaptureRigidRoutePayloadSnapshot());
                 rigidRouteBuildMs = Sys_Milliseconds() - rigidRouteBuildStartMs;
                 RtPathTraceCpuWorkResultEnvelope rigidRouteEnvelope;
                 rigidRouteEnvelope.completed = true;
@@ -3631,10 +3645,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeRigidRouteBuildAsyncGeneration = rigidRouteBuildGeneration;
                 m_smokeRigidRouteBuildAsyncGenerationValid = true;
                 m_smokeRigidRouteBuildAsyncLaunchMs = Sys_Milliseconds();
+                const RtPathTraceRigidRouteBuildSnapshot queuedRigidRouteSnapshot =
+                    CaptureRigidRoutePayloadSnapshot();
                 m_smokeRigidRouteBuildFuture = std::async(
                     std::launch::async,
-                    [rigidRouteSnapshot]() {
-                        return BuildRigidRouteBuffersTimedResult(rigidRouteSnapshot);
+                    [queuedRigidRouteSnapshot]() {
+                        return BuildRigidRouteBuffersTimedResult(queuedRigidRouteSnapshot);
                     });
             }
             if (!rigidRouteBuildAcceptedFromAsync)
