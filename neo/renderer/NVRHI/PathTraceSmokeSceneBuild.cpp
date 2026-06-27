@@ -1269,6 +1269,132 @@ uint64_t BuildSmokeRigidRouteUploadSignature(const RtPathTraceRigidRouteBuild& b
         static_cast<int>(sizeof(spans) / sizeof(spans[0])));
 }
 
+uint64_t BuildSmokeRigidRouteMaterialIdSignature(const std::vector<uint32_t>& materialTableIds)
+{
+    uint64_t hash = 14695981039346656037ull;
+    const uint64_t materialCount = static_cast<uint64_t>(materialTableIds.size());
+    hash = HashSmokeBytes(hash, &materialCount, sizeof(materialCount));
+    if (!materialTableIds.empty())
+    {
+        hash = HashSmokeBytes(hash, materialTableIds.data(), materialTableIds.size() * sizeof(materialTableIds[0]));
+    }
+    return hash;
+}
+
+uint64_t BuildSmokeRigidRouteStructureToken(
+    const RtSmokeRigidTlasPlan& plan,
+    const std::vector<uint32_t>& materialTableIds)
+{
+    uint64_t hash = BuildSmokeRigidRouteMaterialIdSignature(materialTableIds);
+    const int instanceCount = static_cast<int>(plan.instances.size());
+    hash = HashSmokeBytes(hash, &plan.visibleInstances, sizeof(plan.visibleInstances));
+    hash = HashSmokeBytes(hash, &plan.rigidInstances, sizeof(plan.rigidInstances));
+    hash = HashSmokeBytes(hash, &plan.emittedInstances, sizeof(plan.emittedInstances));
+    hash = HashSmokeBytes(hash, &plan.rejectedNonRigid, sizeof(plan.rejectedNonRigid));
+    hash = HashSmokeBytes(hash, &plan.rejectedMissingMesh, sizeof(plan.rejectedMissingMesh));
+    hash = HashSmokeBytes(hash, &plan.rejectedStaleMesh, sizeof(plan.rejectedStaleMesh));
+    hash = HashSmokeBytes(hash, &plan.rejectedMissingBlas, sizeof(plan.rejectedMissingBlas));
+    hash = HashSmokeBytes(hash, &instanceCount, sizeof(instanceCount));
+    for (const RtSmokePlanTlasInstance& instance : plan.instances)
+    {
+        hash = HashSmokeBytes(hash, &instance.kind, sizeof(instance.kind));
+        hash = HashSmokeBytes(hash, &instance.instanceId, sizeof(instance.instanceId));
+        hash = HashSmokeBytes(hash, &instance.instanceMask, sizeof(instance.instanceMask));
+        hash = HashSmokeBytes(hash, &instance.hitGroupContribution, sizeof(instance.hitGroupContribution));
+        hash = HashSmokeBytes(hash, &instance.meshHash, sizeof(instance.meshHash));
+        hash = HashSmokeBytes(hash, &instance.sourceInstanceId, sizeof(instance.sourceInstanceId));
+        hash = HashSmokeBytes(hash, &instance.routeRecordIndex, sizeof(instance.routeRecordIndex));
+    }
+    return hash;
+}
+
+void CopySmokeRigidRouteTransformRows(float dst[12], const float objectToWorld[16])
+{
+    dst[0] = objectToWorld[0];
+    dst[1] = objectToWorld[4];
+    dst[2] = objectToWorld[8];
+    dst[3] = objectToWorld[12];
+    dst[4] = objectToWorld[1];
+    dst[5] = objectToWorld[5];
+    dst[6] = objectToWorld[9];
+    dst[7] = objectToWorld[13];
+    dst[8] = objectToWorld[2];
+    dst[9] = objectToWorld[6];
+    dst[10] = objectToWorld[10];
+    dst[11] = objectToWorld[14];
+}
+
+void RefreshSmokeRigidRouteBuildInstanceTransforms(
+    RtPathTraceRigidRouteBuild& build,
+    const RtSmokeRigidTlasPlan& plan)
+{
+    build.stats.previousTransformInstances = 0;
+    build.stats.transformContinuousInstances = 0;
+    build.stats.emittedSeenThisFrame = 0;
+    build.stats.emittedFromCache = 0;
+
+    const int instanceCount = Min(
+        static_cast<int>(build.instances.size()),
+        static_cast<int>(plan.instances.size()));
+    for (int instanceIndex = 0; instanceIndex < instanceCount; ++instanceIndex)
+    {
+        PathTraceRigidRouteInstance& routeInstance = build.instances[instanceIndex];
+        const RtSmokePlanTlasInstance& plannedInstance = plan.instances[instanceIndex];
+        routeInstance.instanceIdLo = static_cast<uint32_t>(plannedInstance.sourceInstanceId & 0xffffffffull);
+        routeInstance.instanceIdHi = static_cast<uint32_t>((plannedInstance.sourceInstanceId >> 32) & 0xffffffffull);
+        routeInstance.flags &=
+            ~(PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM |
+                PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS |
+                PT_RIGID_ROUTE_CACHED_SOURCE);
+        if (plannedInstance.hasPreviousTransform)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM;
+        }
+        if (plannedInstance.transformContinuous)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
+        }
+        if (!plannedInstance.sourceSeenThisFrame)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_CACHED_SOURCE;
+        }
+        CopySmokeRigidRouteTransformRows(routeInstance.currentObjectToWorld, plannedInstance.transform);
+        CopySmokeRigidRouteTransformRows(routeInstance.previousObjectToWorld, plannedInstance.hasPreviousTransform ? plannedInstance.previousTransform : plannedInstance.transform);
+        if (instanceIndex < static_cast<int>(build.instanceSeenThisFrame.size()))
+        {
+            build.instanceSeenThisFrame[instanceIndex] = plannedInstance.sourceSeenThisFrame ? 1u : 0u;
+        }
+        if (instanceIndex < static_cast<int>(build.instanceObjectToWorld.size()))
+        {
+            for (int elementIndex = 0; elementIndex < 16; ++elementIndex)
+            {
+                build.instanceObjectToWorld[instanceIndex][elementIndex] = plannedInstance.transform[elementIndex];
+            }
+        }
+
+        if (routeInstance.triangleCount == 0)
+        {
+            continue;
+        }
+        if (plannedInstance.hasPreviousTransform)
+        {
+            ++build.stats.previousTransformInstances;
+        }
+        if (plannedInstance.transformContinuous)
+        {
+            ++build.stats.transformContinuousInstances;
+        }
+        if (plannedInstance.sourceSeenThisFrame)
+        {
+            ++build.stats.emittedSeenThisFrame;
+        }
+        else
+        {
+            ++build.stats.emittedFromCache;
+        }
+    }
+}
+
 bool SmokeRigidRouteSideBufferSlotHasCapacity(
     const RtSmokeRigidRouteSideBufferSlot& slot,
     const RtPathTraceRigidRouteBuild& build)
@@ -3374,14 +3500,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             RtPathTraceRigidRouteBuildSnapshot rigidRouteSnapshot =
                 m_smokeGeometryUniverse.CaptureRigidRouteBuildSnapshot(rigidTlasPlan, materialTable.materialIds);
             const int rigidRouteSnapshotMs = Sys_Milliseconds() - rigidRouteSnapshotStartMs;
+            const uint64_t rigidRouteMaterialIdSignature =
+                BuildSmokeRigidRouteMaterialIdSignature(materialTable.materialIds);
+            const uint64_t rigidRouteBuildStructureToken =
+                BuildSmokeRigidRouteStructureToken(rigidTlasPlan, materialTable.materialIds);
 
             RtPathTraceCpuWorkGeneration rigidRouteBuildGeneration;
             rigidRouteBuildGeneration.frameIndex = 0;
             rigidRouteBuildGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
             rigidRouteBuildGeneration.geometryGeneration = sceneUniverseGeneration;
-            rigidRouteBuildGeneration.materialGeneration = materialTableSignature;
-            rigidRouteBuildGeneration.lightGeneration =
-                rigidTlasPlanValid ? rigidTlasPlan.tlasInstanceSignature : rigidTlasPlanInputToken;
+            rigidRouteBuildGeneration.materialGeneration = rigidRouteMaterialIdSignature;
+            rigidRouteBuildGeneration.lightGeneration = rigidRouteBuildStructureToken;
             RtPathTraceCpuWorkPublishSnapshot(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration);
 
             if (m_smokeRigidRouteBuildFuture.valid())
@@ -3471,6 +3600,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeRigidRouteBuildAsyncCachedGeneration = rigidRouteBuildGeneration;
                 m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
             }
+            RefreshSmokeRigidRouteBuildInstanceTransforms(rigidRouteBuild, rigidTlasPlan);
             rigidRouteBuildAsyncQueued = m_smokeRigidRouteBuildFuture.valid();
         }
         else
