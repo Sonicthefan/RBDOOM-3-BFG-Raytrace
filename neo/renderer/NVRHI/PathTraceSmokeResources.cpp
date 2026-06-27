@@ -739,10 +739,18 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
             }
         }
 
+        const bool textureDescriptorTableReused =
+            desc.existingTextureDescriptorTable &&
+            result.textureDescriptorTable == desc.existingTextureDescriptorTable &&
+            !result.textureDescriptorTableCreated;
+        const bool skipTextureDescriptorTableWrite =
+            textureDescriptorTableReused &&
+            desc.existingActiveTextureTable &&
+            !SmokeTextureTableChanged(*desc.existingActiveTextureTable, result.activeTextureTable);
         {
             OPTICK_EVENT("PT Write Texture Descriptor Table");
-            result.textureDescriptorTableWritten = textureSlotCount > 0;
-            for (int textureSlot = 0; textureSlot < textureSlotCount; ++textureSlot)
+            result.textureDescriptorTableWritten = !skipTextureDescriptorTableWrite && textureSlotCount > 0;
+            for (int textureSlot = 0; !skipTextureDescriptorTableWrite && textureSlot < textureSlotCount; ++textureSlot)
             {
                 nvrhi::TextureHandle texture = result.activeTextureTable[textureSlot + 1];
                 if (!desc.device->writeDescriptorTable(result.textureDescriptorTable, nvrhi::BindingSetItem::Texture_SRV(textureSlot, texture)))

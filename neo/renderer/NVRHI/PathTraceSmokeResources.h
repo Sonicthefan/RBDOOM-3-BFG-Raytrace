@@ -156,6 +156,7 @@ struct RtSmokeBindingBuildDesc
     nvrhi::BindingLayoutHandle bindingLayout;
     nvrhi::BindingLayoutHandle textureBindlessLayout;
     nvrhi::DescriptorTableHandle existingTextureDescriptorTable;
+    const std::vector<nvrhi::TextureHandle>* existingActiveTextureTable = nullptr;
     nvrhi::SamplerHandle sampler;
     RtSmokeSceneBufferHandles buffers;
     RtSmokeReservoirBufferHandles reservoirBuffers;

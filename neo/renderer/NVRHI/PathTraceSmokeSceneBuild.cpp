@@ -6290,7 +6290,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.bindingLayout = m_smokeBindingLayout;
     bindingBuildDesc.textureBindlessLayout = m_smokeTextureBindlessLayout;
     const int sceneRetireFrames = idMath::ClampInt(0, 32, r_pathTracingSceneRetireFrames.GetInteger());
-    bindingBuildDesc.existingTextureDescriptorTable = sceneRetireFrames > 0 ? nullptr : m_smokeTextureDescriptorTable;
+    const bool reuseTextureDescriptorTable = sceneRetireFrames <= 0;
+    bindingBuildDesc.existingTextureDescriptorTable = reuseTextureDescriptorTable ? m_smokeTextureDescriptorTable : nullptr;
+    bindingBuildDesc.existingActiveTextureTable = reuseTextureDescriptorTable ? &m_smokeActiveTextureTable : nullptr;
     bindingBuildDesc.sampler = m_backend->GetCommonPasses().m_AnisotropicWrapSampler;
     bindingBuildDesc.buffers = smokeBuffers;
     bindingBuildDesc.reservoirBuffers = m_frameResources.smokeReservoirBuffers;
