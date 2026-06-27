@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstring>
 #include <map>
+#include <utility>
 
 namespace {
 
@@ -474,6 +475,72 @@ void PathTraceRemixLightManager::PrepareSceneData(
     }
     m_lightUniverseHistoryValid = lightUniverseEnabled;
     m_lastPrepareWasLightUniverse = lightUniverseEnabled;
+}
+
+void PathTraceRemixLightManager::PrepareSceneData(
+    const PathTraceRemixLightManagerPrepareDesc& desc)
+{
+    PrepareSceneData(
+        *desc.framePackage,
+        *desc.currentEmissiveTriangles,
+        *desc.previousEmissiveTriangles,
+        *desc.emissiveRemap,
+        *desc.currentAnalyticLights,
+        *desc.previousAnalyticLights,
+        *desc.currentAnalyticIdentities,
+        *desc.previousAnalyticIdentities,
+        *desc.analyticRemap,
+        desc.emissiveSampleCount,
+        desc.doomAnalyticSampleCount,
+        desc.analyticStateCompatibilityTolerance,
+        desc.domain,
+        desc.strictRemixMapping,
+        desc.lightUniverseEnabled);
+}
+
+PathTraceRemixLightManagerPrepareResult PathTraceRemixLightManager::BuildPrepareResult(
+    const PathTraceRemixLightManagerPrepareDesc& desc) const
+{
+    PathTraceRemixLightManager scratch = *this;
+    scratch.PrepareSceneData(desc);
+
+    PathTraceRemixLightManagerPrepareResult result;
+    result.currentLightPayloads = std::move(scratch.m_currentLightPayloads);
+    result.previousLightPayloads = std::move(scratch.m_previousLightPayloads);
+    result.currentToPreviousMap = std::move(scratch.m_currentToPreviousMap);
+    result.previousToCurrentMap = std::move(scratch.m_previousToCurrentMap);
+    for (uint32_t rangeIndex = 0; rangeIndex < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT; ++rangeIndex)
+    {
+        result.lightRanges[rangeIndex] = scratch.m_lightRanges[rangeIndex];
+    }
+    result.stats = scratch.m_stats;
+    result.lastStructuralSignature = scratch.m_lastStructuralSignature;
+    result.lastMappingSignature = scratch.m_lastMappingSignature;
+    result.lastPayloadSignature = scratch.m_lastPayloadSignature;
+    result.haveLastSignatures = scratch.m_haveLastSignatures;
+    result.lightUniverseHistoryValid = scratch.m_lightUniverseHistoryValid;
+    result.lastPrepareWasLightUniverse = scratch.m_lastPrepareWasLightUniverse;
+    return result;
+}
+
+void PathTraceRemixLightManager::ApplyPrepareResult(
+    PathTraceRemixLightManagerPrepareResult&& result)
+{
+    m_currentLightPayloads = std::move(result.currentLightPayloads);
+    m_previousLightPayloads = std::move(result.previousLightPayloads);
+    m_currentToPreviousMap = std::move(result.currentToPreviousMap);
+    m_previousToCurrentMap = std::move(result.previousToCurrentMap);
+    for (uint32_t rangeIndex = 0; rangeIndex < PATH_TRACE_REMIX_LIGHT_TYPE_COUNT; ++rangeIndex)
+    {
+        m_lightRanges[rangeIndex] = result.lightRanges[rangeIndex];
+    }
+    m_stats = result.stats;
+    m_lastStructuralSignature = result.lastStructuralSignature;
+    m_lastMappingSignature = result.lastMappingSignature;
+    m_lastPayloadSignature = result.lastPayloadSignature;
+    m_haveLastSignatures = result.haveLastSignatures;
+    m_lightUniverseHistoryValid = result.lightUniverseHistoryValid;
+    m_lastPrepareWasLightUniverse = result.lastPrepareWasLightUniverse;
 }
 
 const std::vector<PathTraceUnifiedLightRecord>& PathTraceRemixLightManager::GetCurrentLightPayloads() const

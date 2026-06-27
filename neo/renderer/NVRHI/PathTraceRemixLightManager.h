@@ -9,6 +9,7 @@
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceUnifiedLight.h"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -109,6 +110,41 @@ struct PathTraceRemixLightManagerStats
     PathTraceRemixLightEventSample firstPreviousOnly;
 };
 
+struct PathTraceRemixLightManagerPrepareDesc
+{
+    const PathTraceRemixFramePrepareObservationPackage* framePackage = nullptr;
+    const std::vector<PathTraceSmokeEmissiveTriangle>* currentEmissiveTriangles = nullptr;
+    const std::vector<PathTraceSmokeEmissiveTriangle>* previousEmissiveTriangles = nullptr;
+    const std::vector<PathTraceEmissiveLightRemap>* emissiveRemap = nullptr;
+    const std::vector<PathTraceDoomAnalyticLightCandidate>* currentAnalyticLights = nullptr;
+    const std::vector<PathTraceDoomAnalyticLightCandidate>* previousAnalyticLights = nullptr;
+    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>* currentAnalyticIdentities = nullptr;
+    const std::vector<PathTraceDoomAnalyticLightCandidateIdentity>* previousAnalyticIdentities = nullptr;
+    const std::vector<PathTraceDoomAnalyticLightRemap>* analyticRemap = nullptr;
+    uint32_t emissiveSampleCount = 0;
+    uint32_t doomAnalyticSampleCount = 0;
+    float analyticStateCompatibilityTolerance = 0.0f;
+    uint32_t domain = 2;
+    bool strictRemixMapping = true;
+    bool lightUniverseEnabled = false;
+};
+
+struct PathTraceRemixLightManagerPrepareResult
+{
+    std::vector<PathTraceUnifiedLightRecord> currentLightPayloads;
+    std::vector<PathTraceUnifiedLightRecord> previousLightPayloads;
+    std::vector<uint32_t> currentToPreviousMap;
+    std::vector<uint32_t> previousToCurrentMap;
+    std::array<PathTraceRemixLightRange, PATH_TRACE_REMIX_LIGHT_TYPE_COUNT> lightRanges;
+    PathTraceRemixLightManagerStats stats;
+    uint64_t lastStructuralSignature = 0;
+    uint64_t lastMappingSignature = 0;
+    uint64_t lastPayloadSignature = 0;
+    bool haveLastSignatures = false;
+    bool lightUniverseHistoryValid = false;
+    bool lastPrepareWasLightUniverse = false;
+};
+
 class PathTraceRemixLightManager
 {
 public:
@@ -133,6 +169,12 @@ public:
         uint32_t domain,
         bool strictRemixMapping,
         bool lightUniverseEnabled);
+    void PrepareSceneData(
+        const PathTraceRemixLightManagerPrepareDesc& desc);
+    PathTraceRemixLightManagerPrepareResult BuildPrepareResult(
+        const PathTraceRemixLightManagerPrepareDesc& desc) const;
+    void ApplyPrepareResult(
+        PathTraceRemixLightManagerPrepareResult&& result);
 
     const std::vector<PathTraceUnifiedLightRecord>& GetCurrentLightPayloads() const;
     const std::vector<PathTraceUnifiedLightRecord>& GetPreviousLightPayloads() const;

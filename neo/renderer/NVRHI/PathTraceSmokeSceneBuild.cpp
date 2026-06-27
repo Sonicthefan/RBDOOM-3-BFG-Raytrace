@@ -4221,24 +4221,25 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const std::vector<PathTraceDoomAnalyticLightCandidate> emptyAnalyticLights;
     const std::vector<PathTraceDoomAnalyticLightCandidateIdentity> emptyAnalyticIdentities;
     const std::vector<PathTraceDoomAnalyticLightRemap> emptyAnalyticRemap;
+    PathTraceRemixLightManagerPrepareDesc remixLightPrepareDesc;
+    remixLightPrepareDesc.framePackage = &m_remixFramePrepare.GetObservationPackage();
+    remixLightPrepareDesc.currentEmissiveTriangles = &(remixLightUniverseIncludeEmissive ? emissiveTriangles : emptyEmissiveTriangles);
+    remixLightPrepareDesc.previousEmissiveTriangles = &(remixLightUniverseIncludeEmissive ? previousEmissiveTriangles : emptyEmissiveTriangles);
+    remixLightPrepareDesc.emissiveRemap = &(remixLightUniverseIncludeEmissive ? emissiveLightRemap : emptyEmissiveRemap);
+    remixLightPrepareDesc.currentAnalyticLights = &(remixLightUniverseIncludeAnalytic ? doomAnalyticLights : emptyAnalyticLights);
+    remixLightPrepareDesc.previousAnalyticLights = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidates : emptyAnalyticLights);
+    remixLightPrepareDesc.currentAnalyticIdentities = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.currentCandidateIdentities : emptyAnalyticIdentities);
+    remixLightPrepareDesc.previousAnalyticIdentities = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidateIdentities : emptyAnalyticIdentities);
+    remixLightPrepareDesc.analyticRemap = &(remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.universeRemap : emptyAnalyticRemap);
+    remixLightPrepareDesc.emissiveSampleCount = remixLightUniverseIncludeEmissive ? static_cast<uint32_t>(idMath::ClampInt(0, 64, r_pathTracingReservoirCandidateTrials.GetInteger())) : 0u;
+    remixLightPrepareDesc.doomAnalyticSampleCount = remixLightUniverseIncludeAnalytic ? static_cast<uint32_t>(idMath::ClampInt(0, 256, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())) : 0u;
+    remixLightPrepareDesc.analyticStateCompatibilityTolerance = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat());
+    remixLightPrepareDesc.domain = remixLightUniverseEnabled ? remixLightUniverseDomain : 2u;
+    remixLightPrepareDesc.strictRemixMapping = remixLightUniverseStrictMapping;
+    remixLightPrepareDesc.lightUniverseEnabled = remixLightUniverseEnabled;
     {
         OPTICK_EVENT("PT Remix Light Manager Prepare");
-        m_remixLightManager.PrepareSceneData(
-            m_remixFramePrepare.GetObservationPackage(),
-            remixLightUniverseIncludeEmissive ? emissiveTriangles : emptyEmissiveTriangles,
-            remixLightUniverseIncludeEmissive ? previousEmissiveTriangles : emptyEmissiveTriangles,
-            remixLightUniverseIncludeEmissive ? emissiveLightRemap : emptyEmissiveRemap,
-            remixLightUniverseIncludeAnalytic ? doomAnalyticLights : emptyAnalyticLights,
-            remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidates : emptyAnalyticLights,
-            remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.currentCandidateIdentities : emptyAnalyticIdentities,
-            remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.previousCandidateIdentities : emptyAnalyticIdentities,
-            remixLightUniverseIncludeAnalytic ? doomAnalyticRemap.universeRemap : emptyAnalyticRemap,
-            remixLightUniverseIncludeEmissive ? static_cast<uint32_t>(idMath::ClampInt(0, 64, r_pathTracingReservoirCandidateTrials.GetInteger())) : 0u,
-            remixLightUniverseIncludeAnalytic ? static_cast<uint32_t>(idMath::ClampInt(0, 256, r_pathTracingRestirPTAnalyticLightTrials.GetInteger())) : 0u,
-            idMath::ClampFloat(0.0f, 1.0f, r_pathTracingRestirPTTemporalAnalyticLightChangeTolerance.GetFloat()),
-            remixLightUniverseEnabled ? remixLightUniverseDomain : 2u,
-            remixLightUniverseStrictMapping,
-            remixLightUniverseEnabled);
+        m_remixLightManager.PrepareSceneData(remixLightPrepareDesc);
     }
     const int remixLightUniverseDump = r_pathTracingRemixLightUniverseDump.GetInteger();
     if (r_pathTracingRemixLightManagerDump.GetInteger() != 0 || remixLightUniverseDump != 0)
