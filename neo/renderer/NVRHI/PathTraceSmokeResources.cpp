@@ -2146,6 +2146,10 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeDynamicTriangleMaterialIndexBuffer = nullptr;
     m_smokeMaterialTableBuffer = nullptr;
     m_smokeDynamicMaterialBuffer = nullptr;
+    m_smokeMaterialTableUploadSignature = 0;
+    m_smokeDynamicMaterialUploadSignature = 0;
+    m_smokeMaterialTableUploadSignatureValid = false;
+    m_smokeDynamicMaterialUploadSignatureValid = false;
     m_smokeEmissiveTriangleBuffer = nullptr;
     m_smokePreviousEmissiveTriangleBuffer = nullptr;
     m_smokeEmissiveRemapBuffer = nullptr;

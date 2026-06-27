@@ -1256,6 +1256,34 @@ bool SmokeBufferHasPayloadCapacity(nvrhi::BufferHandle buffer, size_t byteSize, 
     return buffer && buffer->getDesc().byteSize >= SmokeRequiredBufferBytes(byteSize, structStride);
 }
 
+template< typename T >
+uint64_t BuildSmokeVectorUploadSignature(const std::vector<T>& data)
+{
+    const RtSmokePlanDataSpan spans[] = {
+        MakeSmokePlanDataSpan(data)
+    };
+    return BuildSmokePlanDataSpanSignature(
+        spans,
+        static_cast<int>(sizeof(spans) / sizeof(spans[0])));
+}
+
+bool SmokeBufferCanSkipVectorUpload(
+    nvrhi::BufferHandle currentBuffer,
+    nvrhi::BufferHandle previousBuffer,
+    size_t byteSize,
+    size_t structStride,
+    bool previousSignatureValid,
+    uint64_t previousSignature,
+    uint64_t currentSignature)
+{
+    return
+        currentBuffer &&
+        currentBuffer == previousBuffer &&
+        SmokeBufferHasPayloadCapacity(currentBuffer, byteSize, structStride) &&
+        previousSignatureValid &&
+        previousSignature == currentSignature;
+}
+
 uint64_t BuildSmokeRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
 {
     const RtSmokePlanDataSpan spans[] = {
@@ -2748,6 +2776,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeDynamicTriangleMaterialIndexBuffer = nullptr;
             m_smokeMaterialTableBuffer = nullptr;
             m_smokeDynamicMaterialBuffer = nullptr;
+            m_smokeMaterialTableUploadSignature = 0;
+            m_smokeDynamicMaterialUploadSignature = 0;
+            m_smokeMaterialTableUploadSignatureValid = false;
+            m_smokeDynamicMaterialUploadSignatureValid = false;
             m_smokeEmissiveTriangleBuffer = nullptr;
             m_smokeEmissiveDistributionBuffer = nullptr;
             m_smokeLightCandidateBuffer = nullptr;
@@ -5964,6 +5996,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const RtSmokePreviousStaticSnapshotUploadPlan previousStaticSnapshotUploadPlan =
         BuildSmokePreviousStaticSnapshotUploadPlan(previousStaticSnapshotUploadPlanInput);
     const bool skipPreviousStaticSnapshotUpload = previousStaticSnapshotUploadPlan.skipUpload;
+    const uint64 materialTableUploadSignature = BuildSmokeVectorUploadSignature(materialTable.materials);
+    const uint64 dynamicMaterialUploadSignature = BuildSmokeVectorUploadSignature(dynamicMaterialRecords);
+    const bool skipMaterialTableUpload =
+        SmokeBufferCanSkipVectorUpload(
+            smokeMaterialTableBuffer,
+            m_smokeMaterialTableBuffer,
+            bufferCreateDesc.materialTableBytes,
+            sizeof(PathTraceSmokeMaterial),
+            m_smokeMaterialTableUploadSignatureValid,
+            m_smokeMaterialTableUploadSignature,
+            materialTableUploadSignature);
+    const bool skipDynamicMaterialUpload =
+        SmokeBufferCanSkipVectorUpload(
+            smokeDynamicMaterialBuffer,
+            m_smokeDynamicMaterialBuffer,
+            bufferCreateDesc.dynamicMaterialBytes,
+            sizeof(PathTraceDynamicMaterialRecord),
+            m_smokeDynamicMaterialUploadSignatureValid,
+            m_smokeDynamicMaterialUploadSignature,
+            dynamicMaterialUploadSignature);
     const int skinnedGpuComputeVertexCount = SmokeSkinnedGpuComputeVertexCount(skinnedGpuScaffold.dispatchRecords);
     const int skinnedGpuComputeMaxVertexCount = SmokeSkinnedGpuComputeMaxVertexCount(skinnedGpuScaffold.dispatchRecords);
     std::vector<PathTraceSkinnedSurfaceDispatchRecord> skinnedGpuComputeDispatchRecords = skinnedGpuScaffold.dispatchRecords;
@@ -6011,8 +6063,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, false),
+        MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, skipMaterialTableUpload),
+        MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, skipDynamicMaterialUpload),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousEmissiveTriangleBuffer, previousEmissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveRemapBuffer, emissiveLightRemap, nvrhi::ResourceStates::ShaderResource, false),
@@ -6768,6 +6820,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
     m_smokePreviousEmissiveTriangles = emissiveTriangles;
     m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;
+    m_smokeMaterialTableUploadSignature = materialTableUploadSignature;
+    m_smokeDynamicMaterialUploadSignature = dynamicMaterialUploadSignature;
+    m_smokeMaterialTableUploadSignatureValid =
+        SmokeBufferHasPayloadCapacity(
+            smokeMaterialTableBuffer,
+            bufferCreateDesc.materialTableBytes,
+            sizeof(PathTraceSmokeMaterial));
+    m_smokeDynamicMaterialUploadSignatureValid =
+        SmokeBufferHasPayloadCapacity(
+            smokeDynamicMaterialBuffer,
+            bufferCreateDesc.dynamicMaterialBytes,
+            sizeof(PathTraceDynamicMaterialRecord));
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
     RtSmokeSceneBuildDiagnosticLogDesc sceneLogDesc;

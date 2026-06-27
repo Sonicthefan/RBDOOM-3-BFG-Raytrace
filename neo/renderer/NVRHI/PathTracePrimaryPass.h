@@ -438,6 +438,10 @@ private:
     std::vector<uint32_t> m_smokePreviousStaticTriangleMaterialIndexes;
     std::vector<PathTraceSmokeEmissiveTriangle> m_smokePreviousEmissiveTriangles;
     uint64 m_smokePreviousStaticSnapshotUploadSignature = 0;
+    uint64 m_smokeMaterialTableUploadSignature = 0;
+    uint64 m_smokeDynamicMaterialUploadSignature = 0;
+    bool m_smokeMaterialTableUploadSignatureValid = false;
+    bool m_smokeDynamicMaterialUploadSignatureValid = false;
     int m_smokeMaterialTableEntryCount = 0;
     int m_smokeEmissiveTriangleCount = 0;
     int m_smokeEmissiveStaticTriangleCount = 0;
