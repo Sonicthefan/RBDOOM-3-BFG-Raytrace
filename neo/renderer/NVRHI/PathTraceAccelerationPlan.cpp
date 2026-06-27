@@ -1573,14 +1573,8 @@ uint64_t BuildSmokeBvhFramePlanningInputToken(
     uint64_t hash = 1469598103934665603ull;
     const uint64_t staticBucketToken =
         BuildSmokeStaticBucketWorkPlanInputToken(input.staticBucketWorkInput);
-    const uint32_t previousValidBit = input.previousDirtyTokenValid ? 1u : 0u;
     hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
     hash = HashSmokeBvhFramePlanningFrameInput(hash, input.frameTokenInput);
-    hash = HashSmokePlanBytes(hash, &previousValidBit, sizeof(previousValidBit));
-    if (input.previousDirtyTokenValid)
-    {
-        hash = HashSmokePlanBytes(hash, &input.previousDirtyToken, sizeof(input.previousDirtyToken));
-    }
     return hash;
 }
 
@@ -1590,14 +1584,8 @@ uint64_t BuildSmokeBvhFramePlanningInputToken(
     uint64_t hash = 1469598103934665603ull;
     const uint64_t staticBucketToken =
         BuildSmokeStaticBucketWorkPlanInputToken(snapshot.staticBucketWorkSnapshot);
-    const uint32_t previousValidBit = snapshot.previousDirtyTokenValid ? 1u : 0u;
     hash = HashSmokePlanBytes(hash, &staticBucketToken, sizeof(staticBucketToken));
     hash = HashSmokeBvhFramePlanningFrameInput(hash, snapshot.frameTokenInput);
-    hash = HashSmokePlanBytes(hash, &previousValidBit, sizeof(previousValidBit));
-    if (snapshot.previousDirtyTokenValid)
-    {
-        hash = HashSmokePlanBytes(hash, &snapshot.previousDirtyToken, sizeof(snapshot.previousDirtyToken));
-    }
     return hash;
 }
 

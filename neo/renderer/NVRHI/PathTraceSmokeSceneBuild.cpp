@@ -6653,7 +6653,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             bvhFramePlanningGeneration,
             nullptr,
             true);
-        bvhFramePlanningAcceptedGeneration = !asyncBvhFramePlanning;
+        bvhFramePlanningAcceptedGeneration = true;
     }
 
     const bool bvhFramePlanningAlreadyCached =
@@ -6705,6 +6705,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.rigidRouteNamespaceFirst = staticBucketWorkPlan.routeNamespace.rigidFirstInstanceId;
     sceneLogDesc.staticRouteNamespaceCount = staticBucketWorkPlan.routeNamespace.staticRouteInstanceCount;
     sceneLogDesc.rigidRouteNamespaceShifted = staticBucketWorkPlan.routeNamespace.rigidRouteBaseShifted;
+    RtSmokeBvhDirtyPlanInput bvhDirtyInput;
+    bvhDirtyInput.previousValid = m_smokeBvhDirtyPreviousTokenValid;
+    bvhDirtyInput.previous = m_smokeBvhDirtyPreviousToken;
+    bvhDirtyInput.current = bvhFramePlanningResult.frameToken.dirtyToken;
+    bvhFramePlanningResult.dirtyPlan = BuildSmokeBvhDirtyPlan(bvhDirtyInput);
+
     const RtSmokeBvhFrameToken& bvhFrameToken = bvhFramePlanningResult.frameToken;
     const RtSmokeBvhDirtyPlan& bvhDirtyPlan = bvhFramePlanningResult.dirtyPlan;
     if (bvhFramePlanningAcceptedGeneration)
