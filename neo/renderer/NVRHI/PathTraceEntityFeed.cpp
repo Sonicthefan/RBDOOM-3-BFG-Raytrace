@@ -446,12 +446,30 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 const modelSurface_t* surface = model->Surface(surfaceIndex);
                 const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
                 const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
-                const idMaterial* material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
-                const RtPtFeedClass feedClass = ClassifyEntityFeedSurface(entity, model, surface);
-                const bool promotedEmissiveCard =
-                    feedClass == RtPtFeedClass::Transient &&
-                    EntityFeedCanPromoteRigidEmissiveCard(entity, model, tri, material);
-                const bool visibleDrawSurf = EntityFeedSurfaceHasVisibleDrawSurf(visibleDrawSurfs, entity, surfaceIndex, tri, material);
+                const idMaterial* material = nullptr;
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Material Remap");
+                    material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
+                }
+
+                RtPtFeedClass feedClass = RtPtFeedClass::Transient;
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Classify");
+                    feedClass = ClassifyEntityFeedSurface(entity, model, surface);
+                }
+
+                bool promotedEmissiveCard = false;
+                if (feedClass == RtPtFeedClass::Transient)
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Emissive Card Test");
+                    promotedEmissiveCard = EntityFeedCanPromoteRigidEmissiveCard(entity, model, tri, material);
+                }
+
+                bool visibleDrawSurf = false;
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Visible Test");
+                    visibleDrawSurf = EntityFeedSurfaceHasVisibleDrawSurf(visibleDrawSurfs, entity, surfaceIndex, tri, material);
+                }
                 if (promotedEmissiveCard && visibleDrawSurf)
                 {
                     continue;
@@ -471,19 +489,34 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     continue;
                 }
 
-                const uint32_t baseMaterialId = SmokeMaterialId(material);
-                const uint32_t materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surfaceIndex, material, baseMaterialId);
+                uint32_t baseMaterialId = 0;
+                uint32_t materialId = 0;
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Material Id");
+                    baseMaterialId = SmokeMaterialId(material);
+                    materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surfaceIndex, material, baseMaterialId);
+                }
                 if (registeredMaterialIds.insert(materialId).second)
                 {
                     if (materialId == baseMaterialId)
                     {
+                        OPTICK_EVENT("PT EntityFeed Capture Register Material");
                         RegisterSmokeMaterialTextureInfo(material);
                     }
                 }
-                const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
+                uint32_t materialClassSignature = 0;
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Material Class Signature");
+                    materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
+                }
                 const uint32_t surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
+                bool activeEmissiveStage = false;
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Active Emissive Stage");
+                    activeEmissiveStage = SmokeEntitySurfaceHasActiveEmissiveStage(viewDef, entity, material);
+                }
                 const uint32_t surfaceClassAndFlags = surfaceClassId |
-                    (SmokeEntitySurfaceHasActiveEmissiveStage(viewDef, entity, material) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
+                    (activeEmissiveStage ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
                 RtPathTraceMeshKey meshKey;
                 meshKey.tri = tri;
                 meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri->ambientCache);
@@ -503,44 +536,58 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     sourceFlags |= RT_PT_INSTANCE_SOURCE_MATERIAL_OVERRIDE;
                 }
 
-                const RtPathTraceRigidInstanceSnapshot rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
-                    meshKey,
-                    model,
-                    tri,
-                    renderDefKey,
-                    modelEpoch,
-                    entity->index,
-                    renderEntity.entityNum,
-                    surfaceIndex,
-                    sourceFlags);
+                RtPathTraceRigidInstanceSnapshot rigidSnapshot;
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Rigid Identity");
+                    rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
+                        meshKey,
+                        model,
+                        tri,
+                        renderDefKey,
+                        modelEpoch,
+                        entity->index,
+                        renderEntity.entityNum,
+                        surfaceIndex,
+                        sourceFlags);
+                }
                 if (!candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
                 {
                     continue;
                 }
 
-                const float distance = EntityFeedEntityDistance(entity, viewOrigin);
+                float distance = 0.0f;
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Distance");
+                    distance = EntityFeedEntityDistance(entity, viewOrigin);
+                }
                 if (maxDistance > 0.0f && distance > maxDistance)
                 {
                     ++stats.droppedBudget;
                     continue;
                 }
 
-                EntityFeedCapturedRigidSurface captured;
-                captured.meshKey = meshKey;
-                captured.rigidSnapshot = rigidSnapshot;
-                captured.entity = entity;
-                captured.baseMaterial = material;
-                captured.surfaceClassId = surfaceClassId;
-                captured.surfaceClassAndFlags = surfaceClassAndFlags;
-                captured.currentArea = areaIndex;
-                memcpy(captured.objectToWorld, entity->modelMatrix, sizeof(captured.objectToWorld));
-                captured.distance = distance;
-                captured.projectedSize = EntityFeedProjectedSizeProxy(entity, distance);
-                captured.onScreen = entity->viewCount == tr.viewCount;
-                captured.emissive = EntityFeedMaterialIsEmissive(materialId);
-                captured.materialName = material ? material->GetName() : "<none>";
-                captured.modelName = model ? model->Name() : "<none>";
-                capturedSurfaces.push_back(captured);
+                {
+                    OPTICK_EVENT("PT EntityFeed Capture Surface Snapshot");
+                    EntityFeedCapturedRigidSurface captured;
+                    captured.meshKey = meshKey;
+                    captured.rigidSnapshot = rigidSnapshot;
+                    captured.entity = entity;
+                    captured.baseMaterial = material;
+                    captured.surfaceClassId = surfaceClassId;
+                    captured.surfaceClassAndFlags = surfaceClassAndFlags;
+                    captured.currentArea = areaIndex;
+                    memcpy(captured.objectToWorld, entity->modelMatrix, sizeof(captured.objectToWorld));
+                    captured.distance = distance;
+                    captured.projectedSize = EntityFeedProjectedSizeProxy(entity, distance);
+                    captured.onScreen = entity->viewCount == tr.viewCount;
+                    {
+                        OPTICK_EVENT("PT EntityFeed Capture Material Facts");
+                        captured.emissive = EntityFeedMaterialIsEmissive(materialId);
+                    }
+                    captured.materialName = material ? material->GetName() : "<none>";
+                    captured.modelName = model ? model->Name() : "<none>";
+                    capturedSurfaces.push_back(captured);
+                }
             }
         }
     }
