@@ -125,37 +125,83 @@ bool EntityFeedCanPromoteRigidEmissiveCard(const idRenderEntityLocal* entity, co
     return SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(material);
 }
 
+struct EntityFeedVisibleDrawSurfSet
+{
+    std::unordered_set<int> modelSurfaceIndexes;
+    std::unordered_set<const srfTriangles_t*> geometries;
+    std::unordered_set<const idMaterial*> materials;
+};
+
+using EntityFeedVisibleDrawSurfMap = std::unordered_map<const idRenderEntityLocal*, EntityFeedVisibleDrawSurfSet>;
+
+EntityFeedVisibleDrawSurfMap BuildEntityFeedVisibleDrawSurfMap(const viewDef_t* viewDef)
+{
+    EntityFeedVisibleDrawSurfMap visibleDrawSurfs;
+    if (!viewDef || !viewDef->drawSurfs)
+    {
+        return visibleDrawSurfs;
+    }
+
+    visibleDrawSurfs.reserve(viewDef->numDrawSurfs);
+    for (int drawSurfIndex = 0; drawSurfIndex < viewDef->numDrawSurfs; ++drawSurfIndex)
+    {
+        const drawSurf_t* drawSurf = viewDef->drawSurfs[drawSurfIndex];
+        const idRenderEntityLocal* entity =
+            (drawSurf && drawSurf->space) ? drawSurf->space->entityDef : nullptr;
+        if (!entity)
+        {
+            continue;
+        }
+
+        EntityFeedVisibleDrawSurfSet& visibleSet = visibleDrawSurfs[entity];
+        if (drawSurf->modelSurfaceIndex >= 0)
+        {
+            visibleSet.modelSurfaceIndexes.insert(drawSurf->modelSurfaceIndex);
+        }
+        if (drawSurf->frontEndGeo)
+        {
+            visibleSet.geometries.insert(drawSurf->frontEndGeo);
+        }
+        if (drawSurf->material)
+        {
+            visibleSet.materials.insert(drawSurf->material);
+        }
+    }
+
+    return visibleDrawSurfs;
+}
+
 bool EntityFeedSurfaceHasVisibleDrawSurf(
-    const viewDef_t* viewDef,
+    const EntityFeedVisibleDrawSurfMap& visibleDrawSurfs,
     const idRenderEntityLocal* entity,
     int modelSurfaceIndex,
     const srfTriangles_t* tri,
     const idMaterial* material)
 {
-    if (!viewDef || !viewDef->drawSurfs || !entity)
+    if (!entity)
     {
         return false;
     }
 
-    for (int drawSurfIndex = 0; drawSurfIndex < viewDef->numDrawSurfs; ++drawSurfIndex)
+    const auto visibleIt = visibleDrawSurfs.find(entity);
+    if (visibleIt == visibleDrawSurfs.end())
     {
-        const drawSurf_t* drawSurf = viewDef->drawSurfs[drawSurfIndex];
-        if (!drawSurf || !drawSurf->space || drawSurf->space->entityDef != entity)
-        {
-            continue;
-        }
-        if (modelSurfaceIndex >= 0 && drawSurf->modelSurfaceIndex == modelSurfaceIndex)
-        {
-            return true;
-        }
-        if (tri && drawSurf->frontEndGeo == tri)
-        {
-            return true;
-        }
-        if (material && drawSurf->material == material)
-        {
-            return true;
-        }
+        return false;
+    }
+
+    const EntityFeedVisibleDrawSurfSet& visibleSet = visibleIt->second;
+    if (modelSurfaceIndex >= 0 &&
+        visibleSet.modelSurfaceIndexes.find(modelSurfaceIndex) != visibleSet.modelSurfaceIndexes.end())
+    {
+        return true;
+    }
+    if (tri && visibleSet.geometries.find(tri) != visibleSet.geometries.end())
+    {
+        return true;
+    }
+    if (material && visibleSet.materials.find(material) != visibleSet.materials.end())
+    {
+        return true;
     }
 
     return false;
@@ -557,9 +603,20 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     RtPathTraceEntityFeedStats stats;
     stats.frameIndex = tr.frameCount;
 
+    EntityFeedVisibleDrawSurfMap visibleDrawSurfs;
+    {
+        OPTICK_EVENT("PT EntityFeed Visible DrawSurf Map");
+        visibleDrawSurfs = BuildEntityFeedVisibleDrawSurfMap(viewDef);
+    }
+
     std::vector<EntityFeedRigidCandidate> candidates;
     std::unordered_set<uint64> candidateInstanceIds;
     std::unordered_set<uint32_t> registeredMaterialIds;
+    std::unordered_set<const idRenderEntityLocal*> scannedEntities;
+    candidates.reserve(rigidRouteMaxInstances);
+    candidateInstanceIds.reserve(rigidRouteMaxInstances * 2);
+    registeredMaterialIds.reserve(128);
+    scannedEntities.reserve(renderWorld->entityDefs.Num());
     {
         OPTICK_EVENT("PT EntityFeed Candidate Scan");
         for (int areaIndex = 0; areaIndex < static_cast<int>(reachableAreas.size()); ++areaIndex)
@@ -583,6 +640,10 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 {
                     continue;
                 }
+                if (!scannedEntities.insert(entity).second)
+                {
+                    continue;
+                }
 
                 const renderEntity_t& renderEntity = entity->parms;
                 for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
@@ -595,7 +656,7 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                     const bool promotedEmissiveCard =
                         feedClass == RtPtFeedClass::Transient &&
                         EntityFeedCanPromoteRigidEmissiveCard(entity, model, tri, material);
-                    const bool visibleDrawSurf = EntityFeedSurfaceHasVisibleDrawSurf(viewDef, entity, surfaceIndex, tri, material);
+                    const bool visibleDrawSurf = EntityFeedSurfaceHasVisibleDrawSurf(visibleDrawSurfs, entity, surfaceIndex, tri, material);
                     if (promotedEmissiveCard && visibleDrawSurf)
                     {
                         continue;
