@@ -2058,6 +2058,10 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeSceneUniverseStaticBuildGeneration = 0;
     m_smokeAccelerationPlanAsyncGenerationValid = false;
     m_smokeAccelerationPlanAsyncCachedPlanValid = false;
+    m_smokeBvhFramePlanningAsyncGenerationValid = false;
+    m_smokeBvhFramePlanningAsyncCachedResultValid = false;
+    m_smokeBvhFramePlanningAsyncCachedResult = RtSmokeBvhFramePlanningResult();
+    m_smokeBvhFramePlanningCpuWorkState = RtPathTraceCpuWorkState();
     m_smokeBvhDirtyPreviousTokenValid = false;
     m_smokeBvhDirtyPreviousToken = RtSmokeBvhDirtyTokenState();
     m_smokeSceneRebuildLogged = false;

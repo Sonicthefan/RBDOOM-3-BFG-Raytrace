@@ -201,6 +201,18 @@ idCVar r_pathTracingSceneSource2RigidEntities(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental source 2 rigid entity promotion: 0 = off, 1 = whole eligible rigid entities that contain emissive-capable surfaces, 2 = all eligible non-skinned non-callback static entity model surfaces" );
 
+idCVar r_pathTracingAsyncBvh(
+    "r_pathTracingAsyncBvh",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Master gate for async/buffered off-screen BVH. 0 = synchronous legacy." );
+
+idCVar r_pathTracingAsyncBvhJobs(
+    "r_pathTracingAsyncBvhJobs",
+    "2",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Requested async BVH CPU planning worker count; currently gates the background snapshot worker path." );
+
 idCVar r_pathTracingCpuPlanningAsync(
     "r_pathTracingCpuPlanningAsync",
     "0",

@@ -100,6 +100,7 @@ private:
     uint64 m_smokeSceneUniverseStaticBuildGeneration;
     RtPathTraceCpuWorkState m_smokeCpuWorkState;
     RtPathTraceCpuWorkState m_smokeRigidTlasCpuWorkState;
+    RtPathTraceCpuWorkState m_smokeBvhFramePlanningCpuWorkState;
     RtSmokeBvhDirtyTokenState m_smokeBvhDirtyPreviousToken;
     RtPathTraceCpuWorkGeneration m_smokeAccelerationPlanAsyncGeneration;
     RtPathTraceCpuWorkGeneration m_smokeAccelerationPlanAsyncCachedGeneration;
@@ -117,6 +118,14 @@ private:
     int m_smokeRigidTlasPlanAsyncLaunchMs = 0;
     bool m_smokeRigidTlasPlanAsyncGenerationValid = false;
     bool m_smokeRigidTlasPlanAsyncCachedPlanValid = false;
+    RtPathTraceCpuWorkGeneration m_smokeBvhFramePlanningAsyncGeneration;
+    RtPathTraceCpuWorkGeneration m_smokeBvhFramePlanningAsyncCachedGeneration;
+    RtPathTraceCpuWorkTiming m_smokeBvhFramePlanningAsyncTiming;
+    RtSmokeBvhFramePlanningResult m_smokeBvhFramePlanningAsyncCachedResult;
+    std::future<RtSmokeBvhFramePlanningTimedResult> m_smokeBvhFramePlanningFuture;
+    int m_smokeBvhFramePlanningAsyncLaunchMs = 0;
+    bool m_smokeBvhFramePlanningAsyncGenerationValid = false;
+    bool m_smokeBvhFramePlanningAsyncCachedResultValid = false;
     bool m_smokeBvhDirtyPreviousTokenValid = false;
     const void* m_smokeSceneRenderWorld = nullptr;
     idStr m_smokeSceneMapName;

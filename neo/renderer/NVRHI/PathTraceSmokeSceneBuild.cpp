@@ -3045,7 +3045,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const int materialStartMs = Sys_Milliseconds();
     RtSmokeMaterialTableBuild materialTable;
     const int rigidRouteMaxInstances = idMath::ClampInt(1, 510, r_pathTracingRigidRouteMaxInstances.GetInteger());
-    const bool asyncCpuPlanning = r_pathTracingCpuPlanningAsync.GetInteger() != 0;
+    const int asyncBvhRequestedJobs = r_pathTracingAsyncBvhJobs.GetInteger();
+    const int asyncBvhJobCount = idMath::ClampInt(1, 16, asyncBvhRequestedJobs);
+    const bool asyncBvhFramePlanning =
+        r_pathTracingAsyncBvh.GetInteger() != 0 &&
+        asyncBvhRequestedJobs > 0;
+    const bool asyncCpuPlanning =
+        asyncBvhFramePlanning ||
+        r_pathTracingCpuPlanningAsync.GetInteger() != 0;
     RtSmokeRigidTlasPlanSnapshot rigidTlasSnapshot;
     RtSmokeRigidTlasPlan rigidTlasPlan;
     uint64_t rigidTlasPlanInputToken = 0;
@@ -5045,8 +5052,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         const bool asyncFuturePending = m_smokeAccelerationPlanFuture.valid();
         common->Printf(
-            "PathTracePrimaryPass: PT CPU planning async=%d acceptedFromAsync=%d cached=%d queued=%d rigid(accepted/cached/queued)=%d/%d/%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f rigidCounters(accepted/stale/late/sync)=%llu/%llu/%llu/%llu rigidTiming(snapshot/queue/worker/render)=%.3f/%.3f/%.3f/%.3f rigidPlanMs=%d gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu rigidInput=%llu)\n",
+            "PathTracePrimaryPass: PT CPU planning async=%d asyncBvh=%d asyncBvhJobs=%d acceptedFromAsync=%d cached=%d queued=%d rigid(accepted/cached/queued)=%d/%d/%d accepted=%llu stale=%llu late=%llu syncFallback=%llu snapshotMs=%.3f queueMs=%.3f workerMs=%.3f renderSubmitMs=%.3f rigidCounters(accepted/stale/late/sync)=%llu/%llu/%llu/%llu rigidTiming(snapshot/queue/worker/render)=%.3f/%.3f/%.3f/%.3f rigidPlanMs=%d gen(frame=%llu scene=%llu geometry=%llu material=%llu input=%llu rigidInput=%llu)\n",
             asyncCpuPlanning ? 1 : 0,
+            asyncBvhFramePlanning ? 1 : 0,
+            asyncBvhJobCount,
             accelerationPlanAcceptedFromAsync ? 1 : 0,
             asyncPlanAlreadyCached ? 1 : 0,
             asyncFuturePending ? 1 : 0,
@@ -6074,11 +6083,136 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bvhFramePlanningInput.frameTokenInput.hasStaticBlas = hasStaticBlas;
     bvhFramePlanningInput.frameTokenInput.hasDynamicBlas = hasDynamicBlas;
     const int bvhFramePlanStartMs = Sys_Milliseconds();
+    const int bvhFrameSnapshotStartMs = Sys_Milliseconds();
     const RtSmokeBvhFramePlanningSnapshot bvhFramePlanningSnapshot =
         CaptureSmokeBvhFramePlanningSnapshot(bvhFramePlanningInput);
-    const RtSmokeBvhFramePlanningResult bvhFramePlanningResult =
-        BuildSmokeBvhFramePlanningResult(bvhFramePlanningSnapshot);
-    const int bvhFramePlanMs = Sys_Milliseconds() - bvhFramePlanStartMs;
+    const int bvhFrameSnapshotMs = Sys_Milliseconds() - bvhFrameSnapshotStartMs;
+    RtPathTraceCpuWorkGeneration bvhFramePlanningGeneration;
+    bvhFramePlanningGeneration.frameIndex = 0;
+    bvhFramePlanningGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
+    bvhFramePlanningGeneration.geometryGeneration = geometryUniverseStats.generation;
+    bvhFramePlanningGeneration.materialGeneration = materialTableSignature;
+    bvhFramePlanningGeneration.lightGeneration =
+        BuildSmokeBvhFramePlanningInputToken(bvhFramePlanningSnapshot);
+    RtPathTraceCpuWorkPublishSnapshot(m_smokeBvhFramePlanningCpuWorkState, bvhFramePlanningGeneration);
+
+    RtSmokeBvhFramePlanningResult bvhFramePlanningResult;
+    int bvhFramePlanMs = 0;
+    bool bvhFramePlanningResultValid = false;
+    bool bvhFramePlanningAcceptedGeneration = false;
+    if (asyncBvhFramePlanning && m_smokeBvhFramePlanningFuture.valid())
+    {
+        const std::future_status futureStatus =
+            m_smokeBvhFramePlanningFuture.wait_for(std::chrono::seconds(0));
+        if (futureStatus == std::future_status::ready)
+        {
+            const RtSmokeBvhFramePlanningTimedResult timedResult =
+                m_smokeBvhFramePlanningFuture.get();
+            m_smokeBvhFramePlanningAsyncGenerationValid = false;
+
+            RtPathTraceCpuWorkResultEnvelope asyncEnvelope;
+            asyncEnvelope.completed = true;
+            asyncEnvelope.generation = m_smokeBvhFramePlanningAsyncGeneration;
+            asyncEnvelope.timing = m_smokeBvhFramePlanningAsyncTiming;
+            asyncEnvelope.timing.workerExecutionMs =
+                static_cast<double>(timedResult.planningTimeMicros) / 1000.0;
+            const double asyncOutstandingMs =
+                static_cast<double>(Max(0, Sys_Milliseconds() - m_smokeBvhFramePlanningAsyncLaunchMs));
+            asyncEnvelope.timing.queueWaitMs =
+                Max(0.0, asyncOutstandingMs - asyncEnvelope.timing.workerExecutionMs);
+            RtPathTraceCpuWorkPublishCompletedResult(m_smokeBvhFramePlanningCpuWorkState, asyncEnvelope);
+
+            const RtPathTraceCpuWorkFrameDecision asyncDecision =
+                RtPathTraceCpuWorkAcceptLatest(
+                    m_smokeBvhFramePlanningCpuWorkState,
+                    bvhFramePlanningGeneration,
+                    &asyncEnvelope,
+                    false);
+            if (asyncDecision.accepted)
+            {
+                bvhFramePlanningResult = timedResult.result;
+                bvhFramePlanMs = static_cast<int>(asyncEnvelope.timing.workerExecutionMs + 0.5);
+                m_smokeBvhFramePlanningAsyncCachedResult = timedResult.result;
+                m_smokeBvhFramePlanningAsyncCachedGeneration =
+                    m_smokeBvhFramePlanningAsyncGeneration;
+                m_smokeBvhFramePlanningAsyncCachedResultValid = true;
+                bvhFramePlanningResultValid = true;
+                bvhFramePlanningAcceptedGeneration = true;
+            }
+        }
+        else
+        {
+            RtPathTraceCpuWorkAcceptLatest(
+                m_smokeBvhFramePlanningCpuWorkState,
+                bvhFramePlanningGeneration,
+                nullptr,
+                false);
+        }
+    }
+    if (!bvhFramePlanningResultValid &&
+        asyncBvhFramePlanning &&
+        m_smokeBvhFramePlanningAsyncCachedResultValid &&
+        RtPathTraceCpuWorkGenerationEquals(
+            m_smokeBvhFramePlanningAsyncCachedGeneration,
+            bvhFramePlanningGeneration))
+    {
+        bvhFramePlanningResult = m_smokeBvhFramePlanningAsyncCachedResult;
+        bvhFramePlanningResultValid = true;
+        bvhFramePlanningAcceptedGeneration = true;
+    }
+
+    if (!bvhFramePlanningResultValid)
+    {
+        const RtSmokeBvhFramePlanningTimedResult timedResult =
+            BuildSmokeBvhFramePlanningTimedResult(bvhFramePlanningSnapshot);
+        bvhFramePlanningResult = timedResult.result;
+        bvhFramePlanMs = Sys_Milliseconds() - bvhFramePlanStartMs;
+        bvhFramePlanningResultValid = true;
+
+        RtPathTraceCpuWorkResultEnvelope bvhFrameEnvelope;
+        bvhFrameEnvelope.completed = true;
+        bvhFrameEnvelope.generation = bvhFramePlanningGeneration;
+        bvhFrameEnvelope.timing.snapshotCaptureMs = static_cast<double>(bvhFrameSnapshotMs);
+        bvhFrameEnvelope.timing.workerExecutionMs =
+            static_cast<double>(timedResult.planningTimeMicros) / 1000.0;
+        RtPathTraceCpuWorkPublishCompletedResult(
+            m_smokeBvhFramePlanningCpuWorkState,
+            bvhFrameEnvelope);
+        RtPathTraceCpuWorkAcceptLatest(
+            m_smokeBvhFramePlanningCpuWorkState,
+            bvhFramePlanningGeneration,
+            nullptr,
+            true);
+        bvhFramePlanningAcceptedGeneration = !asyncBvhFramePlanning;
+    }
+
+    const bool bvhFramePlanningAlreadyCached =
+        m_smokeBvhFramePlanningAsyncCachedResultValid &&
+        RtPathTraceCpuWorkGenerationEquals(
+            m_smokeBvhFramePlanningAsyncCachedGeneration,
+            bvhFramePlanningGeneration);
+    const bool bvhFramePlanningAlreadyQueued =
+        m_smokeBvhFramePlanningAsyncGenerationValid &&
+        RtPathTraceCpuWorkGenerationEquals(
+            m_smokeBvhFramePlanningAsyncGeneration,
+            bvhFramePlanningGeneration);
+    if (asyncBvhFramePlanning &&
+        !m_smokeBvhFramePlanningFuture.valid() &&
+        !bvhFramePlanningAlreadyCached &&
+        !bvhFramePlanningAlreadyQueued)
+    {
+        m_smokeBvhFramePlanningAsyncTiming = RtPathTraceCpuWorkTiming();
+        m_smokeBvhFramePlanningAsyncTiming.snapshotCaptureMs =
+            static_cast<double>(bvhFrameSnapshotMs);
+        m_smokeBvhFramePlanningAsyncGeneration = bvhFramePlanningGeneration;
+        m_smokeBvhFramePlanningAsyncGenerationValid = true;
+        m_smokeBvhFramePlanningAsyncLaunchMs = Sys_Milliseconds();
+        m_smokeBvhFramePlanningFuture = std::async(
+            std::launch::async,
+            [bvhFramePlanningSnapshot]() {
+                return BuildSmokeBvhFramePlanningTimedResult(bvhFramePlanningSnapshot);
+            });
+    }
     const RtSmokeStaticBucketWorkPlan& staticBucketWorkPlan =
         bvhFramePlanningResult.staticBucketWorkPlan;
     sceneLogDesc.staticBvhResidentBuckets = staticBucketWorkPlan.activeSetPlan.residentBuckets;
@@ -6103,8 +6237,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.rigidRouteNamespaceShifted = staticBucketWorkPlan.routeNamespace.rigidRouteBaseShifted;
     const RtSmokeBvhFrameToken& bvhFrameToken = bvhFramePlanningResult.frameToken;
     const RtSmokeBvhDirtyPlan& bvhDirtyPlan = bvhFramePlanningResult.dirtyPlan;
-    m_smokeBvhDirtyPreviousToken = bvhFrameToken.dirtyToken;
-    m_smokeBvhDirtyPreviousTokenValid = true;
+    if (bvhFramePlanningAcceptedGeneration)
+    {
+        m_smokeBvhDirtyPreviousToken = bvhFrameToken.dirtyToken;
+        m_smokeBvhDirtyPreviousTokenValid = true;
+    }
     sceneLogDesc.bvhDirtyPreviousValid = bvhFramePlanningInput.previousDirtyTokenValid;
     sceneLogDesc.bvhGeometryContentChanged = bvhDirtyPlan.geometryContentChanged;
     sceneLogDesc.bvhActiveGeometryContentChanged = bvhDirtyPlan.activeGeometryContentChanged;

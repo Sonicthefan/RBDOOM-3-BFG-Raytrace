@@ -40,6 +40,8 @@ extern idCVar r_pathTracingEmissiveInventoryMaxTriangles;
 extern idCVar r_pathTracingSceneSource;
 extern idCVar r_pathTracingSceneSourceCompare;
 extern idCVar r_pathTracingSceneSource2RigidEntities;
+extern idCVar r_pathTracingAsyncBvh;
+extern idCVar r_pathTracingAsyncBvhJobs;
 extern idCVar r_pathTracingCpuPlanningAsync;
 extern idCVar r_pathTracingCpuPlanningDump;
 extern idCVar r_pathTracingInstanceUniverseDump;
