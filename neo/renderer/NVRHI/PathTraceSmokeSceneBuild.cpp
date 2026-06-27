@@ -5499,7 +5499,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     RtPathTraceCpuWorkGeneration accelerationPlanGeneration;
     accelerationPlanGeneration.frameIndex = 0;
     accelerationPlanGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
-    accelerationPlanGeneration.geometryGeneration = geometryUniverseStats.generation;
+    // BuildSmokeAccelerationPlan consumes only accelerationPlanInput. The
+    // input token below covers static signature/cache state and dynamic counts,
+    // so avoid invalidating async work on unrelated geometry-universe churn.
+    accelerationPlanGeneration.geometryGeneration = 0;
     // BuildSmokeAccelerationPlan consumes only geometry BLAS inputs. Material
     // payload changes are tracked by the material table path, not this worker.
     accelerationPlanGeneration.materialGeneration = 0;
