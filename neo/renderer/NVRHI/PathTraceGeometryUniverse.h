@@ -711,6 +711,13 @@ public:
     };
 
 private:
+    struct RetiredRigidBlasRecord
+    {
+        nvrhi::rt::AccelStructHandle rigidBlas;
+        uint64 retireFrame = 0;
+        uint64 retireGeneration = 0;
+    };
+
     struct RigidResidentInstanceRecord
     {
         RtPathTraceRigidRouteInstanceObservation observation;
@@ -721,6 +728,8 @@ private:
 
     RtSmokePersistentStaticSurfaceRecord* FindStaticSurfaceMutable(uint64 key);
     RigidMeshCandidateRecord* FindOrCreateRigidMeshCandidate(const RtPathTraceRigidMeshCandidateObservation& observation, bool& cacheHit);
+    void RetireRigidBlas(RigidMeshCandidateRecord& record);
+    void ReleaseExpiredRetiredRigidBlas();
     void ClearRigidResidencyCaches();
     void ResetRigidMeshCandidateFrameStats();
     void AddRigidMeshCandidateSample(const RtPathTraceRigidMeshCandidateObservation& observation, bool eligible, uint32_t rejectFlags, int seenCount);
@@ -749,6 +758,7 @@ private:
     std::vector<uint32_t> m_previousStaticTriangleClassCache;
     std::vector<uint32_t> m_previousStaticTriangleMaterialCache;
     std::vector<RigidMeshCandidateRecord> m_rigidMeshCandidateRecords;
+    std::vector<RetiredRigidBlasRecord> m_retiredRigidBlasRecords;
     std::unordered_map<uint64, size_t> m_rigidMeshCandidateLookup;
     std::unordered_set<uint64> m_frameRigidMeshCandidateHashes;
     std::vector<RigidResidentInstanceRecord> m_rigidResidentRecords;
