@@ -203,21 +203,21 @@ idCVar r_pathTracingSceneSource2RigidEntities(
 
 idCVar r_pathTracingAsyncBvh(
     "r_pathTracingAsyncBvh",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Master gate for async/buffered off-screen BVH. 0 = synchronous legacy." );
+    "Master gate for async/buffered off-screen BVH. 0 = synchronous fallback." );
 
 idCVar r_pathTracingAsyncBvhJobs(
     "r_pathTracingAsyncBvhJobs",
     "2",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Requested async BVH CPU planning worker count; currently gates the background snapshot worker path." );
+    "Requested async BVH CPU planning worker count; values <= 0 disable the background snapshot worker path." );
 
 idCVar r_pathTracingCpuPlanningAsync(
     "r_pathTracingCpuPlanningAsync",
     "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Diagnostic opt-in: run PT CPU acceleration planning from an owned snapshot on a background std::async task when possible; late or stale work falls back synchronously on the render thread" );
+    "Diagnostic opt-in: run PT CPU acceleration planning from an owned snapshot on a background worker when possible; late or stale work falls back synchronously on the render thread" );
 
 idCVar r_pathTracingCpuPlanningDump(
     "r_pathTracingCpuPlanningDump",
