@@ -2037,6 +2037,51 @@ int PathTracePrimaryPass::ReleaseExpiredRetiredRayTracingSmokeScenePackages(uint
     return releasedCount;
 }
 
+void PathTracePrimaryPass::ResetRayTracingSmokeAsyncCpuWork()
+{
+    m_smokeAccelerationPlanFuture.Reset();
+    m_smokeRigidTlasPlanFuture.Reset();
+    m_smokeRigidRouteBuildFuture.Reset();
+    m_smokeBvhFramePlanningFuture.Reset();
+
+    m_smokeCpuWorkState = RtPathTraceCpuWorkState();
+    m_smokeRigidTlasCpuWorkState = RtPathTraceCpuWorkState();
+    m_smokeRigidRouteBuildCpuWorkState = RtPathTraceCpuWorkState();
+    m_smokeBvhFramePlanningCpuWorkState = RtPathTraceCpuWorkState();
+
+    m_smokeAccelerationPlanAsyncGeneration = RtPathTraceCpuWorkGeneration();
+    m_smokeAccelerationPlanAsyncCachedGeneration = RtPathTraceCpuWorkGeneration();
+    m_smokeAccelerationPlanAsyncTiming = RtPathTraceCpuWorkTiming();
+    m_smokeAccelerationPlanAsyncCachedPlan = RtSmokeAccelerationPlan();
+    m_smokeAccelerationPlanAsyncLaunchMs = 0;
+    m_smokeAccelerationPlanAsyncGenerationValid = false;
+    m_smokeAccelerationPlanAsyncCachedPlanValid = false;
+
+    m_smokeRigidTlasPlanAsyncGeneration = RtPathTraceCpuWorkGeneration();
+    m_smokeRigidTlasPlanAsyncCachedGeneration = RtPathTraceCpuWorkGeneration();
+    m_smokeRigidTlasPlanAsyncTiming = RtPathTraceCpuWorkTiming();
+    m_smokeRigidTlasPlanAsyncCachedPlan = RtSmokeRigidTlasPlan();
+    m_smokeRigidTlasPlanAsyncLaunchMs = 0;
+    m_smokeRigidTlasPlanAsyncGenerationValid = false;
+    m_smokeRigidTlasPlanAsyncCachedPlanValid = false;
+
+    m_smokeRigidRouteBuildAsyncGeneration = RtPathTraceCpuWorkGeneration();
+    m_smokeRigidRouteBuildAsyncCachedGeneration = RtPathTraceCpuWorkGeneration();
+    m_smokeRigidRouteBuildAsyncTiming = RtPathTraceCpuWorkTiming();
+    m_smokeRigidRouteBuildAsyncCachedBuild = RtPathTraceRigidRouteBuild();
+    m_smokeRigidRouteBuildAsyncLaunchMs = 0;
+    m_smokeRigidRouteBuildAsyncGenerationValid = false;
+    m_smokeRigidRouteBuildAsyncCachedBuildValid = false;
+
+    m_smokeBvhFramePlanningAsyncGeneration = RtPathTraceCpuWorkGeneration();
+    m_smokeBvhFramePlanningAsyncCachedGeneration = RtPathTraceCpuWorkGeneration();
+    m_smokeBvhFramePlanningAsyncTiming = RtPathTraceCpuWorkTiming();
+    m_smokeBvhFramePlanningAsyncCachedResult = RtSmokeBvhFramePlanningResult();
+    m_smokeBvhFramePlanningAsyncLaunchMs = 0;
+    m_smokeBvhFramePlanningAsyncGenerationValid = false;
+    m_smokeBvhFramePlanningAsyncCachedResultValid = false;
+}
+
 void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
 {
     if (r_pathTracingWaitForIdleOnPortalChange.GetInteger() != 0 && (HasRetainableRayTracingSmokeScenePackage() || !m_retiredSmokeScenePackages.empty()))
@@ -2056,16 +2101,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeStaticBlasCacheValid = false;
     m_smokeStaticBlasSignature = 0;
     m_smokeSceneUniverseStaticBuildGeneration = 0;
-    m_smokeAccelerationPlanAsyncGenerationValid = false;
-    m_smokeAccelerationPlanAsyncCachedPlanValid = false;
-    m_smokeBvhFramePlanningAsyncGenerationValid = false;
-    m_smokeBvhFramePlanningAsyncCachedResultValid = false;
-    m_smokeBvhFramePlanningAsyncCachedResult = RtSmokeBvhFramePlanningResult();
-    m_smokeBvhFramePlanningCpuWorkState = RtPathTraceCpuWorkState();
-    m_smokeRigidRouteBuildAsyncGenerationValid = false;
-    m_smokeRigidRouteBuildAsyncCachedBuildValid = false;
-    m_smokeRigidRouteBuildAsyncCachedBuild = RtPathTraceRigidRouteBuild();
-    m_smokeRigidRouteBuildCpuWorkState = RtPathTraceCpuWorkState();
+    ResetRayTracingSmokeAsyncCpuWork();
     m_smokeBvhDirtyPreviousTokenValid = false;
     m_smokeBvhDirtyPreviousToken = RtSmokeBvhDirtyTokenState();
     m_smokeSceneRebuildLogged = false;

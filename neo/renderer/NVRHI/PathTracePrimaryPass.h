@@ -130,6 +130,15 @@ public:
         }
     }
 
+    void Reset()
+    {
+        Stop();
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_stopRequested = false;
+        m_result = Result();
+    }
+
 private:
     void EnsureThreadStarted()
     {
@@ -218,6 +227,7 @@ private:
     void InitRayTracingSmokeTest();
     bool InitRayTracingSmokeRestirPipeline(int restirLibraryKind);
     bool ResizeRayTracingSmokeOutput(int width, int height);
+    void ResetRayTracingSmokeAsyncCpuWork();
     void ResetRayTracingSmokeSceneResources();
     void CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc);
     bool HasRetainableRayTracingSmokeScenePackage() const;

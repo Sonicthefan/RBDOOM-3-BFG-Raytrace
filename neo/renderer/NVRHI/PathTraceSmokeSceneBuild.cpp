@@ -2718,10 +2718,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
             m_smokeSceneUniverseStaticBuildGeneration = 0;
-            m_smokeRigidRouteBuildAsyncGenerationValid = false;
-            m_smokeRigidRouteBuildAsyncCachedBuildValid = false;
-            m_smokeRigidRouteBuildAsyncCachedBuild = RtPathTraceRigidRouteBuild();
-            m_smokeRigidRouteBuildCpuWorkState = RtPathTraceCpuWorkState();
+            ResetRayTracingSmokeAsyncCpuWork();
+            m_smokeBvhDirtyPreviousTokenValid = false;
+            m_smokeBvhDirtyPreviousToken = RtSmokeBvhDirtyTokenState();
             m_smokeSceneRebuildLogged = false;
             ClearSmokeMaterialTextureRegistry();
             ClearSmokeMaterialUniverse();
