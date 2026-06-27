@@ -62,9 +62,11 @@ struct RtSmokeRigidRouteSideBufferSlot
     nvrhi::BufferHandle triangleMaterialIndexBuffer;
     nvrhi::BufferHandle instanceBuffer;
     RtPathTraceCpuWorkGeneration generation;
-    uint64 uploadSignature = 0;
+    uint64 geometryUploadSignature = 0;
+    uint64 instanceUploadSignature = 0;
     bool generationValid = false;
-    bool uploadSignatureValid = false;
+    bool geometryUploadSignatureValid = false;
+    bool instanceUploadSignatureValid = false;
 };
 
 class PathTracePrimaryPass {

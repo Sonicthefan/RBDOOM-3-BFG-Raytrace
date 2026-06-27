@@ -1255,13 +1255,22 @@ bool SmokeBufferHasPayloadCapacity(nvrhi::BufferHandle buffer, size_t byteSize, 
     return buffer && buffer->getDesc().byteSize >= SmokeRequiredBufferBytes(byteSize, structStride);
 }
 
-uint64_t BuildSmokeRigidRouteUploadSignature(const RtPathTraceRigidRouteBuild& build)
+uint64_t BuildSmokeRigidRouteGeometryUploadSignature(const RtPathTraceRigidRouteBuild& build)
 {
     const RtSmokePlanDataSpan spans[] = {
         MakeSmokePlanDataSpan(build.vertices),
         MakeSmokePlanDataSpan(build.indexes),
         MakeSmokePlanDataSpan(build.triangleMaterials),
-        MakeSmokePlanDataSpan(build.triangleMaterialIndexes),
+        MakeSmokePlanDataSpan(build.triangleMaterialIndexes)
+    };
+    return BuildSmokePlanDataSpanSignature(
+        spans,
+        static_cast<int>(sizeof(spans) / sizeof(spans[0])));
+}
+
+uint64_t BuildSmokeRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
+{
+    const RtSmokePlanDataSpan spans[] = {
         MakeSmokePlanDataSpan(build.instances)
     };
     return BuildSmokePlanDataSpanSignature(
@@ -1448,6 +1457,27 @@ bool SmokeRigidRouteSideBufferSlotHasCapacity(
         SmokeBufferHasPayloadCapacity(slot.instanceBuffer, build.instances.size() * sizeof(PathTraceRigidRouteInstance), sizeof(PathTraceRigidRouteInstance));
 }
 
+bool SmokeRigidRouteSideBufferSlotHasGeometryCapacity(
+    const RtSmokeRigidRouteSideBufferSlot& slot,
+    const RtPathTraceRigidRouteBuild& build)
+{
+    return
+        SmokeBufferHasPayloadCapacity(slot.vertexBuffer, build.vertices.size() * sizeof(PathTraceSmokeVertex), sizeof(PathTraceSmokeVertex)) &&
+        SmokeBufferHasPayloadCapacity(slot.indexBuffer, build.indexes.size() * sizeof(uint32_t), sizeof(uint32_t)) &&
+        SmokeBufferHasPayloadCapacity(slot.triangleMaterialBuffer, build.triangleMaterials.size() * sizeof(uint32_t), sizeof(uint32_t)) &&
+        SmokeBufferHasPayloadCapacity(slot.triangleMaterialIndexBuffer, build.triangleMaterialIndexes.size() * sizeof(uint32_t), sizeof(uint32_t));
+}
+
+bool SmokeRigidRouteSideBufferSlotHasInstanceCapacity(
+    const RtSmokeRigidRouteSideBufferSlot& slot,
+    const RtPathTraceRigidRouteBuild& build)
+{
+    return SmokeBufferHasPayloadCapacity(
+        slot.instanceBuffer,
+        build.instances.size() * sizeof(PathTraceRigidRouteInstance),
+        sizeof(PathTraceRigidRouteInstance));
+}
+
 bool SmokeRigidRouteSideBufferSlotHandlesMatch(
     const RtSmokeRigidRouteSideBufferSlot& slot,
     const RtSmokeSceneBufferHandles& buffers)
@@ -1460,15 +1490,26 @@ bool SmokeRigidRouteSideBufferSlotHandlesMatch(
         slot.instanceBuffer == buffers.rigidRouteInstanceBuffer;
 }
 
-bool SmokeRigidRouteSideBufferSlotCanSkipUpload(
+bool SmokeRigidRouteSideBufferSlotCanSkipGeometryUpload(
     const RtSmokeRigidRouteSideBufferSlot& slot,
     const RtPathTraceRigidRouteBuild& build,
-    uint64_t uploadSignature)
+    uint64_t geometryUploadSignature)
 {
     return
-        slot.uploadSignatureValid &&
-        slot.uploadSignature == uploadSignature &&
-        SmokeRigidRouteSideBufferSlotHasCapacity(slot, build);
+        slot.geometryUploadSignatureValid &&
+        slot.geometryUploadSignature == geometryUploadSignature &&
+        SmokeRigidRouteSideBufferSlotHasGeometryCapacity(slot, build);
+}
+
+bool SmokeRigidRouteSideBufferSlotCanSkipInstanceUpload(
+    const RtSmokeRigidRouteSideBufferSlot& slot,
+    const RtPathTraceRigidRouteBuild& build,
+    uint64_t instanceUploadSignature)
+{
+    return
+        slot.instanceUploadSignatureValid &&
+        slot.instanceUploadSignature == instanceUploadSignature &&
+        SmokeRigidRouteSideBufferSlotHasInstanceCapacity(slot, build);
 }
 
 template< typename T >
@@ -3709,8 +3750,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         rigidRouteBuild.indexes,
         rigidRouteBuild.triangleMaterialIndexes,
         dynamicMaterialRecords);
-    const uint64_t rigidRouteUploadSignature = buildRigidRouteBuffers
-        ? BuildSmokeRigidRouteUploadSignature(rigidRouteBuild)
+    const uint64_t rigidRouteGeometryUploadSignature = buildRigidRouteBuffers
+        ? BuildSmokeRigidRouteGeometryUploadSignature(rigidRouteBuild)
+        : 0;
+    const uint64_t rigidRouteInstanceUploadSignature = buildRigidRouteBuffers
+        ? BuildSmokeRigidRouteInstanceUploadSignature(rigidRouteBuild)
         : 0;
     if (r_pathTracingSmokeLog.GetInteger() != 0 &&
         (dynamicTexMatrixVertices > 0 || rigidRouteTexMatrixVertices > 0) &&
@@ -5105,15 +5149,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeRigidRouteSideBufferWriteSlot = rigidRouteSideBufferWriteSlot;
     }
     bool skipRigidRouteSideBufferUpload = false;
+    bool skipRigidRouteInstanceBufferUpload = false;
     if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
     {
         const RtSmokeRigidRouteSideBufferSlot& sideSlot =
             m_smokeRigidRouteSideBufferSlots[rigidRouteSideBufferWriteSlot];
         skipRigidRouteSideBufferUpload =
-            SmokeRigidRouteSideBufferSlotCanSkipUpload(
+            SmokeRigidRouteSideBufferSlotCanSkipGeometryUpload(
                 sideSlot,
                 rigidRouteBuild,
-                rigidRouteUploadSignature);
+                rigidRouteGeometryUploadSignature);
+        skipRigidRouteInstanceBufferUpload =
+            SmokeRigidRouteSideBufferSlotCanSkipInstanceUpload(
+                sideSlot,
+                rigidRouteBuild,
+                rigidRouteInstanceUploadSignature);
     }
 
     RtSmokeSceneBufferCreateDesc bufferCreateDesc;
@@ -5248,6 +5298,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             skipRigidRouteSideBufferUpload = false;
         }
+        if (skipRigidRouteInstanceBufferUpload && rigidRouteSideBufferHandlesChanged)
+        {
+            skipRigidRouteInstanceBufferUpload = false;
+        }
         sideSlot.vertexBuffer = smokeBuffers.rigidRouteVertexBuffer;
         sideSlot.indexBuffer = smokeBuffers.rigidRouteIndexBuffer;
         sideSlot.triangleMaterialBuffer = smokeBuffers.rigidRouteTriangleMaterialBuffer;
@@ -5257,8 +5311,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         sideSlot.generationValid = true;
         if (rigidRouteSideBufferHandlesChanged)
         {
-            sideSlot.uploadSignature = 0;
-            sideSlot.uploadSignatureValid = false;
+            sideSlot.geometryUploadSignature = 0;
+            sideSlot.instanceUploadSignature = 0;
+            sideSlot.geometryUploadSignatureValid = false;
+            sideSlot.instanceUploadSignatureValid = false;
         }
     }
     nvrhi::BufferHandle smokeStaticVertexBuffer = smokeBuffers.staticVertexBuffer;
@@ -5754,7 +5810,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeRigidRouteIndexBuffer, rigidRouteBuild.indexes, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialBuffer, rigidRouteBuild.triangleMaterials, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
         MakeSmokeVectorUploadItem(smokeRigidRouteTriangleMaterialIndexBuffer, rigidRouteBuild.triangleMaterialIndexes, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
-        MakeSmokeVectorUploadItem(smokeRigidRouteInstanceBuffer, rigidRouteBuild.instances, nvrhi::ResourceStates::ShaderResource, skipRigidRouteSideBufferUpload),
+        MakeSmokeVectorUploadItem(smokeRigidRouteInstanceBuffer, rigidRouteBuild.instances, nvrhi::ResourceStates::ShaderResource, skipRigidRouteInstanceBufferUpload),
         MakeSmokeVectorUploadItem(smokeSkinnedSourceVertexBuffer, skinnedGpuScaffold.sourceVertices, nvrhi::ResourceStates::ShaderResource, false),
         skinnedGpuComputeReady && !skinnedGpuComputeTargetsDynamicVertices
             ? MakeSmokeBufferStateItem(smokeSkinnedCurrentOutputVertexBuffer, nvrhi::ResourceStates::UnorderedAccess)
@@ -6017,12 +6073,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t) +
         rigidRouteBuild.triangleMaterialIndexes.size() * sizeof(uint32_t);
     const uint64_t rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
-    const uint64_t rigidRoutePayloadBytes = rigidRouteGeometryBytes + rigidRouteInstanceBytes;
-    const uint64_t rigidRouteUploadBytes = skipRigidRouteSideBufferUpload ? 0ull : rigidRoutePayloadBytes;
-    const uint64_t rigidRouteSkippedUploadBytes = skipRigidRouteSideBufferUpload ? rigidRoutePayloadBytes : 0ull;
+    const uint64_t rigidRouteUploadBytes =
+        (skipRigidRouteSideBufferUpload ? 0ull : rigidRouteGeometryBytes) +
+        (skipRigidRouteInstanceBufferUpload ? 0ull : rigidRouteInstanceBytes);
+    const uint64_t rigidRouteSkippedUploadBytes =
+        (skipRigidRouteSideBufferUpload ? rigidRouteGeometryBytes : 0ull) +
+        (skipRigidRouteInstanceBufferUpload ? rigidRouteInstanceBytes : 0ull);
     if (r_pathTracingRigidRouteDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload/skip)=%llu/%llu/%llu/%llu buildMs=%d async/cache/queued=%d/%d/%d sideRing(skip/slot/read)=%d/%d/%d residency(cached/resident/retained/meshLive/meshAged/retiredBlas/feedCap)=%d/%d/%d/%d/%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
+        common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload/skip)=%llu/%llu/%llu/%llu buildMs=%d async/cache/queued=%d/%d/%d sideRing(skipGeom/skipInst/slot/read)=%d/%d/%d/%d residency(cached/resident/retained/meshLive/meshAged/retiredBlas/feedCap)=%d/%d/%d/%d/%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
             sceneSource,
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             buildRigidRouteBuffers ? 1 : 0,
@@ -6045,6 +6104,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             rigidRouteBuildAsyncCached ? 1 : 0,
             rigidRouteBuildAsyncQueued ? 1 : 0,
             skipRigidRouteSideBufferUpload ? 1 : 0,
+            skipRigidRouteInstanceBufferUpload ? 1 : 0,
             rigidRouteSideBufferWriteSlot,
             m_smokeRigidRouteSideBufferReadSlot,
             rigidResidencyStats.cachedRigidInstances,
@@ -6473,8 +6533,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         RtSmokeRigidRouteSideBufferSlot& sideSlot =
             m_smokeRigidRouteSideBufferSlots[rigidRouteSideBufferWriteSlot];
-        sideSlot.uploadSignature = rigidRouteUploadSignature;
-        sideSlot.uploadSignatureValid = true;
+        sideSlot.geometryUploadSignature = rigidRouteGeometryUploadSignature;
+        sideSlot.instanceUploadSignature = rigidRouteInstanceUploadSignature;
+        sideSlot.geometryUploadSignatureValid = true;
+        sideSlot.instanceUploadSignatureValid = true;
         m_smokeRigidRouteSideBufferReadSlot = rigidRouteSideBufferWriteSlot;
     }
     m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
