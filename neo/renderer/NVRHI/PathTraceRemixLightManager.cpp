@@ -6,7 +6,6 @@
 #include "PathTraceEmissiveCandidates.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstring>
 #include <map>
 #include <utility>
@@ -168,17 +167,6 @@ uint64_t RemixHashVector(uint64_t hash, const std::vector<T>& values)
         hash = RemixHashBytes(hash, values.data(), values.size() * sizeof(T));
     }
     return hash;
-}
-
-template< typename T >
-uint64_t RemixHashVectorPointer(uint64_t hash, const std::vector<T>* values)
-{
-    if (!values)
-    {
-        const uint64_t count = 0;
-        return RemixHashValue(hash, count);
-    }
-    return RemixHashVector(hash, *values);
 }
 
 bool RemixLightMapIndexValid(uint32_t index)
@@ -553,138 +541,6 @@ void PathTraceRemixLightManager::ApplyPrepareResult(
     m_haveLastSignatures = result.haveLastSignatures;
     m_lightUniverseHistoryValid = result.lightUniverseHistoryValid;
     m_lastPrepareWasLightUniverse = result.lastPrepareWasLightUniverse;
-}
-
-uint64_t PathTraceRemixLightManager::BuildPrepareStateToken() const
-{
-    uint64_t hash = 1469598103934665603ull;
-    const uint64_t version = 1;
-    hash = RemixHashValue(hash, version);
-    hash = RemixHashValue(hash, m_lastStructuralSignature);
-    hash = RemixHashValue(hash, m_lastMappingSignature);
-    hash = RemixHashValue(hash, m_lastPayloadSignature);
-    hash = RemixHashValue(hash, m_haveLastSignatures ? 1u : 0u);
-    hash = RemixHashValue(hash, m_lightUniverseHistoryValid ? 1u : 0u);
-    hash = RemixHashValue(hash, m_lastPrepareWasLightUniverse ? 1u : 0u);
-    hash = RemixHashValue(hash, m_stats.structuralSignature);
-    hash = RemixHashValue(hash, m_stats.mappingSignature);
-    hash = RemixHashValue(hash, m_stats.payloadSignature);
-    return hash;
-}
-
-PathTraceRemixLightManagerPrepareSnapshot CapturePathTraceRemixLightManagerPrepareSnapshot(
-    const PathTraceRemixLightManagerPrepareDesc& desc)
-{
-    PathTraceRemixLightManagerPrepareSnapshot snapshot;
-    if (desc.framePackage)
-    {
-        snapshot.framePackage = *desc.framePackage;
-    }
-    if (desc.currentEmissiveTriangles)
-    {
-        snapshot.currentEmissiveTriangles = *desc.currentEmissiveTriangles;
-    }
-    if (desc.previousEmissiveTriangles)
-    {
-        snapshot.previousEmissiveTriangles = *desc.previousEmissiveTriangles;
-    }
-    if (desc.emissiveRemap)
-    {
-        snapshot.emissiveRemap = *desc.emissiveRemap;
-    }
-    if (desc.currentAnalyticLights)
-    {
-        snapshot.currentAnalyticLights = *desc.currentAnalyticLights;
-    }
-    if (desc.previousAnalyticLights)
-    {
-        snapshot.previousAnalyticLights = *desc.previousAnalyticLights;
-    }
-    if (desc.currentAnalyticIdentities)
-    {
-        snapshot.currentAnalyticIdentities = *desc.currentAnalyticIdentities;
-    }
-    if (desc.previousAnalyticIdentities)
-    {
-        snapshot.previousAnalyticIdentities = *desc.previousAnalyticIdentities;
-    }
-    if (desc.analyticRemap)
-    {
-        snapshot.analyticRemap = *desc.analyticRemap;
-    }
-    snapshot.emissiveSampleCount = desc.emissiveSampleCount;
-    snapshot.doomAnalyticSampleCount = desc.doomAnalyticSampleCount;
-    snapshot.analyticStateCompatibilityTolerance = desc.analyticStateCompatibilityTolerance;
-    snapshot.domain = desc.domain;
-    snapshot.strictRemixMapping = desc.strictRemixMapping;
-    snapshot.lightUniverseEnabled = desc.lightUniverseEnabled;
-    return snapshot;
-}
-
-PathTraceRemixLightManagerPrepareDesc MakePathTraceRemixLightManagerPrepareDesc(
-    const PathTraceRemixLightManagerPrepareSnapshot& snapshot)
-{
-    PathTraceRemixLightManagerPrepareDesc desc;
-    desc.framePackage = &snapshot.framePackage;
-    desc.currentEmissiveTriangles = &snapshot.currentEmissiveTriangles;
-    desc.previousEmissiveTriangles = &snapshot.previousEmissiveTriangles;
-    desc.emissiveRemap = &snapshot.emissiveRemap;
-    desc.currentAnalyticLights = &snapshot.currentAnalyticLights;
-    desc.previousAnalyticLights = &snapshot.previousAnalyticLights;
-    desc.currentAnalyticIdentities = &snapshot.currentAnalyticIdentities;
-    desc.previousAnalyticIdentities = &snapshot.previousAnalyticIdentities;
-    desc.analyticRemap = &snapshot.analyticRemap;
-    desc.emissiveSampleCount = snapshot.emissiveSampleCount;
-    desc.doomAnalyticSampleCount = snapshot.doomAnalyticSampleCount;
-    desc.analyticStateCompatibilityTolerance = snapshot.analyticStateCompatibilityTolerance;
-    desc.domain = snapshot.domain;
-    desc.strictRemixMapping = snapshot.strictRemixMapping;
-    desc.lightUniverseEnabled = snapshot.lightUniverseEnabled;
-    return desc;
-}
-
-uint64_t BuildPathTraceRemixLightManagerPrepareInputToken(
-    const PathTraceRemixLightManagerPrepareDesc& desc)
-{
-    uint64_t hash = 1469598103934665603ull;
-    const uint64_t version = 2;
-    hash = RemixHashValue(hash, version);
-
-    const uint32_t resetReasonFlags = desc.framePackage ? desc.framePackage->resetReasonFlags : 0u;
-    hash = RemixHashValue(hash, resetReasonFlags);
-    hash = RemixHashValue(hash, desc.emissiveSampleCount);
-    hash = RemixHashValue(hash, desc.doomAnalyticSampleCount);
-    hash = RemixHashValue(hash, desc.analyticStateCompatibilityTolerance);
-    hash = RemixHashValue(hash, desc.domain);
-    hash = RemixHashValue(hash, desc.strictRemixMapping ? 1u : 0u);
-    hash = RemixHashValue(hash, desc.lightUniverseEnabled ? 1u : 0u);
-    hash = RemixHashVectorPointer(hash, desc.currentEmissiveTriangles);
-    hash = RemixHashVectorPointer(hash, desc.currentAnalyticLights);
-    hash = RemixHashVectorPointer(hash, desc.currentAnalyticIdentities);
-    if (!desc.lightUniverseEnabled)
-    {
-        hash = RemixHashVectorPointer(hash, desc.previousEmissiveTriangles);
-        hash = RemixHashVectorPointer(hash, desc.emissiveRemap);
-        hash = RemixHashVectorPointer(hash, desc.previousAnalyticLights);
-        hash = RemixHashVectorPointer(hash, desc.previousAnalyticIdentities);
-        hash = RemixHashVectorPointer(hash, desc.analyticRemap);
-    }
-    return hash;
-}
-
-PathTraceRemixLightManagerTimedPrepareResult BuildPathTraceRemixLightManagerTimedPrepareResult(
-    const PathTraceRemixLightManager& managerState,
-    const PathTraceRemixLightManagerPrepareSnapshot& snapshot)
-{
-    const auto start = std::chrono::steady_clock::now();
-    PathTraceRemixLightManagerTimedPrepareResult timedResult;
-    const PathTraceRemixLightManagerPrepareDesc desc =
-        MakePathTraceRemixLightManagerPrepareDesc(snapshot);
-    timedResult.result = managerState.BuildPrepareResult(desc);
-    const auto end = std::chrono::steady_clock::now();
-    timedResult.prepareTimeMicros = static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
-    return timedResult;
 }
 
 const std::vector<PathTraceUnifiedLightRecord>& PathTraceRemixLightManager::GetCurrentLightPayloads() const

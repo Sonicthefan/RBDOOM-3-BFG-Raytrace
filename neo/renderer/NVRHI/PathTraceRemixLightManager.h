@@ -6,14 +6,18 @@
 // light type ranges, sample-count metadata, and signatures. It does not own GPU
 // buffers, RAB routing, RTXDI dispatch, or reservoir clear policy.
 
-#include "PathTraceDoomLights.h"
-#include "PathTraceEmissiveCandidates.h"
 #include "PathTraceRemixFramePrepare.h"
 #include "PathTraceUnifiedLight.h"
 
 #include <array>
 #include <cstdint>
 #include <vector>
+
+struct PathTraceDoomAnalyticLightCandidate;
+struct PathTraceDoomAnalyticLightCandidateIdentity;
+struct PathTraceDoomAnalyticLightRemap;
+struct PathTraceEmissiveLightRemap;
+struct PathTraceSmokeEmissiveTriangle;
 
 static constexpr uint32_t PATH_TRACE_REMIX_LIGHT_INVALID_INDEX = 0xffffffffu;
 
@@ -141,31 +145,6 @@ struct PathTraceRemixLightManagerPrepareResult
     bool lastPrepareWasLightUniverse = false;
 };
 
-struct PathTraceRemixLightManagerPrepareSnapshot
-{
-    PathTraceRemixFramePrepareObservationPackage framePackage;
-    std::vector<PathTraceSmokeEmissiveTriangle> currentEmissiveTriangles;
-    std::vector<PathTraceSmokeEmissiveTriangle> previousEmissiveTriangles;
-    std::vector<PathTraceEmissiveLightRemap> emissiveRemap;
-    std::vector<PathTraceDoomAnalyticLightCandidate> currentAnalyticLights;
-    std::vector<PathTraceDoomAnalyticLightCandidate> previousAnalyticLights;
-    std::vector<PathTraceDoomAnalyticLightCandidateIdentity> currentAnalyticIdentities;
-    std::vector<PathTraceDoomAnalyticLightCandidateIdentity> previousAnalyticIdentities;
-    std::vector<PathTraceDoomAnalyticLightRemap> analyticRemap;
-    uint32_t emissiveSampleCount = 0;
-    uint32_t doomAnalyticSampleCount = 0;
-    float analyticStateCompatibilityTolerance = 0.0f;
-    uint32_t domain = 2;
-    bool strictRemixMapping = true;
-    bool lightUniverseEnabled = false;
-};
-
-struct PathTraceRemixLightManagerTimedPrepareResult
-{
-    PathTraceRemixLightManagerPrepareResult result;
-    uint64_t prepareTimeMicros = 0;
-};
-
 class PathTraceRemixLightManager
 {
 public:
@@ -196,7 +175,6 @@ public:
         const PathTraceRemixLightManagerPrepareDesc& desc) const;
     void ApplyPrepareResult(
         PathTraceRemixLightManagerPrepareResult&& result);
-    uint64_t BuildPrepareStateToken() const;
 
     const std::vector<PathTraceUnifiedLightRecord>& GetCurrentLightPayloads() const;
     const std::vector<PathTraceUnifiedLightRecord>& GetPreviousLightPayloads() const;
@@ -233,16 +211,3 @@ private:
     bool m_lightUniverseHistoryValid = false;
     bool m_lastPrepareWasLightUniverse = false;
 };
-
-PathTraceRemixLightManagerPrepareSnapshot CapturePathTraceRemixLightManagerPrepareSnapshot(
-    const PathTraceRemixLightManagerPrepareDesc& desc);
-
-PathTraceRemixLightManagerPrepareDesc MakePathTraceRemixLightManagerPrepareDesc(
-    const PathTraceRemixLightManagerPrepareSnapshot& snapshot);
-
-uint64_t BuildPathTraceRemixLightManagerPrepareInputToken(
-    const PathTraceRemixLightManagerPrepareDesc& desc);
-
-PathTraceRemixLightManagerTimedPrepareResult BuildPathTraceRemixLightManagerTimedPrepareResult(
-    const PathTraceRemixLightManager& managerState,
-    const PathTraceRemixLightManagerPrepareSnapshot& snapshot);
