@@ -5995,16 +5995,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t dynamicUploadBytes = SumSmokeUploadBytes(uploadItems, 10, 5);
     const uint64_t materialUploadBytes = SumSmokeUploadBytes(uploadItems, 15, 2);
     const uint64_t lightUploadBytes = SumSmokeUploadBytes(uploadItems, 17, 17);
-    const uint64_t rigidRouteUploadBytes = SumSmokeUploadBytes(uploadItems, 34, 5);
     const uint64_t rigidRouteGeometryBytes =
         rigidRouteBuild.vertices.size() * sizeof(PathTraceSmokeVertex) +
         rigidRouteBuild.indexes.size() * sizeof(uint32_t) +
         rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t) +
         rigidRouteBuild.triangleMaterialIndexes.size() * sizeof(uint32_t);
     const uint64_t rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
+    const uint64_t rigidRoutePayloadBytes = rigidRouteGeometryBytes + rigidRouteInstanceBytes;
+    const uint64_t rigidRouteUploadBytes = skipRigidRouteSideBufferUpload ? 0ull : rigidRoutePayloadBytes;
+    const uint64_t rigidRouteSkippedUploadBytes = skipRigidRouteSideBufferUpload ? rigidRoutePayloadBytes : 0ull;
     if (r_pathTracingRigidRouteDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload)=%llu/%llu/%llu buildMs=%d async/cache/queued=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
+        common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload/skip)=%llu/%llu/%llu/%llu buildMs=%d async/cache/queued=%d/%d/%d sideRing(skip/slot/read)=%d/%d/%d residency(cached/resident/retained/meshLive/meshAged/retiredBlas/feedCap)=%d/%d/%d/%d/%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
             sceneSource,
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             buildRigidRouteBuffers ? 1 : 0,
@@ -6021,10 +6023,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(rigidRouteGeometryBytes),
             static_cast<unsigned long long>(rigidRouteInstanceBytes),
             static_cast<unsigned long long>(rigidRouteUploadBytes),
+            static_cast<unsigned long long>(rigidRouteSkippedUploadBytes),
             rigidRouteBuildMs,
             rigidRouteBuildAcceptedFromAsync ? 1 : 0,
             rigidRouteBuildAsyncCached ? 1 : 0,
             rigidRouteBuildAsyncQueued ? 1 : 0,
+            skipRigidRouteSideBufferUpload ? 1 : 0,
+            rigidRouteSideBufferWriteSlot,
+            m_smokeRigidRouteSideBufferReadSlot,
+            rigidResidencyStats.cachedRigidInstances,
+            rigidResidencyStats.residentInstances,
+            rigidResidencyStats.residentRetainedOffscreen,
+            rigidResidencyStats.meshLive,
+            rigidResidencyStats.meshAgedOut,
+            rigidResidencyStats.retiredBlasPending,
+            rigidResidencyStats.residencyEntityFeedCap,
             rigidRouteBuild.stats.skippedNonRigid,
             rigidRouteBuild.stats.skippedMissingMesh,
             rigidRouteBuild.stats.skippedMissingBlas,

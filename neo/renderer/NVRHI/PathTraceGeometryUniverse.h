@@ -508,8 +508,10 @@ struct RtPathTraceRigidResidencyStats
     int residentDeleted = 0;
     int meshLive = 0;
     int meshAgedOut = 0;
+    int retiredBlasPending = 0;
     int residencyFramesToKeep = 0;
     int residencyMeshFramesToKeep = 0;
+    int residencyEntityFeedCap = 0;
     int residencyAntiCulling = 0;
     int skippedOutsideArea = 0;
     int skippedUnknownArea = 0;

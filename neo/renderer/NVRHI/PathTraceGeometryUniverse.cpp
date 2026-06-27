@@ -3413,7 +3413,7 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
     const char* routeSource = !stats.enabled
         ? "visibleOnly"
         : (stats.residencyV2 ? "residencyV2" : "legacyAreaWalk");
-    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d visibleRigid/staleModel=%d/%d rejectedRigid(static/dynamic/transient/unknown)=%d/%d/%d/%d areaWalk(entity/reject/surface/reject/eligible/dupVisible/dupFrame/addOrWouldAdd)=%d/%d/%d/%d/%d/%d/%d/%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d keep(instance/mesh)=%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
+    common->Printf("PathTracePrimaryPass: PT rigid residency source=%d enabled=%d v2=%d frame=%llu generation=%llu currentArea=%d totalAreas=%d portalSteps=%d selectedAreas=%d edges/blocked=%d/%d residencyClass(static/durable/dynamic/transient/unknown)=%d/%d/%d/%d/%d visibleRigid/staleModel=%d/%d rejectedRigid(static/dynamic/transient/unknown)=%d/%d/%d/%d areaWalk(entity/reject/surface/reject/eligible/dupVisible/dupFrame/addOrWouldAdd)=%d/%d/%d/%d/%d/%d/%d/%d cachedRigid=%d resident=%d seen/cache=%d/%d retainedOffscreen=%d agedOut/deleted=%d/%d meshLive/agedOut=%d/%d retiredBlas=%d keep(instance/mesh/feedCap)=%d/%d/%d antiCull=%d routeReady=%d missing(mesh/blas)=%d/%d skippedOutside/routedUnknownArea=%d/%d routeSource=%s\n",
         sceneSource,
         stats.enabled,
         stats.residencyV2,
@@ -3453,8 +3453,10 @@ void RtSmokeGeometryUniverse::DumpRigidResidencyStats(const RtPathTraceRigidResi
         stats.residentDeleted,
         stats.meshLive,
         stats.meshAgedOut,
+        stats.retiredBlasPending,
         stats.residencyFramesToKeep,
         stats.residencyMeshFramesToKeep,
+        stats.residencyEntityFeedCap,
         stats.residencyAntiCulling,
         stats.residentRouteReady,
         stats.residentMissingMesh,
@@ -3816,10 +3818,20 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
     }
     const uint64 framesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyFramesToKeep.GetInteger()));
     const uint64 meshFramesToKeep = static_cast<uint64>(idMath::ClampInt(0, 100000, r_pathTracingResidencyMeshFramesToKeep.GetInteger()));
+    const bool entityFeedOwnsOffscreenResidency = r_pathTracingEntityFeed.GetInteger() != 0;
+    const uint64 entityFeedFramesToKeep = 2u;
+    const auto ApplyEntityFeedRetentionCap =
+        [entityFeedOwnsOffscreenResidency, entityFeedFramesToKeep](uint64 requestedFrames) -> uint64
+        {
+            return entityFeedOwnsOffscreenResidency && requestedFrames > entityFeedFramesToKeep
+                ? entityFeedFramesToKeep
+                : requestedFrames;
+        };
     (void)viewOrigin;
     (void)selectedAreas;
     m_rigidResidencyStats.residencyFramesToKeep = static_cast<int>(framesToKeep);
     m_rigidResidencyStats.residencyMeshFramesToKeep = static_cast<int>(meshFramesToKeep);
+    m_rigidResidencyStats.residencyEntityFeedCap = entityFeedOwnsOffscreenResidency ? static_cast<int>(entityFeedFramesToKeep) : 0;
     m_rigidResidencyStats.residencyAntiCulling = v2 ? 1 : 0;
     std::unordered_set<uint64> residentMeshHashes;
 
@@ -3833,13 +3845,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
             bool retainedOffscreen = false;
             if (v2 && !record.seenThisFrame)
             {
-                uint64 recordFramesToKeep = framesToKeep;
-                if (r_pathTracingEntityFeed.GetInteger() != 0 &&
-                    (record.observation.sourceFlags & RT_PT_INSTANCE_SOURCE_ENTITY_FEED) != 0 &&
-                    recordFramesToKeep > 2u)
-                {
-                    recordFramesToKeep = 2u;
-                }
+                const uint64 recordFramesToKeep = ApplyEntityFeedRetentionCap(framesToKeep);
                 const bool withinWindow = record.lastSeenFrame + recordFramesToKeep >= m_currentFrameIndex;
                 if (withinWindow)
                 {
@@ -3903,13 +3909,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
         {
             const bool referencedByResident =
                 residentMeshHashes.find(record.meshHash) != residentMeshHashes.end();
-            uint64 recordMeshFramesToKeep = meshFramesToKeep;
-            if (r_pathTracingEntityFeed.GetInteger() != 0 &&
-                (record.sourceFlags & RT_PT_INSTANCE_SOURCE_ENTITY_FEED) != 0 &&
-                recordMeshFramesToKeep > 2u)
-            {
-                recordMeshFramesToKeep = 2u;
-            }
+            const uint64 recordMeshFramesToKeep = ApplyEntityFeedRetentionCap(meshFramesToKeep);
             const bool keepRecord = v2
                 ? record.valid && (referencedByResident || record.seenThisFrame || record.lastSeenFrame + recordMeshFramesToKeep >= m_currentFrameIndex)
                 : record.valid && record.seenThisFrame;
@@ -3941,6 +3941,7 @@ void RtSmokeGeometryUniverse::PruneRigidCachesToCurrentFrame(
             m_rigidResidencyStats.generation = m_generation;
         }
     }
+    m_rigidResidencyStats.retiredBlasPending = static_cast<int>(m_retiredRigidBlasRecords.size());
 }
 
 RtPathTraceRigidTlasPlanStats RtSmokeGeometryUniverse::BuildRigidTlasPlanStats(const RtPathTraceInstanceUniverse& instanceUniverse, const RtSmokeSurfaceClassStats* sourceClassStats) const
