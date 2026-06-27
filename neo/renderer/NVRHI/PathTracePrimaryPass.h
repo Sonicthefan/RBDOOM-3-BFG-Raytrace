@@ -296,6 +296,12 @@ private:
     int m_smokeBvhFramePlanningAsyncLaunchMs = 0;
     bool m_smokeBvhFramePlanningAsyncGenerationValid = false;
     bool m_smokeBvhFramePlanningAsyncCachedResultValid = false;
+    RtPathTraceCpuWorkState m_remixLightManagerPrepareCpuWorkState;
+    RtPathTraceCpuWorkGeneration m_remixLightManagerPrepareAsyncGeneration;
+    RtPathTraceCpuWorkTiming m_remixLightManagerPrepareAsyncTiming;
+    RtPathTraceAsyncWorker<PathTraceRemixLightManagerTimedPrepareResult> m_remixLightManagerPrepareFuture;
+    int m_remixLightManagerPrepareAsyncLaunchMs = 0;
+    bool m_remixLightManagerPrepareAsyncGenerationValid = false;
     bool m_smokeBvhDirtyPreviousTokenValid = false;
     const void* m_smokeSceneRenderWorld = nullptr;
     idStr m_smokeSceneMapName;

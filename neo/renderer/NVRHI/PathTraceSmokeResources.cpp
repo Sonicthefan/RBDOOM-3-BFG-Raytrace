@@ -2043,11 +2043,13 @@ void PathTracePrimaryPass::ResetRayTracingSmokeAsyncCpuWork()
     m_smokeRigidTlasPlanFuture.Reset();
     m_smokeRigidRouteBuildFuture.Reset();
     m_smokeBvhFramePlanningFuture.Reset();
+    m_remixLightManagerPrepareFuture.Reset();
 
     m_smokeCpuWorkState = RtPathTraceCpuWorkState();
     m_smokeRigidTlasCpuWorkState = RtPathTraceCpuWorkState();
     m_smokeRigidRouteBuildCpuWorkState = RtPathTraceCpuWorkState();
     m_smokeBvhFramePlanningCpuWorkState = RtPathTraceCpuWorkState();
+    m_remixLightManagerPrepareCpuWorkState = RtPathTraceCpuWorkState();
 
     m_smokeAccelerationPlanAsyncGeneration = RtPathTraceCpuWorkGeneration();
     m_smokeAccelerationPlanAsyncCachedGeneration = RtPathTraceCpuWorkGeneration();
@@ -2082,6 +2084,11 @@ void PathTracePrimaryPass::ResetRayTracingSmokeAsyncCpuWork()
     m_smokeBvhFramePlanningAsyncLaunchMs = 0;
     m_smokeBvhFramePlanningAsyncGenerationValid = false;
     m_smokeBvhFramePlanningAsyncCachedResultValid = false;
+
+    m_remixLightManagerPrepareAsyncGeneration = RtPathTraceCpuWorkGeneration();
+    m_remixLightManagerPrepareAsyncTiming = RtPathTraceCpuWorkTiming();
+    m_remixLightManagerPrepareAsyncLaunchMs = 0;
+    m_remixLightManagerPrepareAsyncGenerationValid = false;
 }
 
 void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()

@@ -50,6 +50,7 @@
 #include <cstring>
 #include <future>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 extern DeviceManager* deviceManager;
@@ -4237,9 +4238,135 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     remixLightPrepareDesc.domain = remixLightUniverseEnabled ? remixLightUniverseDomain : 2u;
     remixLightPrepareDesc.strictRemixMapping = remixLightUniverseStrictMapping;
     remixLightPrepareDesc.lightUniverseEnabled = remixLightUniverseEnabled;
+    const uint64_t remixLightPrepareInputToken = [&]() {
+        OPTICK_EVENT("PT Remix Light Manager Input Token");
+        return BuildPathTraceRemixLightManagerPrepareInputToken(remixLightPrepareDesc);
+    }();
+    const auto BuildRemixLightPrepareGeneration = [&](uint64_t managerStateToken) {
+        RtPathTraceCpuWorkGeneration generation;
+        generation.frameIndex = 0;
+        generation.sceneGeneration = managerStateToken;
+        generation.geometryGeneration = remixLightPrepareInputToken;
+        generation.materialGeneration = 0;
+        generation.lightGeneration = remixLightPrepareInputToken;
+        return generation;
+    };
     {
         OPTICK_EVENT("PT Remix Light Manager Prepare");
-        m_remixLightManager.PrepareSceneData(remixLightPrepareDesc);
+        const RtPathTraceCpuWorkGeneration remixLightPrepareGeneration =
+            BuildRemixLightPrepareGeneration(m_remixLightManager.BuildPrepareStateToken());
+        RtPathTraceCpuWorkPublishSnapshot(
+            m_remixLightManagerPrepareCpuWorkState,
+            remixLightPrepareGeneration);
+
+        bool remixLightPrepareAcceptedFromAsync = false;
+        if (asyncBvhFramePlanning && m_remixLightManagerPrepareFuture.valid())
+        {
+            OPTICK_EVENT("PT Remix Light Manager Async Accept");
+            const std::future_status futureStatus =
+                m_remixLightManagerPrepareFuture.wait_for(std::chrono::seconds(0));
+            if (futureStatus == std::future_status::ready)
+            {
+                PathTraceRemixLightManagerTimedPrepareResult timedResult =
+                    m_remixLightManagerPrepareFuture.get();
+                m_remixLightManagerPrepareAsyncGenerationValid = false;
+
+                RtPathTraceCpuWorkResultEnvelope asyncEnvelope;
+                asyncEnvelope.completed = true;
+                asyncEnvelope.generation = m_remixLightManagerPrepareAsyncGeneration;
+                asyncEnvelope.timing = m_remixLightManagerPrepareAsyncTiming;
+                asyncEnvelope.timing.workerExecutionMs =
+                    static_cast<double>(timedResult.prepareTimeMicros) / 1000.0;
+                const double asyncOutstandingMs =
+                    static_cast<double>(Max(0, Sys_Milliseconds() - m_remixLightManagerPrepareAsyncLaunchMs));
+                asyncEnvelope.timing.queueWaitMs =
+                    Max(0.0, asyncOutstandingMs - asyncEnvelope.timing.workerExecutionMs);
+                RtPathTraceCpuWorkPublishCompletedResult(
+                    m_remixLightManagerPrepareCpuWorkState,
+                    asyncEnvelope);
+
+                const RtPathTraceCpuWorkFrameDecision asyncDecision =
+                    RtPathTraceCpuWorkAcceptLatest(
+                        m_remixLightManagerPrepareCpuWorkState,
+                        remixLightPrepareGeneration,
+                        &asyncEnvelope,
+                        false);
+                if (asyncDecision.accepted)
+                {
+                    if (remixLightPrepareDesc.framePackage)
+                    {
+                        timedResult.result.stats.frameIndex =
+                            remixLightPrepareDesc.framePackage->frameIndex;
+                        timedResult.result.stats.resetReasonFlags =
+                            remixLightPrepareDesc.framePackage->resetReasonFlags;
+                    }
+                    m_remixLightManager.ApplyPrepareResult(std::move(timedResult.result));
+                    remixLightPrepareAcceptedFromAsync = true;
+                }
+            }
+            else
+            {
+                RtPathTraceCpuWorkAcceptLatest(
+                    m_remixLightManagerPrepareCpuWorkState,
+                    remixLightPrepareGeneration,
+                    nullptr,
+                    false);
+            }
+        }
+
+        if (!remixLightPrepareAcceptedFromAsync)
+        {
+            const int remixLightPrepareStartMs = Sys_Milliseconds();
+            {
+                OPTICK_EVENT("PT Remix Light Manager Sync Prepare");
+                m_remixLightManager.PrepareSceneData(remixLightPrepareDesc);
+            }
+
+            RtPathTraceCpuWorkResultEnvelope syncEnvelope;
+            syncEnvelope.completed = true;
+            syncEnvelope.generation = remixLightPrepareGeneration;
+            syncEnvelope.timing.workerExecutionMs =
+                static_cast<double>(Max(0, Sys_Milliseconds() - remixLightPrepareStartMs));
+            RtPathTraceCpuWorkPublishCompletedResult(
+                m_remixLightManagerPrepareCpuWorkState,
+                syncEnvelope);
+            RtPathTraceCpuWorkAcceptLatest(
+                m_remixLightManagerPrepareCpuWorkState,
+                remixLightPrepareGeneration,
+                nullptr,
+                true);
+        }
+
+        const RtPathTraceCpuWorkGeneration remixLightQueuedGeneration =
+            BuildRemixLightPrepareGeneration(m_remixLightManager.BuildPrepareStateToken());
+        const bool remixLightPrepareAlreadyQueued =
+            m_remixLightManagerPrepareAsyncGenerationValid &&
+            RtPathTraceCpuWorkGenerationEquals(
+                m_remixLightManagerPrepareAsyncGeneration,
+                remixLightQueuedGeneration);
+        if (asyncBvhFramePlanning &&
+            !m_remixLightManagerPrepareFuture.valid() &&
+            !remixLightPrepareAlreadyQueued)
+        {
+            OPTICK_EVENT("PT Remix Light Manager Queue");
+            const int remixLightSnapshotStartMs = Sys_Milliseconds();
+            PathTraceRemixLightManagerPrepareSnapshot queuedSnapshot =
+                CapturePathTraceRemixLightManagerPrepareSnapshot(remixLightPrepareDesc);
+            PathTraceRemixLightManager queuedManagerState = m_remixLightManager;
+            m_remixLightManagerPrepareAsyncTiming = RtPathTraceCpuWorkTiming();
+            m_remixLightManagerPrepareAsyncTiming.snapshotCaptureMs =
+                static_cast<double>(Max(0, Sys_Milliseconds() - remixLightSnapshotStartMs));
+            m_remixLightManagerPrepareAsyncGeneration = remixLightQueuedGeneration;
+            m_remixLightManagerPrepareAsyncGenerationValid = true;
+            m_remixLightManagerPrepareAsyncLaunchMs = Sys_Milliseconds();
+            m_remixLightManagerPrepareFuture.Start(
+                [queuedManagerState = std::move(queuedManagerState),
+                 queuedSnapshot = std::move(queuedSnapshot)]() {
+                    return BuildPathTraceRemixLightManagerTimedPrepareResult(
+                        queuedManagerState,
+                        queuedSnapshot);
+                });
+        }
     }
     const int remixLightUniverseDump = r_pathTracingRemixLightUniverseDump.GetInteger();
     if (r_pathTracingRemixLightManagerDump.GetInteger() != 0 || remixLightUniverseDump != 0)
