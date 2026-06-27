@@ -5575,6 +5575,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             common->Printf("PathTracePrimaryPass: failed to accept RT smoke CPU acceleration plan\n");
             return;
         }
+
+        m_smokeAccelerationPlanAsyncCachedPlan = accelerationPlan;
+        m_smokeAccelerationPlanAsyncCachedGeneration = accelerationPlanGeneration;
+        m_smokeAccelerationPlanAsyncCachedPlanValid = true;
     }
 
     const bool asyncPlanAlreadyCached =
