@@ -26,8 +26,14 @@
 #include "PathTraceSmokeResources.h"
 
 #include <nvrhi/nvrhi.h>
+#include <condition_variable>
+#include <chrono>
 #include <deque>
 #include <future>
+#include <functional>
+#include <mutex>
+#include <thread>
+#include <utility>
 #include <vector>
 
 class idRenderBackend;
@@ -53,6 +59,132 @@ struct RtRetiredSmokeScenePackage
 };
 
 static constexpr int RT_SMOKE_RIGID_ROUTE_SIDE_BUFFER_SLOTS = 3;
+
+template< typename Result >
+class RtPathTraceAsyncWorker
+{
+public:
+    RtPathTraceAsyncWorker() = default;
+    ~RtPathTraceAsyncWorker()
+    {
+        Stop();
+    }
+
+    RtPathTraceAsyncWorker(const RtPathTraceAsyncWorker&) = delete;
+    RtPathTraceAsyncWorker& operator=(const RtPathTraceAsyncWorker&) = delete;
+
+    bool valid() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_jobQueued || m_running || m_resultReady;
+    }
+
+    template< typename Rep, typename Period >
+    std::future_status wait_for(const std::chrono::duration<Rep, Period>&) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_resultReady ? std::future_status::ready : std::future_status::timeout;
+    }
+
+    Result get()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_resultReady = false;
+        return std::move(m_result);
+    }
+
+    template< typename Function >
+    bool Start(Function&& function)
+    {
+        EnsureThreadStarted();
+
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_stopRequested || m_jobQueued || m_running || m_resultReady)
+            {
+                return false;
+            }
+
+            m_job = std::function<Result()>(std::forward<Function>(function));
+            m_jobQueued = true;
+        }
+
+        m_condition.notify_one();
+        return true;
+    }
+
+    void Stop()
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_stopRequested = true;
+            m_jobQueued = false;
+            m_resultReady = false;
+            m_job = std::function<Result()>();
+        }
+        m_condition.notify_all();
+
+        if (m_thread.joinable())
+        {
+            m_thread.join();
+        }
+    }
+
+private:
+    void EnsureThreadStarted()
+    {
+        if (!m_thread.joinable())
+        {
+            m_thread = std::thread([this]() {
+                ThreadMain();
+            });
+        }
+    }
+
+    void ThreadMain()
+    {
+        for (;;)
+        {
+            std::function<Result()> job;
+            {
+                std::unique_lock<std::mutex> lock(m_mutex);
+                m_condition.wait(lock, [this]() {
+                    return m_stopRequested || m_jobQueued;
+                });
+                if (m_stopRequested && !m_jobQueued)
+                {
+                    return;
+                }
+
+                job = std::move(m_job);
+                m_jobQueued = false;
+                m_running = true;
+            }
+
+            Result result = job();
+
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_running = false;
+                if (!m_stopRequested)
+                {
+                    m_result = std::move(result);
+                    m_resultReady = true;
+                }
+            }
+        }
+    }
+
+    mutable std::mutex m_mutex;
+    std::condition_variable m_condition;
+    std::thread m_thread;
+    std::function<Result()> m_job;
+    Result m_result;
+    bool m_jobQueued = false;
+    bool m_running = false;
+    bool m_resultReady = false;
+    bool m_stopRequested = false;
+};
 
 struct RtSmokeRigidRouteSideBufferSlot
 {
@@ -123,7 +255,7 @@ private:
     RtPathTraceCpuWorkGeneration m_smokeAccelerationPlanAsyncCachedGeneration;
     RtPathTraceCpuWorkTiming m_smokeAccelerationPlanAsyncTiming;
     RtSmokeAccelerationPlan m_smokeAccelerationPlanAsyncCachedPlan;
-    std::future<RtSmokeAccelerationPlanTimedResult> m_smokeAccelerationPlanFuture;
+    RtPathTraceAsyncWorker<RtSmokeAccelerationPlanTimedResult> m_smokeAccelerationPlanFuture;
     int m_smokeAccelerationPlanAsyncLaunchMs = 0;
     bool m_smokeAccelerationPlanAsyncGenerationValid = false;
     bool m_smokeAccelerationPlanAsyncCachedPlanValid = false;
@@ -131,7 +263,7 @@ private:
     RtPathTraceCpuWorkGeneration m_smokeRigidTlasPlanAsyncCachedGeneration;
     RtPathTraceCpuWorkTiming m_smokeRigidTlasPlanAsyncTiming;
     RtSmokeRigidTlasPlan m_smokeRigidTlasPlanAsyncCachedPlan;
-    std::future<RtSmokeRigidTlasPlanTimedResult> m_smokeRigidTlasPlanFuture;
+    RtPathTraceAsyncWorker<RtSmokeRigidTlasPlanTimedResult> m_smokeRigidTlasPlanFuture;
     int m_smokeRigidTlasPlanAsyncLaunchMs = 0;
     bool m_smokeRigidTlasPlanAsyncGenerationValid = false;
     bool m_smokeRigidTlasPlanAsyncCachedPlanValid = false;
@@ -140,7 +272,7 @@ private:
     RtPathTraceCpuWorkGeneration m_smokeRigidRouteBuildAsyncCachedGeneration;
     RtPathTraceCpuWorkTiming m_smokeRigidRouteBuildAsyncTiming;
     RtPathTraceRigidRouteBuild m_smokeRigidRouteBuildAsyncCachedBuild;
-    std::future<RtPathTraceRigidRouteBuildTimedResult> m_smokeRigidRouteBuildFuture;
+    RtPathTraceAsyncWorker<RtPathTraceRigidRouteBuildTimedResult> m_smokeRigidRouteBuildFuture;
     int m_smokeRigidRouteBuildAsyncLaunchMs = 0;
     bool m_smokeRigidRouteBuildAsyncGenerationValid = false;
     bool m_smokeRigidRouteBuildAsyncCachedBuildValid = false;
@@ -148,7 +280,7 @@ private:
     RtPathTraceCpuWorkGeneration m_smokeBvhFramePlanningAsyncCachedGeneration;
     RtPathTraceCpuWorkTiming m_smokeBvhFramePlanningAsyncTiming;
     RtSmokeBvhFramePlanningResult m_smokeBvhFramePlanningAsyncCachedResult;
-    std::future<RtSmokeBvhFramePlanningTimedResult> m_smokeBvhFramePlanningFuture;
+    RtPathTraceAsyncWorker<RtSmokeBvhFramePlanningTimedResult> m_smokeBvhFramePlanningFuture;
     int m_smokeBvhFramePlanningAsyncLaunchMs = 0;
     bool m_smokeBvhFramePlanningAsyncGenerationValid = false;
     bool m_smokeBvhFramePlanningAsyncCachedResultValid = false;

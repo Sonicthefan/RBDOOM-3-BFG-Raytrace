@@ -3436,8 +3436,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeRigidTlasPlanAsyncGeneration = rigidTlasPlanGeneration;
             m_smokeRigidTlasPlanAsyncGenerationValid = true;
             m_smokeRigidTlasPlanAsyncLaunchMs = Sys_Milliseconds();
-            m_smokeRigidTlasPlanFuture = std::async(
-                std::launch::async,
+            m_smokeRigidTlasPlanFuture.Start(
                 [rigidTlasSnapshot]() {
                     return BuildSmokeRigidTlasPlanTimedResult(rigidTlasSnapshot);
                 });
@@ -3688,8 +3687,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeRigidRouteBuildAsyncLaunchMs = Sys_Milliseconds();
                 const RtPathTraceRigidRouteBuildSnapshot queuedRigidRouteSnapshot =
                     CaptureRigidRoutePayloadSnapshot();
-                m_smokeRigidRouteBuildFuture = std::async(
-                    std::launch::async,
+                m_smokeRigidRouteBuildFuture.Start(
                     [queuedRigidRouteSnapshot]() {
                         return BuildRigidRouteBuffersTimedResult(queuedRigidRouteSnapshot);
                     });
@@ -5543,8 +5541,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeAccelerationPlanAsyncGeneration = accelerationPlanGeneration;
         m_smokeAccelerationPlanAsyncGenerationValid = true;
         m_smokeAccelerationPlanAsyncLaunchMs = Sys_Milliseconds();
-        m_smokeAccelerationPlanFuture = std::async(
-            std::launch::async,
+        m_smokeAccelerationPlanFuture.Start(
             [accelerationPlanSnapshot]() {
                 return BuildSmokeAccelerationPlanTimedResult(accelerationPlanSnapshot);
             });
@@ -6755,8 +6752,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeBvhFramePlanningAsyncGeneration = bvhFramePlanningGeneration;
         m_smokeBvhFramePlanningAsyncGenerationValid = true;
         m_smokeBvhFramePlanningAsyncLaunchMs = Sys_Milliseconds();
-        m_smokeBvhFramePlanningFuture = std::async(
-            std::launch::async,
+        m_smokeBvhFramePlanningFuture.Start(
             [bvhFramePlanningSnapshot]() {
                 return BuildSmokeBvhFramePlanningTimedResult(bvhFramePlanningSnapshot);
             });
