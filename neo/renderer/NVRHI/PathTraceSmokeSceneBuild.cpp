@@ -3011,12 +3011,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         if (useDrawSurfMirrorDynamicFrame)
         {
-            usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true);
+            {
+                OPTICK_EVENT("PT Capture Visible Doom Surfaces");
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true);
+            }
             const bool staticAreaPreloadEnabled =
                 r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
                 r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
             if (staticAreaPreloadEnabled)
             {
+                OPTICK_EVENT("PT Static Area Preload");
                 const int staticRecordsBefore = static_cast<int>(m_smokeGeometryUniverse.StaticSurfaceRecords().size());
                 const int staticVertsBefore = static_cast<int>(m_smokeGeometryUniverse.StaticVertices().size());
                 const RtPathTraceSceneUniverseBuildStats staticAreaPreloadStats = m_sceneUniverse.BuildSelectedStaticGeometry(
@@ -3065,57 +3069,73 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             int mirrorSourceIndexes = 0;
             const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, dumpClassReasons ? &mirrorReasonSamples : nullptr, &currentSkinnedSurfaceRecords);
 
-            classStats = RtSmokeSurfaceClassStats();
-            classStats.staticWorldSurfaces = staticClassStats.staticWorldSurfaces;
-            classStats.staticWorldVerts = staticClassStats.staticWorldVerts;
-            classStats.staticWorldIndexes = staticClassStats.staticWorldIndexes;
-            classStats.staticWorldTriangles = staticClassStats.staticWorldTriangles;
-            classStats.rigidEntitySurfaces = mirrorClassStats.rigidEntitySurfaces;
-            classStats.rigidEntityVerts = mirrorClassStats.rigidEntityVerts;
-            classStats.rigidEntityIndexes = mirrorClassStats.rigidEntityIndexes;
-            classStats.rigidEntityTriangles = mirrorClassStats.rigidEntityTriangles;
-            classStats.skinnedDeformedSurfaces = mirrorClassStats.skinnedDeformedSurfaces;
-            classStats.skinnedDeformedVerts = mirrorClassStats.skinnedDeformedVerts;
-            classStats.skinnedDeformedIndexes = mirrorClassStats.skinnedDeformedIndexes;
-            classStats.skinnedDeformedTriangles = mirrorClassStats.skinnedDeformedTriangles;
-            classStats.particleAlphaSurfaces = mirrorClassStats.particleAlphaSurfaces;
-            classStats.particleAlphaVerts = mirrorClassStats.particleAlphaVerts;
-            classStats.particleAlphaIndexes = mirrorClassStats.particleAlphaIndexes;
-            classStats.particleAlphaTriangles = mirrorClassStats.particleAlphaTriangles;
-            classStats.unknownSurfaces = mirrorClassStats.unknownSurfaces;
-            classStats.unknownVerts = mirrorClassStats.unknownVerts;
-            classStats.unknownIndexes = mirrorClassStats.unknownIndexes;
-            classStats.unknownTriangles = mirrorClassStats.unknownTriangles;
-            skipStats = mirrorSkipStats;
-            dynamicStats = mirrorDynamicStats;
-            attributeStats = mirrorAttributeStats;
-            materialStats = mirrorMaterialStats;
-            bucketRanges = mirrorBucketRanges;
-            bucketRanges.buckets[0] = staticBucketRange;
-            captureTiming.dynamicPassClassifyMs += mirrorCaptureTiming.dynamicPassClassifyMs;
-            captureTiming.dynamicAppendMs += mirrorCaptureTiming.dynamicAppendMs;
-            captureTiming.rtCpuSkinningAppendMs += mirrorCaptureTiming.rtCpuSkinningAppendMs;
-            captureTiming.bucketMergeMs += mirrorCaptureTiming.bucketMergeMs;
-            captureTiming.appendMs += mirrorCaptureTiming.appendMs;
-            captureTiming.validationMs += mirrorCaptureTiming.validationMs;
-            sourceSurfaces = staticSourceSurfaces + mirrorSourceSurfaces;
-            sourceVerts = staticSourceVerts + mirrorSourceVerts;
-            sourceIndexes = staticSourceIndexes + mirrorSourceIndexes;
-            usingDoomSurfaces = usingDoomSurfaces || usingMirrorDynamicFrame;
+            {
+                OPTICK_EVENT("PT Merge Mirror Capture Stats");
+                classStats = RtSmokeSurfaceClassStats();
+                classStats.staticWorldSurfaces = staticClassStats.staticWorldSurfaces;
+                classStats.staticWorldVerts = staticClassStats.staticWorldVerts;
+                classStats.staticWorldIndexes = staticClassStats.staticWorldIndexes;
+                classStats.staticWorldTriangles = staticClassStats.staticWorldTriangles;
+                classStats.rigidEntitySurfaces = mirrorClassStats.rigidEntitySurfaces;
+                classStats.rigidEntityVerts = mirrorClassStats.rigidEntityVerts;
+                classStats.rigidEntityIndexes = mirrorClassStats.rigidEntityIndexes;
+                classStats.rigidEntityTriangles = mirrorClassStats.rigidEntityTriangles;
+                classStats.skinnedDeformedSurfaces = mirrorClassStats.skinnedDeformedSurfaces;
+                classStats.skinnedDeformedVerts = mirrorClassStats.skinnedDeformedVerts;
+                classStats.skinnedDeformedIndexes = mirrorClassStats.skinnedDeformedIndexes;
+                classStats.skinnedDeformedTriangles = mirrorClassStats.skinnedDeformedTriangles;
+                classStats.particleAlphaSurfaces = mirrorClassStats.particleAlphaSurfaces;
+                classStats.particleAlphaVerts = mirrorClassStats.particleAlphaVerts;
+                classStats.particleAlphaIndexes = mirrorClassStats.particleAlphaIndexes;
+                classStats.particleAlphaTriangles = mirrorClassStats.particleAlphaTriangles;
+                classStats.unknownSurfaces = mirrorClassStats.unknownSurfaces;
+                classStats.unknownVerts = mirrorClassStats.unknownVerts;
+                classStats.unknownIndexes = mirrorClassStats.unknownIndexes;
+                classStats.unknownTriangles = mirrorClassStats.unknownTriangles;
+                skipStats = mirrorSkipStats;
+                dynamicStats = mirrorDynamicStats;
+                attributeStats = mirrorAttributeStats;
+                materialStats = mirrorMaterialStats;
+                bucketRanges = mirrorBucketRanges;
+                bucketRanges.buckets[0] = staticBucketRange;
+                captureTiming.dynamicPassClassifyMs += mirrorCaptureTiming.dynamicPassClassifyMs;
+                captureTiming.dynamicAppendMs += mirrorCaptureTiming.dynamicAppendMs;
+                captureTiming.rtCpuSkinningAppendMs += mirrorCaptureTiming.rtCpuSkinningAppendMs;
+                captureTiming.bucketMergeMs += mirrorCaptureTiming.bucketMergeMs;
+                captureTiming.appendMs += mirrorCaptureTiming.appendMs;
+                captureTiming.validationMs += mirrorCaptureTiming.validationMs;
+                sourceSurfaces = staticSourceSurfaces + mirrorSourceSurfaces;
+                sourceVerts = staticSourceVerts + mirrorSourceVerts;
+                sourceIndexes = staticSourceIndexes + mirrorSourceIndexes;
+                usingDoomSurfaces = usingDoomSurfaces || usingMirrorDynamicFrame;
+            }
         }
         else
         {
-            usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
+            {
+                OPTICK_EVENT("PT Capture Legacy Doom Surfaces");
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
+            }
         }
         {
             OPTICK_EVENT("PT DrawSurf Mirror");
-            m_instanceUniverse.BeginFrame(m_smokeGeometryFrameIndex, viewDef);
-            CapturePathTraceDrawSurfMirror(viewDef, useSceneUniverseStaticGeometry ? &m_sceneUniverse : nullptr, &m_smokeGeometryUniverse, m_instanceUniverse, &m_smokeBoundsOverlayLines);
-            ProduceEntityFeedRigidEntities(viewDef, m_smokeGeometryUniverse, m_instanceUniverse, materialStats);
+            {
+                OPTICK_EVENT("PT Instance Universe BeginFrame");
+                m_instanceUniverse.BeginFrame(m_smokeGeometryFrameIndex, viewDef);
+            }
+            {
+                OPTICK_EVENT("PT DrawSurf Mirror Visible Producer");
+                CapturePathTraceDrawSurfMirror(viewDef, useSceneUniverseStaticGeometry ? &m_sceneUniverse : nullptr, &m_smokeGeometryUniverse, m_instanceUniverse, &m_smokeBoundsOverlayLines);
+            }
+            {
+                OPTICK_EVENT("PT EntityFeed Producer");
+                ProduceEntityFeedRigidEntities(viewDef, m_smokeGeometryUniverse, m_instanceUniverse, materialStats);
+            }
             const bool residencyV2 = r_pathTracingGeometryResidencyV2.GetInteger() != 0;
             const bool diagnosticAreaWalk = residencyV2 && r_pathTracingRigidResidencyDump.GetInteger() != 0;
             if (rigidResidencyEnabled && (!residencyV2 || diagnosticAreaWalk))
             {
+                OPTICK_EVENT("PT Legacy Residency Area Walk");
                 m_smokeGeometryUniverse.RefreshRigidResidencyAreaWalk(
                     viewDef,
                     m_instanceUniverse,
@@ -3147,20 +3167,27 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 m_smokeSceneUniverseStaticBuildGeneration = sceneUniverseGeneration;
             }
         }
-        m_smokeGeometryUniverse.EndFrame();
+        {
+            OPTICK_EVENT("PT Geometry Universe EndFrame");
+            m_smokeGeometryUniverse.EndFrame();
+        }
         if (useDrawSurfMirrorDynamicFrame && r_pathTracingStaticGeometryPruneMissing.GetInteger() != 0)
         {
+            OPTICK_EVENT("PT Prune Missing Static Surfaces");
             staticCacheChanged = m_smokeGeometryUniverse.PruneMissingStaticSurfaces() || staticCacheChanged;
         }
     }
     std::vector<PathTraceSmokeVertex> nextPreviousSkinnedVertexData;
     std::vector<PathTraceSkinnedJointMatrix> nextPreviousSkinnedJointMatrices;
-    m_smokeSkinnedPreviousStats = UpdateSmokeSkinnedPreviousCpuBridge(
-        currentSkinnedSurfaceRecords,
-        m_smokePreviousSkinnedSurfaceRecords,
-        m_smokePreviousSkinnedVertexData,
-        dynamicVertexData,
-        nextPreviousSkinnedVertexData);
+    {
+        OPTICK_EVENT("PT Skinned Previous Bridge");
+        m_smokeSkinnedPreviousStats = UpdateSmokeSkinnedPreviousCpuBridge(
+            currentSkinnedSurfaceRecords,
+            m_smokePreviousSkinnedSurfaceRecords,
+            m_smokePreviousSkinnedVertexData,
+            dynamicVertexData,
+            nextPreviousSkinnedVertexData);
+    }
     const int gpuSkinningMode = idMath::ClampInt(0, 2, r_pathTracingGpuSkinning.GetInteger());
     const bool rrGuideNeedsSkinnedHistory =
         requestedDebugMode == 56 &&
@@ -3170,17 +3197,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingMotionVectorExport.GetInteger() != 0 ||
         r_pathTracingDLSSRRGuideDebugView.GetInteger() != 0;
     const int skinnedScaffoldMode = skinnedMotionBridgeNeedsScaffold ? Max(1, gpuSkinningMode) : gpuSkinningMode;
-    skinnedGpuScaffold = BuildSmokeSkinnedGpuScaffold(
-        skinnedScaffoldMode,
-        currentSkinnedSurfaceRecords,
-        m_smokePreviousSkinnedSurfaceRecords,
-        dynamicVertexData,
-        m_smokePreviousSkinnedVertexData,
-        m_smokePreviousSkinnedJointMatrices);
-    BuildSmokeSkinnedTriangleDispatchIndex(skinnedGpuScaffold, static_cast<int>(dynamicIndexData.size() / 3));
-    RetainSmokeSkinnedCurrentJointMatrices(
-        currentSkinnedSurfaceRecords,
-        nextPreviousSkinnedJointMatrices);
+    {
+        OPTICK_EVENT("PT Skinned GPU Scaffold");
+        skinnedGpuScaffold = BuildSmokeSkinnedGpuScaffold(
+            skinnedScaffoldMode,
+            currentSkinnedSurfaceRecords,
+            m_smokePreviousSkinnedSurfaceRecords,
+            dynamicVertexData,
+            m_smokePreviousSkinnedVertexData,
+            m_smokePreviousSkinnedJointMatrices);
+    }
+    {
+        OPTICK_EVENT("PT Skinned Triangle Dispatch Index");
+        BuildSmokeSkinnedTriangleDispatchIndex(skinnedGpuScaffold, static_cast<int>(dynamicIndexData.size() / 3));
+    }
+    {
+        OPTICK_EVENT("PT Retain Skinned Joints");
+        RetainSmokeSkinnedCurrentJointMatrices(
+            currentSkinnedSurfaceRecords,
+            nextPreviousSkinnedJointMatrices);
+    }
     m_smokeSkinnedSurfaceRecords = currentSkinnedSurfaceRecords;
     m_smokePreviousSkinnedSurfaceRecords = m_smokeSkinnedSurfaceRecords;
     m_smokePreviousSkinnedVertexData.swap(nextPreviousSkinnedVertexData);
