@@ -275,6 +275,18 @@ void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTes
     }
 
     const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    ResolveSmokeMaterialAlphaInfo(material, classifier, hasAlphaTest, alphaCutoff);
+}
+
+void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier, bool& hasAlphaTest, float& alphaCutoff)
+{
+    hasAlphaTest = false;
+    alphaCutoff = 0.0f;
+    if (!material)
+    {
+        return;
+    }
+
     const bool allowTranslucentCutout =
         material->Coverage() == MC_TRANSLUCENT &&
         !classifier.hasScreenTexgen &&

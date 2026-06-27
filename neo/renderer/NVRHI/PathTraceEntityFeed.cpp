@@ -2,6 +2,7 @@
 #pragma hdrstop
 
 #include "PathTraceCVars.h"
+#include "PathTraceDoomMaterialClassifier.h"
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceEntityFeed.h"
 #include "PathTraceGeometryUniverse.h"
@@ -238,6 +239,44 @@ struct EntityFeedCapturedRigidSurface
     idStr modelName;
 };
 
+struct EntityFeedEntityMaterialKey
+{
+    const idRenderEntityLocal* entity = nullptr;
+    const idMaterial* material = nullptr;
+
+    bool operator==(const EntityFeedEntityMaterialKey& rhs) const
+    {
+        return entity == rhs.entity && material == rhs.material;
+    }
+};
+
+struct EntityFeedEntityMaterialKeyHash
+{
+    size_t operator()(const EntityFeedEntityMaterialKey& key) const
+    {
+        const uintptr_t entityBits = reinterpret_cast<uintptr_t>(key.entity);
+        const uintptr_t materialBits = reinterpret_cast<uintptr_t>(key.material);
+        return static_cast<size_t>((entityBits >> 4) ^ (materialBits << 1) ^ (materialBits >> 9));
+    }
+};
+
+struct EntityFeedMaterialCacheRecord
+{
+    bool classifierValid = false;
+    RtSmokeTranslucentClassifierInfo classifier;
+    bool routeSignatureValid = false;
+    uint32_t routeSignature = 0;
+    bool promoteRigidEmissiveCardValid = false;
+    bool promoteRigidEmissiveCard = false;
+};
+
+struct EntityFeedCaptureMaterialCache
+{
+    std::unordered_map<const idMaterial*, EntityFeedMaterialCacheRecord> materialRecords;
+    std::unordered_map<uint32_t, bool> materialEmissive;
+    std::unordered_map<EntityFeedEntityMaterialKey, bool, EntityFeedEntityMaterialKeyHash> activeEmissiveStage;
+};
+
 idVec3 EntityFeedEntityOrigin(const idRenderEntityLocal* entity)
 {
     return idVec3(entity->modelMatrix[12], entity->modelMatrix[13], entity->modelMatrix[14]);
@@ -266,6 +305,86 @@ bool EntityFeedMaterialIsEmissive(uint32_t materialId)
     const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
     const RtSmokeMaterialUniverseFacts& facts = GetSmokeMaterialUniverseFacts(materialId, info);
     return facts.emissive;
+}
+
+const RtSmokeTranslucentClassifierInfo& EntityFeedMaterialClassifier(
+    EntityFeedCaptureMaterialCache& cache,
+    const idMaterial* material)
+{
+    EntityFeedMaterialCacheRecord& record = cache.materialRecords[material];
+    if (!record.classifierValid)
+    {
+        OPTICK_EVENT("PT EntityFeed Capture Classifier Miss");
+        record.classifier = BuildSmokeTranslucentClassifierInfo(material);
+        record.classifierValid = true;
+    }
+    return record.classifier;
+}
+
+bool EntityFeedCanPromoteRigidEmissiveCardCached(
+    EntityFeedCaptureMaterialCache& cache,
+    const idMaterial* material)
+{
+    EntityFeedMaterialCacheRecord& record = cache.materialRecords[material];
+    if (!record.promoteRigidEmissiveCardValid)
+    {
+        const RtSmokeTranslucentClassifierInfo& classifier = EntityFeedMaterialClassifier(cache, material);
+        record.promoteRigidEmissiveCard = SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(material, classifier);
+        record.promoteRigidEmissiveCardValid = true;
+    }
+    return record.promoteRigidEmissiveCard;
+}
+
+uint32_t EntityFeedMaterialRouteClassSignatureCached(
+    EntityFeedCaptureMaterialCache& cache,
+    const idMaterial* material)
+{
+    EntityFeedMaterialCacheRecord& record = cache.materialRecords[material];
+    if (!record.routeSignatureValid)
+    {
+        const RtSmokeTranslucentClassifierInfo& classifier = EntityFeedMaterialClassifier(cache, material);
+        record.routeSignature = SmokeMaterialRouteClassSignature(
+            material,
+            RtSmokeSurfaceClass::RigidEntity,
+            RtSmokeTranslucentSubtype::Unknown,
+            classifier);
+        record.routeSignatureValid = true;
+    }
+    return record.routeSignature;
+}
+
+bool EntityFeedMaterialIsEmissiveCached(
+    EntityFeedCaptureMaterialCache& cache,
+    uint32_t materialId)
+{
+    const auto existing = cache.materialEmissive.find(materialId);
+    if (existing != cache.materialEmissive.end())
+    {
+        return existing->second;
+    }
+
+    const bool emissive = EntityFeedMaterialIsEmissive(materialId);
+    cache.materialEmissive.emplace(materialId, emissive);
+    return emissive;
+}
+
+bool EntityFeedActiveEmissiveStageCached(
+    EntityFeedCaptureMaterialCache& cache,
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entity,
+    const idMaterial* material)
+{
+    const EntityFeedEntityMaterialKey key{ entity, material };
+    const auto existing = cache.activeEmissiveStage.find(key);
+    if (existing != cache.activeEmissiveStage.end())
+    {
+        return existing->second;
+    }
+
+    const RtSmokeTranslucentClassifierInfo& classifier = EntityFeedMaterialClassifier(cache, material);
+    const bool active = SmokeEntitySurfaceHasActiveEmissiveStage(viewDef, entity, material, classifier);
+    cache.activeEmissiveStage.emplace(key, active);
+    return active;
 }
 
 float EntityFeedCandidatePriority(bool onScreen, bool emissive, float projectedSize, float distance)
@@ -404,10 +523,14 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     std::unordered_set<uint64> candidateInstanceIds;
     std::unordered_set<uint32_t> registeredMaterialIds;
     std::unordered_set<const idRenderEntityLocal*> scannedEntities;
+    EntityFeedCaptureMaterialCache materialCache;
     capturedSurfaces.reserve(rigidRouteMaxInstances);
     candidateInstanceIds.reserve(rigidRouteMaxInstances * 2);
     registeredMaterialIds.reserve(128);
     scannedEntities.reserve(renderWorld ? renderWorld->entityDefs.Num() : 0);
+    materialCache.materialRecords.reserve(256);
+    materialCache.materialEmissive.reserve(256);
+    materialCache.activeEmissiveStage.reserve(256);
 
     if (!renderWorld)
     {
@@ -462,7 +585,24 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 if (feedClass == RtPtFeedClass::Transient)
                 {
                     OPTICK_EVENT("PT EntityFeed Capture Emissive Card Test");
-                    promotedEmissiveCard = EntityFeedCanPromoteRigidEmissiveCard(entity, model, tri, material);
+                    promotedEmissiveCard =
+                        r_pathTracingRigidRouteEmissiveCards.GetInteger() != 0 &&
+                        entity &&
+                        model &&
+                        tri &&
+                        material &&
+                        !model->IsStaticWorldModel() &&
+                        model->IsDynamicModel() == DM_STATIC &&
+                        renderEntity.joints == nullptr &&
+                        renderEntity.numJoints <= 0 &&
+                        renderEntity.callback == nullptr &&
+                        renderEntity.forceUpdate == 0 &&
+                        !renderEntity.weaponDepthHack &&
+                        renderEntity.modelDepthHack == 0.0f &&
+                        entity->dynamicModel == nullptr &&
+                        entity->cachedDynamicModel == nullptr &&
+                        tri->staticModelWithJoints == nullptr &&
+                        EntityFeedCanPromoteRigidEmissiveCardCached(materialCache, material);
                 }
 
                 bool visibleDrawSurf = false;
@@ -507,13 +647,13 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 uint32_t materialClassSignature = 0;
                 {
                     OPTICK_EVENT("PT EntityFeed Capture Material Class Signature");
-                    materialClassSignature = SmokeMaterialRouteClassSignature(material, RtSmokeSurfaceClass::RigidEntity, RtSmokeTranslucentSubtype::Unknown);
+                    materialClassSignature = EntityFeedMaterialRouteClassSignatureCached(materialCache, material);
                 }
                 const uint32_t surfaceClassId = SmokeSurfaceClassId(RtSmokeSurfaceClass::RigidEntity);
                 bool activeEmissiveStage = false;
                 {
                     OPTICK_EVENT("PT EntityFeed Capture Active Emissive Stage");
-                    activeEmissiveStage = SmokeEntitySurfaceHasActiveEmissiveStage(viewDef, entity, material);
+                    activeEmissiveStage = EntityFeedActiveEmissiveStageCached(materialCache, viewDef, entity, material);
                 }
                 const uint32_t surfaceClassAndFlags = surfaceClassId |
                     (activeEmissiveStage ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
@@ -582,7 +722,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     captured.onScreen = entity->viewCount == tr.viewCount;
                     {
                         OPTICK_EVENT("PT EntityFeed Capture Material Facts");
-                        captured.emissive = EntityFeedMaterialIsEmissive(materialId);
+                        captured.emissive = EntityFeedMaterialIsEmissiveCached(materialCache, materialId);
                     }
                     captured.materialName = material ? material->GetName() : "<none>";
                     captured.modelName = model ? model->Name() : "<none>";

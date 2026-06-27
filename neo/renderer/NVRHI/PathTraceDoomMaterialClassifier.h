@@ -36,6 +36,7 @@ bool SmokeStageIsRenderMap(const shaderStage_t* stage);
 const char* SmokeStageAlphaSemanticName(const shaderStage_t* stage);
 RtSmokeTranslucentClassifierInfo BuildSmokeTranslucentClassifierInfo(const idMaterial* material);
 void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, bool& hasAlphaTest, float& alphaCutoff);
+void ResolveSmokeMaterialAlphaInfo(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier, bool& hasAlphaTest, float& alphaCutoff);
 bool IsSmokeAdditiveDecalMaterial(const idMaterial* material);
 bool IsSmokeDetailDecalCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);
 bool IsSmokeAdditiveWhiteKeyMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);

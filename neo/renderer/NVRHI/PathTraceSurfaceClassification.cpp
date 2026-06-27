@@ -63,7 +63,10 @@ bool EntityFeedSurfaceHasJointData(const idRenderEntityLocal* entity, const idRe
         (model && model->NumJoints() > 0);
 }
 
-bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material, bool allowSwinglightRuntimeState)
+bool SmokeMaterialCanPromoteRigidEmissiveCardWithClassifierInternal(
+    const idMaterial* material,
+    bool allowSwinglightRuntimeState,
+    const RtSmokeTranslucentClassifierInfo& classifier)
 {
     if (!material || material->Deform() != DFRM_NONE)
     {
@@ -80,7 +83,6 @@ bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material
         return false;
     }
 
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     if (classifier.hasScreenTexgen ||
         classifier.hasAddDefault0200Texture ||
         classifier.nameLooksGui ||
@@ -103,6 +105,21 @@ bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material
     return hasEmissiveCardStage;
 }
 
+bool SmokeMaterialCanPromoteRigidEmissiveCardInternal(const idMaterial* material, bool allowSwinglightRuntimeState)
+{
+    if (!material || material->Deform() != DFRM_NONE)
+    {
+        return false;
+    }
+    if (material->Coverage() != MC_TRANSLUCENT)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    return SmokeMaterialCanPromoteRigidEmissiveCardWithClassifierInternal(material, allowSwinglightRuntimeState, classifier);
+}
+
 }
 
 bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
@@ -113,6 +130,11 @@ bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material)
 bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material)
 {
     return SmokeMaterialCanPromoteRigidEmissiveCardInternal(material, true);
+}
+
+bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    return SmokeMaterialCanPromoteRigidEmissiveCardWithClassifierInternal(material, true, classifier);
 }
 
 uint32_t SmokeSurfaceClassId(RtSmokeSurfaceClass surfaceClass)
@@ -427,6 +449,23 @@ uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmoke
 
 uint32_t SmokeMaterialRouteClassSignature(const idMaterial* material, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype)
 {
+    if (!material)
+    {
+        return
+            (SmokeSurfaceClassId(surfaceClass) & 0x0fu) |
+            ((SmokeTranslucentSubtypeId(subtype) & 0x0fu) << 4);
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    return SmokeMaterialRouteClassSignature(material, surfaceClass, subtype, classifier);
+}
+
+uint32_t SmokeMaterialRouteClassSignature(
+    const idMaterial* material,
+    RtSmokeSurfaceClass surfaceClass,
+    RtSmokeTranslucentSubtype subtype,
+    const RtSmokeTranslucentClassifierInfo& classifier)
+{
     uint32_t signature =
         (SmokeSurfaceClassId(surfaceClass) & 0x0fu) |
         ((SmokeTranslucentSubtypeId(subtype) & 0x0fu) << 4);
@@ -437,8 +476,7 @@ uint32_t SmokeMaterialRouteClassSignature(const idMaterial* material, RtSmokeSur
 
     bool hasAlphaTest = false;
     float alphaCutoff = 0.0f;
-    ResolveSmokeMaterialAlphaInfo(material, hasAlphaTest, alphaCutoff);
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    ResolveSmokeMaterialAlphaInfo(material, classifier, hasAlphaTest, alphaCutoff);
     const uint32_t coverage = static_cast<uint32_t>(material->Coverage()) & 0x0fu;
     const uint32_t deform = static_cast<uint32_t>(material->Deform()) & 0x0fu;
     const bool routeSortMediumOrLater = material->GetSort() >= SS_MEDIUM;

@@ -12,6 +12,7 @@ struct drawSurf_t;
 class idRenderEntityLocal;
 class idMaterial;
 class idRenderModel;
+struct RtSmokeTranslucentClassifierInfo;
 struct modelSurface_t;
 struct srfTriangles_t;
 struct viewDef_t;
@@ -62,6 +63,8 @@ RtPtFeedClass ClassifyEntityFeedSurface(const idRenderEntityLocal* entity, const
 bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri);
 bool SmokeMaterialCanPromoteRigidEmissiveCard(const idMaterial* material);
 bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material);
+bool SmokeMaterialCanPromoteEntityFeedRigidEmissiveCard(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);
 RtSmokeTranslucentSubtype ClassifySmokeTranslucentSubtype(const drawSurf_t* drawSurf);
 uint32_t SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype);
 uint32_t SmokeMaterialRouteClassSignature(const idMaterial* material, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype);
+uint32_t SmokeMaterialRouteClassSignature(const idMaterial* material, RtSmokeSurfaceClass surfaceClass, RtSmokeTranslucentSubtype subtype, const RtSmokeTranslucentClassifierInfo& classifier);

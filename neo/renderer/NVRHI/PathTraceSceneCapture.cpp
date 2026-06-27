@@ -382,14 +382,16 @@ void TransformSmokeSurfaceVertexToWorld(const drawSurf_t* drawSurf, const srfTri
     worldPosition.Set(vertex.position[0], vertex.position[1], vertex.position[2]);
 }
 
-static bool SmokeMaterialRegistersHaveActiveEmissiveStage(const idMaterial* material, const float* regs)
+static bool SmokeMaterialRegistersHaveActiveEmissiveStageWithClassifier(
+    const idMaterial* material,
+    const float* regs,
+    const RtSmokeTranslucentClassifierInfo& classifier)
 {
     if (!material)
     {
         return false;
     }
 
-    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     const bool nameLooksEmissive = !classifier.hasAddDefault0200Texture && (classifier.nameLooksGlow || classifier.nameLooksSignage);
     const int registerCount = material->GetNumRegisters();
     for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
@@ -436,6 +438,17 @@ static bool SmokeMaterialRegistersHaveActiveEmissiveStage(const idMaterial* mate
     return false;
 }
 
+static bool SmokeMaterialRegistersHaveActiveEmissiveStage(const idMaterial* material, const float* regs)
+{
+    if (!material)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    return SmokeMaterialRegistersHaveActiveEmissiveStageWithClassifier(material, regs, classifier);
+}
+
 bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
 {
     const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
@@ -444,6 +457,21 @@ bool SmokeDrawSurfaceHasActiveEmissiveStage(const drawSurf_t* drawSurf)
 }
 
 bool SmokeEntitySurfaceHasActiveEmissiveStage(const viewDef_t* viewDef, const idRenderEntityLocal* entity, const idMaterial* material)
+{
+    if (!material)
+    {
+        return false;
+    }
+
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
+    return SmokeEntitySurfaceHasActiveEmissiveStage(viewDef, entity, material, classifier);
+}
+
+bool SmokeEntitySurfaceHasActiveEmissiveStage(
+    const viewDef_t* viewDef,
+    const idRenderEntityLocal* entity,
+    const idMaterial* material,
+    const RtSmokeTranslucentClassifierInfo& classifier)
 {
     if (!viewDef || !entity || !material)
     {
@@ -501,7 +529,7 @@ bool SmokeEntitySurfaceHasActiveEmissiveStage(const viewDef_t* viewDef, const id
         regs = dynamicRegs;
     }
 
-    return SmokeMaterialRegistersHaveActiveEmissiveStage(material, regs);
+    return SmokeMaterialRegistersHaveActiveEmissiveStageWithClassifier(material, regs, classifier);
 }
 
 static bool SmokeDynamicEvalStageIsEmissiveLike(const shaderStage_t* stage)
