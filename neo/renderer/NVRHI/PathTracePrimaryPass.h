@@ -133,6 +133,15 @@ private:
     int m_smokeRigidTlasPlanAsyncLaunchMs = 0;
     bool m_smokeRigidTlasPlanAsyncGenerationValid = false;
     bool m_smokeRigidTlasPlanAsyncCachedPlanValid = false;
+    RtPathTraceCpuWorkState m_smokeRigidRouteBuildCpuWorkState;
+    RtPathTraceCpuWorkGeneration m_smokeRigidRouteBuildAsyncGeneration;
+    RtPathTraceCpuWorkGeneration m_smokeRigidRouteBuildAsyncCachedGeneration;
+    RtPathTraceCpuWorkTiming m_smokeRigidRouteBuildAsyncTiming;
+    RtPathTraceRigidRouteBuild m_smokeRigidRouteBuildAsyncCachedBuild;
+    std::future<RtPathTraceRigidRouteBuildTimedResult> m_smokeRigidRouteBuildFuture;
+    int m_smokeRigidRouteBuildAsyncLaunchMs = 0;
+    bool m_smokeRigidRouteBuildAsyncGenerationValid = false;
+    bool m_smokeRigidRouteBuildAsyncCachedBuildValid = false;
     RtPathTraceCpuWorkGeneration m_smokeBvhFramePlanningAsyncGeneration;
     RtPathTraceCpuWorkGeneration m_smokeBvhFramePlanningAsyncCachedGeneration;
     RtPathTraceCpuWorkTiming m_smokeBvhFramePlanningAsyncTiming;

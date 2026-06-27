@@ -2462,6 +2462,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticBlasCacheValid = false;
             m_smokeStaticBlasSignature = 0;
             m_smokeSceneUniverseStaticBuildGeneration = 0;
+            m_smokeRigidRouteBuildAsyncGenerationValid = false;
+            m_smokeRigidRouteBuildAsyncCachedBuildValid = false;
+            m_smokeRigidRouteBuildAsyncCachedBuild = RtPathTraceRigidRouteBuild();
+            m_smokeRigidRouteBuildCpuWorkState = RtPathTraceCpuWorkState();
             m_smokeSceneRebuildLogged = false;
             ClearSmokeMaterialTextureRegistry();
             ClearSmokeMaterialUniverse();
@@ -3359,11 +3363,122 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const bool buildRigidRouteBuffers = enableRigidRouteForMode;
     RtPathTraceRigidRouteBuild rigidRouteBuild;
     int rigidRouteBuildMs = 0;
+    bool rigidRouteBuildAcceptedFromAsync = false;
+    bool rigidRouteBuildAsyncCached = false;
+    bool rigidRouteBuildAsyncQueued = false;
     if (buildRigidRouteBuffers)
     {
-        const int rigidRouteBuildStartMs = Sys_Milliseconds();
-        rigidRouteBuild = m_smokeGeometryUniverse.BuildRigidRouteBuffers(rigidTlasPlan, materialTable.materialIds);
-        rigidRouteBuildMs = Sys_Milliseconds() - rigidRouteBuildStartMs;
+        if (asyncBvhFramePlanning)
+        {
+            const int rigidRouteSnapshotStartMs = Sys_Milliseconds();
+            RtPathTraceRigidRouteBuildSnapshot rigidRouteSnapshot =
+                m_smokeGeometryUniverse.CaptureRigidRouteBuildSnapshot(rigidTlasPlan, materialTable.materialIds);
+            const int rigidRouteSnapshotMs = Sys_Milliseconds() - rigidRouteSnapshotStartMs;
+
+            RtPathTraceCpuWorkGeneration rigidRouteBuildGeneration;
+            rigidRouteBuildGeneration.frameIndex = 0;
+            rigidRouteBuildGeneration.sceneGeneration = m_smokeSceneUniverseStaticBuildGeneration;
+            rigidRouteBuildGeneration.geometryGeneration = sceneUniverseGeneration;
+            rigidRouteBuildGeneration.materialGeneration = materialTableSignature;
+            rigidRouteBuildGeneration.lightGeneration =
+                rigidTlasPlanValid ? rigidTlasPlan.tlasInstanceSignature : rigidTlasPlanInputToken;
+            RtPathTraceCpuWorkPublishSnapshot(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration);
+
+            if (m_smokeRigidRouteBuildFuture.valid())
+            {
+                const std::future_status futureStatus =
+                    m_smokeRigidRouteBuildFuture.wait_for(std::chrono::seconds(0));
+                if (futureStatus == std::future_status::ready)
+                {
+                    const RtPathTraceRigidRouteBuildTimedResult timedResult = m_smokeRigidRouteBuildFuture.get();
+                    m_smokeRigidRouteBuildAsyncGenerationValid = false;
+                    RtPathTraceCpuWorkResultEnvelope asyncEnvelope;
+                    asyncEnvelope.completed = true;
+                    asyncEnvelope.generation = m_smokeRigidRouteBuildAsyncGeneration;
+                    asyncEnvelope.timing = m_smokeRigidRouteBuildAsyncTiming;
+                    asyncEnvelope.timing.workerExecutionMs = static_cast<double>(timedResult.buildTimeMicros) / 1000.0;
+                    const double asyncOutstandingMs =
+                        static_cast<double>(Max(0, Sys_Milliseconds() - m_smokeRigidRouteBuildAsyncLaunchMs));
+                    asyncEnvelope.timing.queueWaitMs = Max(0.0, asyncOutstandingMs - asyncEnvelope.timing.workerExecutionMs);
+                    RtPathTraceCpuWorkPublishCompletedResult(m_smokeRigidRouteBuildCpuWorkState, asyncEnvelope);
+
+                    const RtPathTraceCpuWorkFrameDecision asyncDecision =
+                        RtPathTraceCpuWorkAcceptLatest(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration, &asyncEnvelope, false);
+                    if (asyncDecision.accepted)
+                    {
+                        rigidRouteBuild = timedResult.build;
+                        rigidRouteBuildMs = 0;
+                        m_smokeRigidRouteBuildAsyncCachedBuild = timedResult.build;
+                        m_smokeRigidRouteBuildAsyncCachedGeneration = m_smokeRigidRouteBuildAsyncGeneration;
+                        m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
+                        rigidRouteBuildAcceptedFromAsync = true;
+                    }
+                }
+                else
+                {
+                    RtPathTraceCpuWorkAcceptLatest(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration, nullptr, true);
+                }
+            }
+
+            if (!rigidRouteBuildAcceptedFromAsync &&
+                m_smokeRigidRouteBuildAsyncCachedBuildValid &&
+                RtPathTraceCpuWorkGenerationEquals(m_smokeRigidRouteBuildAsyncCachedGeneration, rigidRouteBuildGeneration))
+            {
+                rigidRouteBuild = m_smokeRigidRouteBuildAsyncCachedBuild;
+                rigidRouteBuildMs = 0;
+                rigidRouteBuildAcceptedFromAsync = true;
+                rigidRouteBuildAsyncCached = true;
+            }
+
+            if (!rigidRouteBuildAcceptedFromAsync)
+            {
+                const int rigidRouteBuildStartMs = Sys_Milliseconds();
+                rigidRouteBuild = BuildRigidRouteBuffersFromSnapshot(rigidRouteSnapshot);
+                rigidRouteBuildMs = Sys_Milliseconds() - rigidRouteBuildStartMs;
+                RtPathTraceCpuWorkResultEnvelope rigidRouteEnvelope;
+                rigidRouteEnvelope.completed = true;
+                rigidRouteEnvelope.generation = rigidRouteBuildGeneration;
+                rigidRouteEnvelope.timing.snapshotCaptureMs = static_cast<double>(rigidRouteSnapshotMs);
+                rigidRouteEnvelope.timing.workerExecutionMs = static_cast<double>(rigidRouteBuildMs);
+                RtPathTraceCpuWorkPublishCompletedResult(m_smokeRigidRouteBuildCpuWorkState, rigidRouteEnvelope);
+                RtPathTraceCpuWorkAcceptLatest(m_smokeRigidRouteBuildCpuWorkState, rigidRouteBuildGeneration, nullptr, true);
+            }
+
+            const bool rigidRouteBuildAlreadyCached =
+                m_smokeRigidRouteBuildAsyncCachedBuildValid &&
+                RtPathTraceCpuWorkGenerationEquals(m_smokeRigidRouteBuildAsyncCachedGeneration, rigidRouteBuildGeneration);
+            const bool rigidRouteBuildAlreadyQueued =
+                m_smokeRigidRouteBuildAsyncGenerationValid &&
+                RtPathTraceCpuWorkGenerationEquals(m_smokeRigidRouteBuildAsyncGeneration, rigidRouteBuildGeneration);
+            if (!m_smokeRigidRouteBuildFuture.valid() &&
+                !rigidRouteBuildAlreadyCached &&
+                !rigidRouteBuildAlreadyQueued)
+            {
+                m_smokeRigidRouteBuildAsyncTiming = RtPathTraceCpuWorkTiming();
+                m_smokeRigidRouteBuildAsyncTiming.snapshotCaptureMs = static_cast<double>(rigidRouteSnapshotMs);
+                m_smokeRigidRouteBuildAsyncGeneration = rigidRouteBuildGeneration;
+                m_smokeRigidRouteBuildAsyncGenerationValid = true;
+                m_smokeRigidRouteBuildAsyncLaunchMs = Sys_Milliseconds();
+                m_smokeRigidRouteBuildFuture = std::async(
+                    std::launch::async,
+                    [rigidRouteSnapshot]() {
+                        return BuildRigidRouteBuffersTimedResult(rigidRouteSnapshot);
+                    });
+            }
+            if (!rigidRouteBuildAcceptedFromAsync)
+            {
+                m_smokeRigidRouteBuildAsyncCachedBuild = rigidRouteBuild;
+                m_smokeRigidRouteBuildAsyncCachedGeneration = rigidRouteBuildGeneration;
+                m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
+            }
+            rigidRouteBuildAsyncQueued = m_smokeRigidRouteBuildFuture.valid();
+        }
+        else
+        {
+            const int rigidRouteBuildStartMs = Sys_Milliseconds();
+            rigidRouteBuild = m_smokeGeometryUniverse.BuildRigidRouteBuffers(rigidTlasPlan, materialTable.materialIds);
+            rigidRouteBuildMs = Sys_Milliseconds() - rigidRouteBuildStartMs;
+        }
         if (r_pathTracingSmokeLog.GetInteger() != 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
         {
             const uint64_t rigidRouteGeometryBytes =
@@ -3372,7 +3487,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 rigidRouteBuild.triangleMaterials.size() * sizeof(uint32_t) +
                 rigidRouteBuild.triangleMaterialIndexes.size() * sizeof(uint32_t);
             const uint64_t rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
-            common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst)=%llu/%llu buildMs=%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
+            common->Printf("PathTracePrimaryPass: PT rigid route buffers instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst)=%llu/%llu buildMs=%d async/cache/queued=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
                 rigidRouteBuild.stats.emittedInstances,
                 rigidRouteBuild.stats.emittedUniqueMeshes,
                 rigidRouteMaxInstances,
@@ -3386,6 +3501,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 static_cast<unsigned long long>(rigidRouteGeometryBytes),
                 static_cast<unsigned long long>(rigidRouteInstanceBytes),
                 rigidRouteBuildMs,
+                rigidRouteBuildAcceptedFromAsync ? 1 : 0,
+                rigidRouteBuildAsyncCached ? 1 : 0,
+                rigidRouteBuildAsyncQueued ? 1 : 0,
                 rigidRouteBuild.stats.skippedNonRigid,
                 rigidRouteBuild.stats.skippedMissingMesh,
                 rigidRouteBuild.stats.skippedMissingBlas,
@@ -5713,7 +5831,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t rigidRouteInstanceBytes = rigidRouteBuild.instances.size() * sizeof(PathTraceRigidRouteInstance);
     if (r_pathTracingRigidRouteDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload)=%llu/%llu/%llu buildMs=%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
+        common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload)=%llu/%llu/%llu buildMs=%d async/cache/queued=%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
             sceneSource,
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             buildRigidRouteBuffers ? 1 : 0,
@@ -5731,6 +5849,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(rigidRouteInstanceBytes),
             static_cast<unsigned long long>(rigidRouteUploadBytes),
             rigidRouteBuildMs,
+            rigidRouteBuildAcceptedFromAsync ? 1 : 0,
+            rigidRouteBuildAsyncCached ? 1 : 0,
+            rigidRouteBuildAsyncQueued ? 1 : 0,
             rigidRouteBuild.stats.skippedNonRigid,
             rigidRouteBuild.stats.skippedMissingMesh,
             rigidRouteBuild.stats.skippedMissingBlas,

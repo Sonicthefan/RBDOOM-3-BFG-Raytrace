@@ -17,7 +17,9 @@
 #include "../RenderWorld_local.h"
 
 #include <algorithm>
+#include <chrono>
 #include <unordered_set>
+#include <utility>
 #include <nvrhi/utils.h>
 
 namespace {
@@ -4405,6 +4407,254 @@ int RtSmokeGeometryUniverse::BuildRigidTlasInstanceDescs(
     const RtSmokeRigidTlasPlan plan =
         BuildRigidTlasInstancePlan(instanceUniverse, firstInstanceId, instanceMask, maxInstances);
     return BuildRigidTlasInstanceDescs(plan, instanceDescs);
+}
+
+RtPathTraceRigidRouteBuildSnapshot RtSmokeGeometryUniverse::CaptureRigidRouteBuildSnapshot(
+    const RtSmokeRigidTlasPlan& plan,
+    const std::vector<uint32_t>& materialTableIds) const
+{
+    RtPathTraceRigidRouteBuildSnapshot snapshot;
+    snapshot.plan = plan;
+    snapshot.materialTableIds = materialTableIds;
+    snapshot.meshes.reserve(plan.instances.size());
+
+    std::unordered_set<uint32_t> capturedRouteRecords;
+    for (const RtSmokePlanTlasInstance& plannedInstance : plan.instances)
+    {
+        if (plannedInstance.routeRecordIndex >= m_rigidMeshCandidateRecords.size())
+        {
+            continue;
+        }
+        if (!capturedRouteRecords.insert(plannedInstance.routeRecordIndex).second)
+        {
+            continue;
+        }
+
+        const RigidMeshCandidateRecord& record = m_rigidMeshCandidateRecords[plannedInstance.routeRecordIndex];
+        RtPathTraceRigidRouteMeshSnapshot mesh;
+        mesh.routeRecordIndex = plannedInstance.routeRecordIndex;
+        mesh.valid = record.valid;
+        mesh.meshHash = record.meshHash;
+        mesh.materialId = record.materialId;
+        mesh.surfaceClassId = record.surfaceClassId;
+        mesh.triangleClassAndFlags = record.triangleClassAndFlags;
+        mesh.routeReady = RigidMeshHasCachedRouteGpuReady(record);
+        mesh.localBounds = record.localBounds;
+        mesh.localBoundsValid = record.localBoundsValid && !record.localBounds.IsCleared();
+        if (mesh.routeReady)
+        {
+            mesh.vertices = record.cachedLocalVertices;
+            mesh.indexes = record.cachedLocalIndexes;
+        }
+        snapshot.meshes.push_back(std::move(mesh));
+    }
+
+    return snapshot;
+}
+
+static const RtPathTraceRigidRouteMeshSnapshot* FindRigidRouteMeshSnapshot(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot,
+    uint32_t routeRecordIndex)
+{
+    for (const RtPathTraceRigidRouteMeshSnapshot& mesh : snapshot.meshes)
+    {
+        if (mesh.routeRecordIndex == routeRecordIndex)
+        {
+            return &mesh;
+        }
+    }
+    return nullptr;
+}
+
+static bool RigidSnapshotTlasInstanceValid(
+    const RtSmokePlanTlasInstance& plannedInstance,
+    const RtPathTraceRigidRouteMeshSnapshot& mesh)
+{
+    if (!mesh.valid ||
+        !mesh.routeReady ||
+        !mesh.localBoundsValid ||
+        !RigidRouteTransformUsable(plannedInstance.transform))
+    {
+        return false;
+    }
+
+    RtPathTraceRigidResidencyBoundsBox boundsBox;
+    boundsBox.valid = true;
+    for (int cornerIndex = 0; cornerIndex < 8; ++cornerIndex)
+    {
+        idVec3 localPoint;
+        localPoint.x = mesh.localBounds[(cornerIndex ^ (cornerIndex >> 1)) & 1].x;
+        localPoint.y = mesh.localBounds[(cornerIndex >> 1) & 1].y;
+        localPoint.z = mesh.localBounds[(cornerIndex >> 2) & 1].z;
+        TransformRigidResidencyBoundsPoint(plannedInstance.transform, localPoint, boundsBox.corners[cornerIndex]);
+    }
+    return ValidateRigidResidencyBoundsBox(boundsBox);
+}
+
+RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot)
+{
+    struct RigidRouteGeometryRange
+    {
+        uint32_t vertexOffset = 0;
+        uint32_t indexOffset = 0;
+        uint32_t triangleOffset = 0;
+        uint32_t vertexCount = 0;
+        uint32_t indexCount = 0;
+        uint32_t triangleCount = 0;
+        uint32_t materialId = 0;
+        uint32_t materialIndex = 0;
+        uint32_t triangleClassAndFlags = 0;
+    };
+
+    RtPathTraceRigidRouteBuild build;
+    std::unordered_map<uint64, RigidRouteGeometryRange> emittedGeometryRanges;
+    std::unordered_set<uint64> emittedMeshHashes;
+
+    build.stats.visibleInstances = snapshot.plan.visibleInstances;
+    build.stats.skippedNonRigid = snapshot.plan.rejectedNonRigid;
+    build.stats.skippedMissingMesh = snapshot.plan.rejectedMissingMesh + snapshot.plan.rejectedStaleMesh;
+    build.stats.skippedMissingBlas = snapshot.plan.rejectedMissingBlas;
+    for (const RtSmokePlanTlasInstance& plannedInstance : snapshot.plan.instances)
+    {
+        const RtPathTraceRigidRouteMeshSnapshot* mesh =
+            FindRigidRouteMeshSnapshot(snapshot, plannedInstance.routeRecordIndex);
+        if (!mesh)
+        {
+            ++build.stats.skippedMissingMesh;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
+            continue;
+        }
+        if (!mesh->valid || mesh->meshHash != plannedInstance.meshHash)
+        {
+            ++build.stats.skippedMissingMesh;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
+            continue;
+        }
+        if (!RigidSnapshotTlasInstanceValid(plannedInstance, *mesh))
+        {
+            ++build.stats.skippedMissingBlas;
+            AppendRigidRoutePlaceholder(build, plannedInstance);
+            continue;
+        }
+
+        const RigidRouteGeometryRange* sharedGeometry = nullptr;
+        const std::unordered_map<uint64, RigidRouteGeometryRange>::const_iterator sharedIt =
+            emittedGeometryRanges.find(mesh->meshHash);
+        if (sharedIt != emittedGeometryRanges.end())
+        {
+            sharedGeometry = &sharedIt->second;
+        }
+
+        RigidRouteGeometryRange geometryRange;
+        if (sharedGeometry)
+        {
+            geometryRange = *sharedGeometry;
+        }
+        else
+        {
+            if (mesh->vertices.empty() || mesh->indexes.empty())
+            {
+                ++build.stats.skippedMissingMesh;
+                AppendRigidRoutePlaceholder(build, plannedInstance);
+                continue;
+            }
+
+            geometryRange.vertexOffset = static_cast<uint32_t>(build.vertices.size());
+            geometryRange.indexOffset = static_cast<uint32_t>(build.indexes.size());
+            geometryRange.triangleOffset = static_cast<uint32_t>(build.triangleMaterials.size());
+            geometryRange.vertexCount = static_cast<uint32_t>(mesh->vertices.size());
+            geometryRange.indexCount = static_cast<uint32_t>(mesh->indexes.size());
+            geometryRange.triangleCount = static_cast<uint32_t>(mesh->indexes.size() / 3);
+            geometryRange.materialId = mesh->materialId;
+            geometryRange.materialIndex = FindRigidRouteMaterialTableIndex(
+                snapshot.materialTableIds,
+                mesh->materialId,
+                build.stats.missingMaterialTableIndex);
+            geometryRange.triangleClassAndFlags =
+                mesh->triangleClassAndFlags != 0u ? mesh->triangleClassAndFlags : mesh->surfaceClassId;
+
+            build.vertices.insert(build.vertices.end(), mesh->vertices.begin(), mesh->vertices.end());
+            build.indexes.insert(build.indexes.end(), mesh->indexes.begin(), mesh->indexes.end());
+            for (uint32_t triangleIndex = 0; triangleIndex < geometryRange.triangleCount; ++triangleIndex)
+            {
+                build.triangleMaterials.push_back(geometryRange.materialId);
+                build.triangleMaterialIndexes.push_back(geometryRange.materialIndex);
+                build.triangleClassAndFlags.push_back(geometryRange.triangleClassAndFlags);
+            }
+            emittedGeometryRanges[mesh->meshHash] = geometryRange;
+        }
+
+        PathTraceRigidRouteInstance routeInstance;
+        routeInstance.vertexOffset = geometryRange.vertexOffset;
+        routeInstance.indexOffset = geometryRange.indexOffset;
+        routeInstance.triangleOffset = geometryRange.triangleOffset;
+        routeInstance.materialId = geometryRange.materialId;
+        routeInstance.materialIndex = geometryRange.materialIndex;
+        routeInstance.vertexCount = geometryRange.vertexCount;
+        routeInstance.indexCount = geometryRange.indexCount;
+        routeInstance.triangleCount = geometryRange.triangleCount;
+        routeInstance.instanceIdLo = static_cast<uint32_t>(plannedInstance.sourceInstanceId & 0xffffffffull);
+        routeInstance.instanceIdHi = static_cast<uint32_t>((plannedInstance.sourceInstanceId >> 32) & 0xffffffffull);
+        if (plannedInstance.hasPreviousTransform)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_HAS_PREVIOUS_TRANSFORM;
+            ++build.stats.previousTransformInstances;
+        }
+        if (plannedInstance.transformContinuous)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_TRANSFORM_CONTINUOUS;
+            ++build.stats.transformContinuousInstances;
+        }
+        if (!plannedInstance.sourceSeenThisFrame)
+        {
+            routeInstance.flags |= PT_RIGID_ROUTE_CACHED_SOURCE;
+        }
+        CopyRigidRouteTransformRows(routeInstance.currentObjectToWorld, plannedInstance.transform);
+        CopyRigidRouteTransformRows(routeInstance.previousObjectToWorld, plannedInstance.hasPreviousTransform ? plannedInstance.previousTransform : plannedInstance.transform);
+        build.instances.push_back(routeInstance);
+        build.instanceSeenThisFrame.push_back(plannedInstance.sourceSeenThisFrame ? 1u : 0u);
+        std::array<float, 16> objectToWorld = {};
+        for (int elementIndex = 0; elementIndex < 16; ++elementIndex)
+        {
+            objectToWorld[elementIndex] = plannedInstance.transform[elementIndex];
+        }
+        build.instanceObjectToWorld.push_back(objectToWorld);
+
+        ++build.stats.emittedInstances;
+        if (emittedMeshHashes.insert(mesh->meshHash).second)
+        {
+            ++build.stats.emittedUniqueMeshes;
+        }
+        if (plannedInstance.sourceSeenThisFrame)
+        {
+            ++build.stats.emittedSeenThisFrame;
+        }
+        else
+        {
+            ++build.stats.emittedFromCache;
+        }
+        if (!sharedGeometry)
+        {
+            build.stats.vertices += static_cast<int>(geometryRange.vertexCount);
+            build.stats.indexes += static_cast<int>(geometryRange.indexCount);
+            build.stats.triangles += static_cast<int>(geometryRange.triangleCount);
+        }
+    }
+
+    return build;
+}
+
+RtPathTraceRigidRouteBuildTimedResult BuildRigidRouteBuffersTimedResult(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot)
+{
+    const auto start = std::chrono::steady_clock::now();
+    RtPathTraceRigidRouteBuildTimedResult result;
+    result.build = BuildRigidRouteBuffersFromSnapshot(snapshot);
+    const auto end = std::chrono::steady_clock::now();
+    result.buildTimeMicros = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+    return result;
 }
 
 RtPathTraceRigidRouteBuild RtSmokeGeometryUniverse::BuildRigidRouteBuffers(

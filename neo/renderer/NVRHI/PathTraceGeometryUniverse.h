@@ -14,6 +14,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <array>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -407,6 +408,34 @@ struct RtPathTraceRigidRouteBuild
     RtPathTraceRigidRouteBuildStats stats;
 };
 
+struct RtPathTraceRigidRouteMeshSnapshot
+{
+    uint32_t routeRecordIndex = std::numeric_limits<uint32_t>::max();
+    uint64 meshHash = 0;
+    uint32_t materialId = 0;
+    uint32_t surfaceClassId = 0;
+    uint32_t triangleClassAndFlags = 0;
+    bool valid = false;
+    bool routeReady = false;
+    bool localBoundsValid = false;
+    idBounds localBounds;
+    std::vector<PathTraceSmokeVertex> vertices;
+    std::vector<uint32_t> indexes;
+};
+
+struct RtPathTraceRigidRouteBuildSnapshot
+{
+    RtSmokeRigidTlasPlan plan;
+    std::vector<uint32_t> materialTableIds;
+    std::vector<RtPathTraceRigidRouteMeshSnapshot> meshes;
+};
+
+struct RtPathTraceRigidRouteBuildTimedResult
+{
+    RtPathTraceRigidRouteBuild build;
+    uint64_t buildTimeMicros = 0;
+};
+
 struct RtPathTraceRigidResidencySample
 {
     bool valid = false;
@@ -668,6 +697,9 @@ public:
         const RtPathTraceInstanceUniverse& instanceUniverse,
         const std::vector<uint32_t>& materialTableIds,
         int maxInstances) const;
+    RtPathTraceRigidRouteBuildSnapshot CaptureRigidRouteBuildSnapshot(
+        const RtSmokeRigidTlasPlan& plan,
+        const std::vector<uint32_t>& materialTableIds) const;
 
 public:
     struct RigidMeshCandidateRecord
@@ -777,3 +809,9 @@ private:
     bool m_rigidResidencyEnabled = false;
     const idRenderWorldLocal* m_rigidResidencyWorld = nullptr;
 };
+
+RtPathTraceRigidRouteBuild BuildRigidRouteBuffersFromSnapshot(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot);
+
+RtPathTraceRigidRouteBuildTimedResult BuildRigidRouteBuffersTimedResult(
+    const RtPathTraceRigidRouteBuildSnapshot& snapshot);
