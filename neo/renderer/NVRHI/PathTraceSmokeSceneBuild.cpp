@@ -5875,19 +5875,26 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         materialTableSignature,
         staticSignature.hash,
         remixLightManagerSignatureStats.structuralSignature);
-    const bool staticBlasCacheHit = accelerationPlan.staticCacheHit;
+    bool staticBlasCacheHit = accelerationPlan.staticCacheHit;
+    if (staticBlasCacheHit)
+    {
+        const bool staticBlasCacheBuffersReady =
+            SmokeBufferHasPayloadCapacity(m_smokeStaticVertexBuffer, bufferCreateDesc.staticVertexBytes, sizeof(PathTraceSmokeVertex)) &&
+            SmokeBufferHasPayloadCapacity(m_smokeStaticIndexBuffer, bufferCreateDesc.staticIndexBytes, sizeof(uint32_t)) &&
+            SmokeBufferHasPayloadCapacity(m_smokeStaticTriangleClassBuffer, bufferCreateDesc.staticTriangleClassBytes, sizeof(uint32_t));
+        if (!staticBlasCacheBuffersReady)
+        {
+            staticBlasCacheHit = false;
+        }
+    }
     if (staticBlasCacheHit)
     {
         smokeStaticVertexBuffer = m_smokeStaticVertexBuffer;
         smokeStaticIndexBuffer = m_smokeStaticIndexBuffer;
         smokeStaticTriangleClassBuffer = m_smokeStaticTriangleClassBuffer;
-        smokeStaticTriangleMaterialBuffer = m_smokeStaticTriangleMaterialBuffer;
-        smokeStaticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
         smokeBuffers.staticVertexBuffer = smokeStaticVertexBuffer;
         smokeBuffers.staticIndexBuffer = smokeStaticIndexBuffer;
         smokeBuffers.staticTriangleClassBuffer = smokeStaticTriangleClassBuffer;
-        smokeBuffers.staticTriangleMaterialBuffer = smokeStaticTriangleMaterialBuffer;
-        smokeBuffers.staticTriangleMaterialIndexBuffer = smokeStaticTriangleMaterialIndexBuffer;
     }
 
     if (!hasStaticBlas && !hasDynamicBlas)
