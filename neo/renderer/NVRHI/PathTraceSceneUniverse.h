@@ -175,7 +175,7 @@ public:
 
 private:
     bool Build(const viewDef_t* viewDef);
-    RtPathTraceSceneUniverseSelectionStats BuildSelectionStats(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int portalSteps) const;
+    RtPathTraceSceneUniverseSelectionStats BuildSelectionStats(const viewDef_t* viewDef, const RtSmokeGeometryUniverse* geometryUniverse, int portalSteps, bool collectSurfaceStats = true) const;
     void LogSummary(int sceneSource, const RtPathTraceSceneUniverseSelectionStats& selection, int drawSurfStaticSurfaces, int drawSurfStaticTriangles) const;
     void LogDump(int sceneSource, const RtPathTraceSceneUniverseSelectionStats& selection, int drawSurfStaticSurfaces, int drawSurfStaticTriangles) const;
 
@@ -188,5 +188,8 @@ private:
     RtPathTraceSceneUniverseStats m_stats;
     std::vector<RtPathTraceSceneUniverseSurface> m_surfaces;
     std::vector<RtPathTraceSceneUniverseAreaStats> m_areaStats;
+    std::vector<std::vector<int>> m_areaSurfaceIndices;
+    std::vector<uint64> m_surfaceSelectionStamps;
+    uint64 m_surfaceSelectionStamp = 0;
     bool m_loggedForCurrentWorld = false;
 };
