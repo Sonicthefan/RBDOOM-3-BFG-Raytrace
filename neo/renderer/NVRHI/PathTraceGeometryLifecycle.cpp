@@ -453,7 +453,10 @@ void NotifyLightUpdated(const idRenderLightLocal* light)
     {
         return;
     }
-    MarkLightAlive(light);
+    PtGeometryLifecycleWorldState& state = EnsureWorldState(light->world);
+    PtGeometryLifecycleSlotState& slot = EnsureSlot(state.lightSlots, light->index);
+    slot.alive = true;
+    AdvanceSlotGeneration(slot);
     ++g_lifecycleStats.lightUpdates;
 
     PtGeometryLifecycleEventSample sample;

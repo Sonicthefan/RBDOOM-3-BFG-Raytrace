@@ -3,6 +3,7 @@
 
 #include "PathTraceDoomLights.h"
 #include "PathTraceCVars.h"
+#include "PathTraceGeometryLifecycle.h"
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
 #include "../../d3xp/Game_local.h"
@@ -346,6 +347,49 @@ struct DoomLightGameMetadata
     idVec3 currentColor = vec3_zero;
 };
 
+struct DoomResidentLightRecord
+{
+    bool valid = false;
+    PtRenderDefKey key;
+    uint32_t lightGeneration = 0;
+    DoomLightRecord record;
+    int uniqueAreas[RT_PT_DOOM_LIGHT_MAX_AREA_REFS + 2] = {};
+    int uniqueAreaCount = 0;
+    int boundsAreas[RT_PT_DOOM_LIGHT_MAX_AREA_REFS] = {};
+    int boundsAreaCount = 0;
+    int lastSeenFrame = 0;
+};
+
+struct DoomResidentLightStats
+{
+    int visited = 0;
+    int derived = 0;
+    int hits = 0;
+    int misses = 0;
+    int dirty = 0;
+    int residents = 0;
+};
+
+struct DoomResidentLightCache
+{
+    const idRenderWorldLocal* renderWorld = nullptr;
+    idStr mapName;
+    ID_TIME_T mapTimeStamp = 0;
+    std::vector<DoomResidentLightRecord> records;
+    DoomResidentLightStats stats;
+
+    void Reset(const idRenderWorldLocal* newRenderWorld, const char* newMapName, ID_TIME_T newMapTimeStamp)
+    {
+        renderWorld = newRenderWorld;
+        mapName = newMapName ? newMapName : "";
+        mapTimeStamp = newMapTimeStamp;
+        records.clear();
+        stats = DoomResidentLightStats();
+    }
+};
+
+DoomResidentLightCache g_doomResidentLightCache;
+
 bool IsDoomLightGameStateActive()
 {
     return gameLocal.GameState() == GAMESTATE_ACTIVE;
@@ -635,6 +679,136 @@ void FillDoomLightCrosshairMetrics(const viewDef_t* viewDef, DoomLightRecord& re
     record.crosshairScore = record.crosshairDistance / Max(record.radiusMax, 1.0f);
 }
 
+void ClearDoomLightGameMetadataFields(DoomLightRecord& record)
+{
+    record.entityName = "<unavailable>";
+    record.entityClassname = "<unavailable>";
+    record.entityDefName = "<unavailable>";
+    record.spawnTexture = "<unavailable>";
+    record.spawnModel = "<unavailable>";
+    record.spawnBind = "<none>";
+    record.spawnTarget = "<none>";
+    record.spawnBroken = "<none>";
+    record.gameLinked = false;
+    record.gameHidden = false;
+    record.spawnStartOff = false;
+    record.spawnBreak = false;
+    record.spawnNoShadows = false;
+    record.spawnNoSpecular = false;
+    record.entityNumber = -1;
+    record.levels = 0;
+    record.currentLevel = 0;
+    record.spawnCount = 0;
+    record.health = 0;
+    record.baseColor = vec3_zero;
+    record.currentGameColor = vec3_zero;
+}
+
+void ApplyDoomLightGameMetadataToRecord(const viewDef_t* viewDef, const DoomLightGameMetadata& metadata, DoomLightRecord& record)
+{
+    record.gameLinked = true;
+    record.entityName = metadata.entityName;
+    record.entityClassname = metadata.entityClassname;
+    record.entityDefName = metadata.entityDefName;
+    record.spawnTexture = metadata.spawnTexture;
+    record.spawnModel = metadata.spawnModel;
+    record.spawnBind = metadata.spawnBind;
+    record.spawnTarget = metadata.spawnTarget;
+    record.spawnBroken = metadata.spawnBroken;
+    record.gameHidden = metadata.hidden;
+    record.spawnStartOff = metadata.startOff;
+    record.spawnBreak = metadata.breakOnTrigger;
+    record.spawnNoShadows = metadata.noShadows;
+    record.spawnNoSpecular = metadata.noSpecular;
+    record.entityNumber = metadata.entityNumber;
+    record.levels = metadata.levels;
+    record.currentLevel = metadata.currentLevel;
+    record.spawnCount = metadata.count;
+    record.health = metadata.health;
+    record.baseColor = metadata.baseColor;
+    record.currentGameColor = metadata.currentColor;
+    const bool cleanDoomColorRoute = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
+    const bool remixLightUniverseColorRoute =
+        r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
+        (r_pathTracingReGIREnable.GetInteger() != 0 && r_pathTracingReGIRMode.GetInteger() != 0);
+    const int doomColorSource = cleanDoomColorRoute
+        ? idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger())
+        : (remixLightUniverseColorRoute
+            ? idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDoomColorSource.GetInteger())
+            : 0);
+    if (doomColorSource == 1)
+    {
+        record.color = DoomAnalyticColorFromVec3(record.currentGameColor);
+        record.active = record.color.w > 0.0f && !record.suppressed;
+    }
+    else if (doomColorSource == 2)
+    {
+        record.color = DoomAnalyticColorFromVec3(record.baseColor);
+        record.active = record.color.w > 0.0f && !record.suppressed && !record.gameHidden && record.currentLevel > 0;
+    }
+
+    if (record.gameHidden || record.currentLevel <= 0)
+    {
+        record.color = idVec4(0.0f, 0.0f, 0.0f, 0.0f);
+        record.active = false;
+    }
+}
+
+DoomLightGameMetadata BuildDoomLightGameMetadataFromLight(const idLight* light)
+{
+    DoomLightGameMetadata metadata;
+    if (!light)
+    {
+        return metadata;
+    }
+
+    metadata.light = light;
+    metadata.entityName = light->GetName();
+    metadata.entityClassname = light->spawnArgs.GetString("classname", "<none>");
+    metadata.entityDefName = light->GetEntityDefName();
+    metadata.spawnTexture = light->spawnArgs.GetString("texture", "lights/squarelight1");
+    metadata.spawnModel = light->spawnArgs.GetString("model", "<none>");
+    metadata.spawnBind = light->spawnArgs.GetString("bind", "<none>");
+    metadata.spawnTarget = light->spawnArgs.GetString("target", "<none>");
+    metadata.spawnBroken = light->spawnArgs.GetString("broken", "<none>");
+    metadata.hidden = light->fl.hidden;
+    metadata.startOff = light->spawnArgs.GetBool("start_off", "0");
+    metadata.breakOnTrigger = light->spawnArgs.GetBool("break", "0");
+    metadata.noShadows = light->spawnArgs.GetBool("noshadows", "0");
+    metadata.noSpecular = light->spawnArgs.GetBool("nospecular", "0");
+    metadata.entityNumber = light->GetEntityNumber();
+    metadata.levels = light->GetLightLevels();
+    metadata.currentLevel = light->GetCurrentLightLevel();
+    metadata.count = light->spawnArgs.GetInt("count", "1");
+    metadata.health = light->health;
+    metadata.baseColor = light->GetBaseColor();
+    light->GetColor(metadata.currentColor);
+    return metadata;
+}
+
+bool TryBuildDoomLightGameMetadataFromEntityNumber(int entityNumber, int expectedLightHandle, DoomLightGameMetadata& metadata)
+{
+    if (!IsDoomLightGameStateActive() || entityNumber < 0 || entityNumber >= gameLocal.num_entities)
+    {
+        return false;
+    }
+
+    idEntity* entity = gameLocal.entities[entityNumber];
+    if (!entity || !entity->IsType(idLight::Type))
+    {
+        return false;
+    }
+
+    const idLight* light = static_cast<const idLight*>(entity);
+    if (light->GetLightDefHandle() != expectedLightHandle)
+    {
+        return false;
+    }
+
+    metadata = BuildDoomLightGameMetadataFromLight(light);
+    return true;
+}
+
 DoomLightRecord BuildDoomLightRecord(
     const viewDef_t* viewDef,
     const idRenderLightLocal* light,
@@ -731,53 +905,7 @@ DoomLightRecord BuildDoomLightRecord(
     const auto gameMetadataIt = gameMetadataByHandle.find(light->index);
     if (gameMetadataIt != gameMetadataByHandle.end())
     {
-        const DoomLightGameMetadata& metadata = gameMetadataIt->second;
-        record.gameLinked = true;
-        record.entityName = metadata.entityName;
-        record.entityClassname = metadata.entityClassname;
-        record.entityDefName = metadata.entityDefName;
-        record.spawnTexture = metadata.spawnTexture;
-        record.spawnModel = metadata.spawnModel;
-        record.spawnBind = metadata.spawnBind;
-        record.spawnTarget = metadata.spawnTarget;
-        record.spawnBroken = metadata.spawnBroken;
-        record.gameHidden = metadata.hidden;
-        record.spawnStartOff = metadata.startOff;
-        record.spawnBreak = metadata.breakOnTrigger;
-        record.spawnNoShadows = metadata.noShadows;
-        record.spawnNoSpecular = metadata.noSpecular;
-        record.entityNumber = metadata.entityNumber;
-        record.levels = metadata.levels;
-        record.currentLevel = metadata.currentLevel;
-        record.spawnCount = metadata.count;
-        record.health = metadata.health;
-        record.baseColor = metadata.baseColor;
-        record.currentGameColor = metadata.currentColor;
-        const bool cleanDoomColorRoute = r_pathTracingCleanRtxdiDiEnable.GetInteger() != 0;
-        const bool remixLightUniverseColorRoute =
-            r_pathTracingRemixLightUniverseEnable.GetInteger() != 0 ||
-            (r_pathTracingReGIREnable.GetInteger() != 0 && r_pathTracingReGIRMode.GetInteger() != 0);
-        const int doomColorSource = cleanDoomColorRoute
-            ? idMath::ClampInt(0, 2, r_pathTracingCleanRtxdiDiDoomColorSource.GetInteger())
-            : (remixLightUniverseColorRoute
-                ? idMath::ClampInt(0, 2, r_pathTracingRemixLightUniverseDoomColorSource.GetInteger())
-                : 0);
-        if (doomColorSource == 1)
-        {
-            record.color = DoomAnalyticColorFromVec3(record.currentGameColor);
-            record.active = record.color.w > 0.0f && !record.suppressed;
-        }
-        else if (doomColorSource == 2)
-        {
-            record.color = DoomAnalyticColorFromVec3(record.baseColor);
-            record.active = record.color.w > 0.0f && !record.suppressed && !record.gameHidden && record.currentLevel > 0;
-        }
-
-        if (record.gameHidden || record.currentLevel <= 0)
-        {
-            record.color = idVec4(0.0f, 0.0f, 0.0f, 0.0f);
-            record.active = false;
-        }
+        ApplyDoomLightGameMetadataToRecord(viewDef, gameMetadataIt->second, record);
     }
     FillDoomLightCrosshairMetrics(viewDef, record);
     return record;
@@ -805,6 +933,279 @@ std::vector<DoomLightRecord> CollectDoomLightRecords(
         }
         records.push_back(BuildDoomLightRecord(viewDef, light, selection, gameMetadataByHandle));
     }
+    return records;
+}
+
+bool DoomLightResidencyEnabled()
+{
+    return r_pathTracingResidency.GetInteger() != 0 && r_pathTracingResidencyLights.GetInteger() != 0;
+}
+
+void EnsureDoomResidentLightCacheForWorld(const viewDef_t* viewDef)
+{
+    const idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "";
+    const ID_TIME_T mapTimeStamp = renderWorld ? renderWorld->mapTimeStamp : 0;
+    if (g_doomResidentLightCache.renderWorld != renderWorld ||
+        g_doomResidentLightCache.mapName.Icmp(mapName) != 0 ||
+        g_doomResidentLightCache.mapTimeStamp != mapTimeStamp)
+    {
+        g_doomResidentLightCache.Reset(renderWorld, mapName, mapTimeStamp);
+    }
+    g_doomResidentLightCache.stats = DoomResidentLightStats();
+}
+
+void DumpDoomResidentLightStatsIfNeeded()
+{
+    if (r_pathTracingResidencyDump.GetInteger() == 0)
+    {
+        return;
+    }
+
+    static int lastDumpFrame = -120;
+    if (tr.frameCount - lastDumpFrame < 120)
+    {
+        return;
+    }
+    lastDumpFrame = tr.frameCount;
+    common->Printf(
+        "PathTracePrimaryPass: RES doomLights visited=%d derived=%d hits=%d misses=%d dirty=%d residents=%d\n",
+        g_doomResidentLightCache.stats.visited,
+        g_doomResidentLightCache.stats.derived,
+        g_doomResidentLightCache.stats.hits,
+        g_doomResidentLightCache.stats.misses,
+        g_doomResidentLightCache.stats.dirty,
+        g_doomResidentLightCache.stats.residents);
+}
+
+void AddDoomResidentLightArea(DoomResidentLightRecord& resident, int area)
+{
+    if (area < 0)
+    {
+        return;
+    }
+    for (int i = 0; i < resident.uniqueAreaCount; ++i)
+    {
+        if (resident.uniqueAreas[i] == area)
+        {
+            return;
+        }
+    }
+    if (resident.uniqueAreaCount < static_cast<int>(sizeof(resident.uniqueAreas) / sizeof(resident.uniqueAreas[0])))
+    {
+        resident.uniqueAreas[resident.uniqueAreaCount++] = area;
+    }
+}
+
+void PopulateDoomResidentLightAreaFacts(const viewDef_t* viewDef, const DoomLightRecord& record, DoomResidentLightRecord& resident)
+{
+    resident.uniqueAreaCount = 0;
+    resident.boundsAreaCount = 0;
+    AddDoomResidentLightArea(resident, record.area);
+    AddDoomResidentLightArea(resident, record.originArea);
+
+    const idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    resident.boundsAreaCount = renderWorld ? renderWorld->BoundsInAreas(record.bounds, resident.boundsAreas, RT_PT_DOOM_LIGHT_MAX_AREA_REFS) : 0;
+    for (int i = 0; i < resident.boundsAreaCount; ++i)
+    {
+        AddDoomResidentLightArea(resident, resident.boundsAreas[i]);
+    }
+}
+
+void RefreshDoomRecordAreaSelectionFromResident(
+    const viewDef_t* viewDef,
+    const DoomLightPortalSelection& selection,
+    const DoomResidentLightRecord& resident,
+    DoomLightRecord& record)
+{
+    record.selectedArea = false;
+    record.connectedArea = false;
+    record.selectionArea = -1;
+    record.portalDepth = -1;
+    record.boundsAreaCount = resident.boundsAreaCount;
+    record.selectedBoundsAreaCount = 0;
+    record.connectedBoundsAreaCount = 0;
+
+    const idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    for (int i = 0; i < resident.boundsAreaCount; ++i)
+    {
+        const int area = resident.boundsAreas[i];
+        if (area >= 0 && area < static_cast<int>(selection.depthByArea.size()) && selection.depthByArea[area] >= 0)
+        {
+            ++record.selectedBoundsAreaCount;
+        }
+        if (viewDef && viewDef->connectedAreas && renderWorld && area >= 0 && area < renderWorld->NumAreas() && viewDef->connectedAreas[area])
+        {
+            ++record.connectedBoundsAreaCount;
+        }
+    }
+
+    for (int i = 0; i < resident.uniqueAreaCount; ++i)
+    {
+        const int area = resident.uniqueAreas[i];
+        if (area >= 0 && area < static_cast<int>(selection.depthByArea.size()))
+        {
+            const int depth = selection.depthByArea[area];
+            if (depth >= 0 && (!record.selectedArea || depth < record.portalDepth))
+            {
+                record.portalDepth = depth;
+                record.selectionArea = area;
+                record.selectedArea = true;
+            }
+        }
+        if (viewDef && viewDef->connectedAreas && renderWorld && area >= 0 && area < renderWorld->NumAreas() && viewDef->connectedAreas[area])
+        {
+            record.connectedArea = true;
+        }
+    }
+}
+
+void RefreshDoomResidentLightDynamicFields(
+    const viewDef_t* viewDef,
+    const idRenderLightLocal* light,
+    const DoomLightPortalSelection& selection,
+    const DoomResidentLightRecord& resident,
+    DoomLightRecord& record)
+{
+    record = resident.record;
+    if (!viewDef || !light)
+    {
+        return;
+    }
+
+    record.index = light->index;
+    record.origin = light->globalLightOrigin;
+    record.radius = light->parms.lightRadius;
+    record.radiusMax = Max(record.radius.x, Max(record.radius.y, record.radius.z));
+    record.bounds = light->globalLightBounds;
+    record.area = light->areaNum;
+    record.originArea = viewDef->renderWorld ? viewDef->renderWorld->PointInArea(record.origin) : -1;
+    if (record.area < 0)
+    {
+        record.area = record.originArea;
+    }
+    RefreshDoomRecordAreaSelectionFromResident(viewDef, selection, resident, record);
+
+    record.suppressed = IsDoomLightSuppressedForView(viewDef, light);
+    record.color = EvaluateDoomLightColor(viewDef, light, record.active);
+    record.active = record.active && !record.suppressed;
+    record.visibleInView = light->viewCount == tr.viewCount && light->viewLight && !light->viewLight->removeFromList;
+    record.distance = (record.origin - viewDef->renderView.vieworg).Length();
+    record.crosshairT = -1.0f;
+    record.crosshairDistance = -1.0f;
+    record.crosshairScore = idMath::INFINITUM;
+    record.crosshairBehind = false;
+    ClearDoomLightGameMetadataFields(record);
+
+    DoomLightGameMetadata metadata;
+    if (TryBuildDoomLightGameMetadataFromEntityNumber(resident.record.entityNumber, light->index, metadata))
+    {
+        ApplyDoomLightGameMetadataToRecord(viewDef, metadata, record);
+    }
+    FillDoomLightCrosshairMetrics(viewDef, record);
+}
+
+std::vector<DoomLightRecord> CollectDoomLightRecordsResident(
+    const viewDef_t* viewDef,
+    const DoomLightPortalSelection& selection)
+{
+    std::vector<DoomLightRecord> records;
+    idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
+    if (!renderWorld)
+    {
+        g_doomResidentLightCache.Reset(nullptr, "", 0);
+        return records;
+    }
+
+    EnsureDoomResidentLightCacheForWorld(viewDef);
+    g_doomResidentLightCache.records.resize(renderWorld->lightDefs.Num());
+    records.reserve(renderWorld->lightDefs.Num());
+
+    bool needsMetadataMap = false;
+    for (int lightIndex = 0; lightIndex < renderWorld->lightDefs.Num(); ++lightIndex)
+    {
+        const idRenderLightLocal* light = renderWorld->lightDefs[lightIndex];
+        if (!light)
+        {
+            continue;
+        }
+
+        const PtRenderDefKey key = PtGeometryLifecycle::MakeLightKey(light);
+        const uint32_t lightGeneration = PtGeometryLifecycle::LightGeneration(light->world, light->index);
+        DoomResidentLightRecord& resident = g_doomResidentLightCache.records[lightIndex];
+        const bool cacheHit =
+            resident.valid &&
+            resident.key.world == key.world &&
+            resident.key.index == key.index &&
+            resident.key.generation == key.generation &&
+            resident.lightGeneration == lightGeneration;
+        if (!cacheHit)
+        {
+            needsMetadataMap = true;
+            break;
+        }
+    }
+
+    std::unordered_map<int, DoomLightGameMetadata> gameMetadataByHandle;
+    if (needsMetadataMap)
+    {
+        gameMetadataByHandle = BuildDoomLightGameMetadataByHandle();
+    }
+
+    for (int lightIndex = 0; lightIndex < renderWorld->lightDefs.Num(); ++lightIndex)
+    {
+        const idRenderLightLocal* light = renderWorld->lightDefs[lightIndex];
+        if (!light)
+        {
+            continue;
+        }
+
+        ++g_doomResidentLightCache.stats.visited;
+        const PtRenderDefKey key = PtGeometryLifecycle::MakeLightKey(light);
+        const uint32_t lightGeneration = PtGeometryLifecycle::LightGeneration(light->world, light->index);
+        DoomResidentLightRecord& resident = g_doomResidentLightCache.records[lightIndex];
+        const bool cacheHit =
+            resident.valid &&
+            resident.key.world == key.world &&
+            resident.key.index == key.index &&
+            resident.key.generation == key.generation &&
+            resident.lightGeneration == lightGeneration;
+
+        DoomLightRecord record;
+        if (cacheHit)
+        {
+            ++g_doomResidentLightCache.stats.hits;
+            RefreshDoomResidentLightDynamicFields(viewDef, light, selection, resident, record);
+        }
+        else
+        {
+            ++g_doomResidentLightCache.stats.derived;
+            if (resident.valid)
+            {
+                ++g_doomResidentLightCache.stats.dirty;
+            }
+            else
+            {
+                ++g_doomResidentLightCache.stats.misses;
+            }
+
+            record = BuildDoomLightRecord(viewDef, light, selection, gameMetadataByHandle);
+            resident.valid = true;
+            resident.key = key;
+            resident.lightGeneration = lightGeneration;
+            resident.record = record;
+            PopulateDoomResidentLightAreaFacts(viewDef, record, resident);
+        }
+
+        resident.lastSeenFrame = tr.frameCount;
+        records.push_back(record);
+    }
+
+    for (const DoomResidentLightRecord& resident : g_doomResidentLightCache.records)
+    {
+        g_doomResidentLightCache.stats.residents += resident.valid ? 1 : 0;
+    }
+    DumpDoomResidentLightStatsIfNeeded();
     return records;
 }
 
@@ -2255,8 +2656,9 @@ std::vector<PathTraceDoomAnalyticLightCandidate> BuildPathTraceDoomAnalyticLight
     const DoomLightPortalSelection selection = BuildDoomLightPortalSelection(
         viewDef,
         idMath::ClampInt(0, 8, r_pathTracingLightAreaPortalSteps.GetInteger()));
-    const std::unordered_map<int, DoomLightGameMetadata> gameMetadataByHandle = BuildDoomLightGameMetadataByHandle();
-    const std::vector<DoomLightRecord> records = CollectDoomLightRecords(viewDef, selection, gameMetadataByHandle);
+    const std::vector<DoomLightRecord> records = DoomLightResidencyEnabled()
+        ? CollectDoomLightRecordsResident(viewDef, selection)
+        : CollectDoomLightRecords(viewDef, selection, BuildDoomLightGameMetadataByHandle());
     const std::vector<DoomLightRecord> candidates = BuildAnalyticDoomLightRecords(
         records,
         options.preserveZeroRadianceSlots,
