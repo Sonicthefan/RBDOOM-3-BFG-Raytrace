@@ -1353,6 +1353,241 @@ bool FindSmokeVectorChangedRange(
     return true;
 }
 
+const int RT_SMOKE_UPLOAD_DIFF_SAMPLE_COUNT = 4;
+
+struct RtSmokeMaterialUploadDiffSummary
+{
+    int rows = 0;
+    int firstRow = -1;
+    int lastRow = -1;
+    int debugAlbedoRows = 0;
+    int emissiveRows = 0;
+    int textureRows = 0;
+    int alphaRows = 0;
+    int flagRows = 0;
+    int classifierRows = 0;
+    int otherRows = 0;
+    int sampleCount = 0;
+    int sampleRows[RT_SMOKE_UPLOAD_DIFF_SAMPLE_COUNT] = {};
+    uint32_t sampleMaterialIds[RT_SMOKE_UPLOAD_DIFF_SAMPLE_COUNT] = {};
+};
+
+struct RtSmokeDynamicMaterialUploadDiffSummary
+{
+    int rows = 0;
+    int firstRow = -1;
+    int lastRow = -1;
+    int colorRows = 0;
+    int texMatrixRows = 0;
+    int identityRows = 0;
+    int flagRows = 0;
+    int otherRows = 0;
+    int sampleCount = 0;
+    int sampleRows[RT_SMOKE_UPLOAD_DIFF_SAMPLE_COUNT] = {};
+    uint32_t sampleMaterialIds[RT_SMOKE_UPLOAD_DIFF_SAMPLE_COUNT] = {};
+};
+
+bool SmokeFloat4Changed(const float previous[4], const float current[4])
+{
+    return std::memcmp(previous, current, sizeof(float) * 4) != 0;
+}
+
+bool SmokeMaterialTextureStateChanged(const PathTraceSmokeMaterial& previous, const PathTraceSmokeMaterial& current)
+{
+    return previous.diffuseTextureIndex != current.diffuseTextureIndex ||
+        previous.alphaTextureIndex != current.alphaTextureIndex ||
+        previous.normalTextureIndex != current.normalTextureIndex ||
+        previous.specularTextureIndex != current.specularTextureIndex ||
+        previous.emissiveTextureIndex != current.emissiveTextureIndex ||
+        previous.textureWidth != current.textureWidth ||
+        previous.textureHeight != current.textureHeight ||
+        previous.alphaTextureWidth != current.alphaTextureWidth ||
+        previous.alphaTextureHeight != current.alphaTextureHeight ||
+        previous.normalTextureWidth != current.normalTextureWidth ||
+        previous.normalTextureHeight != current.normalTextureHeight ||
+        previous.specularTextureWidth != current.specularTextureWidth ||
+        previous.specularTextureHeight != current.specularTextureHeight ||
+        previous.emissiveTextureWidth != current.emissiveTextureWidth ||
+        previous.emissiveTextureHeight != current.emissiveTextureHeight;
+}
+
+void AddSmokeMaterialUploadDiffSample(RtSmokeMaterialUploadDiffSummary& summary, int row, uint32_t materialId)
+{
+    if (summary.sampleCount >= RT_SMOKE_UPLOAD_DIFF_SAMPLE_COUNT)
+    {
+        return;
+    }
+    summary.sampleRows[summary.sampleCount] = row;
+    summary.sampleMaterialIds[summary.sampleCount] = materialId;
+    ++summary.sampleCount;
+}
+
+void AddSmokeDynamicMaterialUploadDiffSample(RtSmokeDynamicMaterialUploadDiffSummary& summary, int row, uint32_t materialId)
+{
+    if (summary.sampleCount >= RT_SMOKE_UPLOAD_DIFF_SAMPLE_COUNT)
+    {
+        return;
+    }
+    summary.sampleRows[summary.sampleCount] = row;
+    summary.sampleMaterialIds[summary.sampleCount] = materialId;
+    ++summary.sampleCount;
+}
+
+RtSmokeMaterialUploadDiffSummary BuildSmokeMaterialUploadDiffSummary(
+    const std::vector<PathTraceSmokeMaterial>& previousRecords,
+    const std::vector<PathTraceSmokeMaterial>& currentRecords,
+    const std::vector<uint32_t>& currentMaterialIds,
+    int firstChanged,
+    int changedCount)
+{
+    RtSmokeMaterialUploadDiffSummary summary;
+    if (firstChanged < 0 || changedCount <= 0)
+    {
+        return summary;
+    }
+
+    const int previousCount = static_cast<int>(previousRecords.size());
+    const int currentCount = static_cast<int>(currentRecords.size());
+    const int beginRow = idMath::ClampInt(0, currentCount, firstChanged);
+    const int endRow = idMath::ClampInt(beginRow, currentCount, firstChanged + changedCount);
+    for (int row = beginRow; row < endRow; ++row)
+    {
+        const PathTraceSmokeMaterial& current = currentRecords[row];
+        const bool hasPrevious = row < previousCount;
+        if (hasPrevious && std::memcmp(&previousRecords[row], &current, sizeof(current)) == 0)
+        {
+            continue;
+        }
+
+        ++summary.rows;
+        if (summary.firstRow < 0)
+        {
+            summary.firstRow = row;
+        }
+        summary.lastRow = row;
+        const uint32_t materialId = row < static_cast<int>(currentMaterialIds.size()) ? currentMaterialIds[row] : 0;
+        AddSmokeMaterialUploadDiffSample(summary, row, materialId);
+
+        if (!hasPrevious)
+        {
+            ++summary.otherRows;
+            continue;
+        }
+
+        const PathTraceSmokeMaterial& previous = previousRecords[row];
+        if (SmokeFloat4Changed(previous.debugAlbedo, current.debugAlbedo))
+        {
+            ++summary.debugAlbedoRows;
+        }
+        if (SmokeFloat4Changed(previous.emissiveColor, current.emissiveColor))
+        {
+            ++summary.emissiveRows;
+        }
+        if (SmokeMaterialTextureStateChanged(previous, current))
+        {
+            ++summary.textureRows;
+        }
+        if (previous.alphaCutoff != current.alphaCutoff)
+        {
+            ++summary.alphaRows;
+        }
+        if (previous.flags != current.flags)
+        {
+            ++summary.flagRows;
+        }
+        if (previous.padding0 != current.padding0 ||
+            previous.padding1 != current.padding1 ||
+            previous.padding2 != current.padding2)
+        {
+            ++summary.classifierRows;
+        }
+    }
+    return summary;
+}
+
+RtSmokeDynamicMaterialUploadDiffSummary BuildSmokeDynamicMaterialUploadDiffSummary(
+    const std::vector<PathTraceDynamicMaterialRecord>& previousRecords,
+    const std::vector<PathTraceDynamicMaterialRecord>& currentRecords,
+    int firstChanged,
+    int changedCount)
+{
+    RtSmokeDynamicMaterialUploadDiffSummary summary;
+    if (firstChanged < 0 || changedCount <= 0)
+    {
+        return summary;
+    }
+
+    const int previousCount = static_cast<int>(previousRecords.size());
+    const int currentCount = static_cast<int>(currentRecords.size());
+    const int beginRow = idMath::ClampInt(0, currentCount, firstChanged);
+    const int endRow = idMath::ClampInt(beginRow, currentCount, firstChanged + changedCount);
+    for (int row = beginRow; row < endRow; ++row)
+    {
+        const PathTraceDynamicMaterialRecord& current = currentRecords[row];
+        const bool hasPrevious = row < previousCount;
+        if (hasPrevious && std::memcmp(&previousRecords[row], &current, sizeof(current)) == 0)
+        {
+            continue;
+        }
+
+        ++summary.rows;
+        if (summary.firstRow < 0)
+        {
+            summary.firstRow = row;
+        }
+        summary.lastRow = row;
+        AddSmokeDynamicMaterialUploadDiffSample(summary, row, current.materialId);
+
+        if (!hasPrevious)
+        {
+            ++summary.otherRows;
+            continue;
+        }
+
+        const PathTraceDynamicMaterialRecord& previous = previousRecords[row];
+        if (SmokeFloat4Changed(previous.color, current.color))
+        {
+            ++summary.colorRows;
+        }
+        if (SmokeFloat4Changed(previous.texMatrix0, current.texMatrix0) ||
+            SmokeFloat4Changed(previous.texMatrix1, current.texMatrix1))
+        {
+            ++summary.texMatrixRows;
+        }
+        if (previous.materialIndex != current.materialIndex ||
+            previous.materialId != current.materialId ||
+            previous.stageIndex != current.stageIndex)
+        {
+            ++summary.identityRows;
+        }
+        if (previous.flags != current.flags)
+        {
+            ++summary.flagRows;
+        }
+    }
+    return summary;
+}
+
+int SmokeMaterialDiffSampleRow(const RtSmokeMaterialUploadDiffSummary& summary, int sampleIndex)
+{
+    return sampleIndex < summary.sampleCount ? summary.sampleRows[sampleIndex] : -1;
+}
+
+uint32_t SmokeMaterialDiffSampleId(const RtSmokeMaterialUploadDiffSummary& summary, int sampleIndex)
+{
+    return sampleIndex < summary.sampleCount ? summary.sampleMaterialIds[sampleIndex] : 0;
+}
+
+int SmokeDynamicMaterialDiffSampleRow(const RtSmokeDynamicMaterialUploadDiffSummary& summary, int sampleIndex)
+{
+    return sampleIndex < summary.sampleCount ? summary.sampleRows[sampleIndex] : -1;
+}
+
+uint32_t SmokeDynamicMaterialDiffSampleId(const RtSmokeDynamicMaterialUploadDiffSummary& summary, int sampleIndex)
+{
+    return sampleIndex < summary.sampleCount ? summary.sampleMaterialIds[sampleIndex] : 0;
+}
+
 uint64_t BuildSmokeRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
 {
     const RtSmokePlanDataSpan spans[] = {
@@ -6529,7 +6764,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         const RtSmokeBufferUploadItem& materialTableUpload = uploadItems[15];
         const RtSmokeBufferUploadItem& dynamicMaterialUpload = uploadItems[16];
-        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
+        const RtSmokeMaterialUploadDiffSummary materialDiffSummary = BuildSmokeMaterialUploadDiffSummary(
+            m_smokeMaterialTableMaterials,
+            materialTable.materials,
+            materialTable.materialIds,
+            materialTableUploadOffset,
+            materialTableUploadCount);
+        const RtSmokeDynamicMaterialUploadDiffSummary dynamicDiffSummary = BuildSmokeDynamicMaterialUploadDiffSummary(
+            m_smokeDynamicMaterialRecords,
+            dynamicMaterialRecords,
+            dynamicMaterialUploadOffset,
+            dynamicMaterialUploadCount);
+        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/debug/emissive/texture/alpha/flags/classifier/other)=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/color/texMatrix/identity/flags/other)=%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             r_pathTracingResidency.GetInteger() != 0 ? 1 : 0,
             r_pathTracingResidencyMaterial.GetInteger() != 0 ? 1 : 0,
@@ -6543,6 +6789,24 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             materialTableRangeValid ? 1 : 0,
             materialTableUploadOffset,
             materialTableUploadCount,
+            materialDiffSummary.rows,
+            materialDiffSummary.firstRow,
+            materialDiffSummary.lastRow,
+            materialDiffSummary.debugAlbedoRows,
+            materialDiffSummary.emissiveRows,
+            materialDiffSummary.textureRows,
+            materialDiffSummary.alphaRows,
+            materialDiffSummary.flagRows,
+            materialDiffSummary.classifierRows,
+            materialDiffSummary.otherRows,
+            SmokeMaterialDiffSampleRow(materialDiffSummary, 0),
+            SmokeMaterialDiffSampleId(materialDiffSummary, 0),
+            SmokeMaterialDiffSampleRow(materialDiffSummary, 1),
+            SmokeMaterialDiffSampleId(materialDiffSummary, 1),
+            SmokeMaterialDiffSampleRow(materialDiffSummary, 2),
+            SmokeMaterialDiffSampleId(materialDiffSummary, 2),
+            SmokeMaterialDiffSampleRow(materialDiffSummary, 3),
+            SmokeMaterialDiffSampleId(materialDiffSummary, 3),
             static_cast<int>(m_smokeDynamicMaterialRecords.size()),
             static_cast<int>(dynamicMaterialRecords.size()),
             dynamicMaterialBufferReused ? 1 : 0,
@@ -6552,6 +6816,22 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicMaterialRangeValid ? 1 : 0,
             dynamicMaterialUploadOffset,
             dynamicMaterialUploadCount,
+            dynamicDiffSummary.rows,
+            dynamicDiffSummary.firstRow,
+            dynamicDiffSummary.lastRow,
+            dynamicDiffSummary.colorRows,
+            dynamicDiffSummary.texMatrixRows,
+            dynamicDiffSummary.identityRows,
+            dynamicDiffSummary.flagRows,
+            dynamicDiffSummary.otherRows,
+            SmokeDynamicMaterialDiffSampleRow(dynamicDiffSummary, 0),
+            SmokeDynamicMaterialDiffSampleId(dynamicDiffSummary, 0),
+            SmokeDynamicMaterialDiffSampleRow(dynamicDiffSummary, 1),
+            SmokeDynamicMaterialDiffSampleId(dynamicDiffSummary, 1),
+            SmokeDynamicMaterialDiffSampleRow(dynamicDiffSummary, 2),
+            SmokeDynamicMaterialDiffSampleId(dynamicDiffSummary, 2),
+            SmokeDynamicMaterialDiffSampleRow(dynamicDiffSummary, 3),
+            SmokeDynamicMaterialDiffSampleId(dynamicDiffSummary, 3),
             static_cast<unsigned long long>(materialUploadBytes),
             static_cast<unsigned long long>(materialTableUploadSignature),
             static_cast<unsigned long long>(dynamicMaterialUploadSignature));
