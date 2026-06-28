@@ -296,7 +296,7 @@ struct RtEntityFeedResidentSurface
 {
     EntityFeedResidentSurfaceKey key;
     uint32_t modelEpoch = 0;
-    uint64 materialOverrideToken = 0;
+    uint64 materialToken = 0;
     int lastSeenFrame = 0;
     bool baseValid = false;
     bool routeValid = false;
@@ -309,6 +309,7 @@ struct RtEntityFeedResidentSurface
     uint32_t surfaceClassId = 0;
     uint32_t surfaceClassAndFlags = 0;
     bool activeEmissiveStage = false;
+    bool activeEmissiveStageDynamic = false;
     RtPathTraceMeshKey meshKey;
     RtPathTraceRigidInstanceSnapshot rigidSnapshot;
     bool emissive = false;
@@ -360,16 +361,42 @@ bool EntityFeedResidencyEnabled()
         r_pathTracingResidencyEntityFeed.GetInteger() != 0;
 }
 
-uint64 EntityFeedMaterialOverrideToken(const renderEntity_t& renderEntity)
+uint64 EntityFeedHashTokenValue(uint64 hash, uint64 value)
 {
-    uint64 hash = 14695981039346656037ull;
-    const uintptr_t customSkin = reinterpret_cast<uintptr_t>(renderEntity.customSkin);
-    const uintptr_t customShader = reinterpret_cast<uintptr_t>(renderEntity.customShader);
-    hash ^= static_cast<uint64>(customSkin);
-    hash *= 1099511628211ull;
-    hash ^= static_cast<uint64>(customShader);
+    hash ^= value;
     hash *= 1099511628211ull;
     return hash;
+}
+
+uint64 EntityFeedEntityMaterialTokenBase(const renderEntity_t& renderEntity)
+{
+    // EntityFeed derived facts are valid until identity/material/geometry inputs change.
+    // MUST bump: modelEpoch for hModel/model-geometry swaps; customSkin/customShader
+    // pointer changes; the base surface material pointer; renderEntity.entityNum because
+    // runtime material ids include it; and material decl-level emissive capability changes
+    // when represented by a different material pointer. Runtime material ids also include
+    // entity index and surface index, which are already covered by the resident key.
+    // MUST NOT bump: objectToWorld, distance, projected size, viewCount/on-screen state,
+    // and visible drawSurf presence. Active emissive stage can depend on shader parms/time,
+    // so dynamic materials resample that stage every frame on a residency hit instead of
+    // folding it into this token.
+    uint64 hash = 14695981039346656037ull;
+    hash = EntityFeedHashTokenValue(hash, static_cast<uint64>(reinterpret_cast<uintptr_t>(renderEntity.customSkin)));
+    hash = EntityFeedHashTokenValue(hash, static_cast<uint64>(reinterpret_cast<uintptr_t>(renderEntity.customShader)));
+    hash = EntityFeedHashTokenValue(hash, static_cast<uint64>(static_cast<uint32_t>(renderEntity.entityNum)));
+    return hash;
+}
+
+uint64 EntityFeedSurfaceMaterialToken(uint64 entityMaterialTokenBase, const idMaterial* surfaceMaterial)
+{
+    return EntityFeedHashTokenValue(
+        entityMaterialTokenBase,
+        static_cast<uint64>(reinterpret_cast<uintptr_t>(surfaceMaterial)));
+}
+
+bool EntityFeedActiveEmissiveStageIsDynamic(const idMaterial* material)
+{
+    return material && material->ConstantRegisters() == nullptr;
 }
 
 EntityFeedResidentEntitySlot* FindOrCreateEntityFeedResidentEntitySlot(
@@ -430,7 +457,7 @@ void UpdateEntityFeedResidentSurfaceBase(
     RtEntityFeedResidentSurface& record,
     const EntityFeedResidentSurfaceKey& key,
     uint32_t modelEpoch,
-    uint64 materialOverrideToken,
+    uint64 materialToken,
     const idMaterial* material,
     RtPtFeedClass feedClass,
     bool promotedEmissiveCard,
@@ -438,7 +465,7 @@ void UpdateEntityFeedResidentSurfaceBase(
 {
     record.key = key;
     record.modelEpoch = modelEpoch;
-    record.materialOverrideToken = materialOverrideToken;
+    record.materialToken = materialToken;
     record.lastSeenFrame = tr.frameCount;
     record.baseValid = true;
     record.routeValid = false;
@@ -457,6 +484,7 @@ void UpdateEntityFeedResidentSurfaceRoute(
     uint32_t surfaceClassId,
     uint32_t surfaceClassAndFlags,
     bool activeEmissiveStage,
+    bool activeEmissiveStageDynamic,
     const RtPathTraceMeshKey& meshKey,
     const RtPathTraceRigidInstanceSnapshot& rigidSnapshot,
     bool emissive)
@@ -468,6 +496,7 @@ void UpdateEntityFeedResidentSurfaceRoute(
     record.surfaceClassId = surfaceClassId;
     record.surfaceClassAndFlags = surfaceClassAndFlags;
     record.activeEmissiveStage = activeEmissiveStage;
+    record.activeEmissiveStageDynamic = activeEmissiveStageDynamic;
     record.meshKey = meshKey;
     record.rigidSnapshot = rigidSnapshot;
     record.emissive = emissive;
@@ -763,7 +792,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             const renderEntity_t& renderEntity = entity->parms;
             PtRenderDefKey entityRenderDefKey;
             uint32_t entityModelEpoch = 0;
-            uint64 materialOverrideToken = 0;
+            uint64 entityMaterialTokenBase = 0;
             EntityFeedResidentEntitySlot* residentEntitySlot = nullptr;
             if (residentStore)
             {
@@ -777,7 +806,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     }
                     residentEntitySlot->lastScannedFrame = tr.frameCount;
                     entityModelEpoch = PtGeometryLifecycle::EntityModelEpoch(entityRenderDefKey.world, entityRenderDefKey.index);
-                    materialOverrideToken = EntityFeedMaterialOverrideToken(renderEntity);
+                    entityMaterialTokenBase = EntityFeedEntityMaterialTokenBase(renderEntity);
                 }
             }
             if (!residentEntitySlot && !scannedEntities.insert(entity).second)
@@ -798,11 +827,14 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 const modelSurface_t* surface = model->Surface(surfaceIndex);
                 const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
                 const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
+                const uint64 surfaceMaterialToken = residentEntitySlot
+                    ? EntityFeedSurfaceMaterialToken(entityMaterialTokenBase, surfaceMaterial)
+                    : 0;
                 const bool residentBaseHit =
                     residentRecord &&
                     residentRecord->baseValid &&
                     residentRecord->modelEpoch == entityModelEpoch &&
-                    residentRecord->materialOverrideToken == materialOverrideToken;
+                    residentRecord->materialToken == surfaceMaterialToken;
 
                 const idMaterial* material = residentBaseHit ? residentRecord->remappedMaterial : nullptr;
                 RtPtFeedClass feedClass = residentBaseHit ? residentRecord->feedClass : RtPtFeedClass::Transient;
@@ -854,7 +886,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                             *residentRecord,
                             residentKey,
                             entityModelEpoch,
-                            materialOverrideToken,
+                            surfaceMaterialToken,
                             material,
                             feedClass,
                             promotedEmissiveCard,
@@ -906,6 +938,17 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 {
                     ++stats.residencyCacheHits;
                     const RtPathTraceRigidInstanceSnapshot& rigidSnapshot = residentRecord->rigidSnapshot;
+                    uint32_t surfaceClassAndFlags = residentRecord->surfaceClassAndFlags;
+                    if (residentRecord->activeEmissiveStageDynamic)
+                    {
+                        OPTICK_EVENT("PT EntityFeed Capture Active Emissive Stage");
+                        const bool activeEmissiveStage =
+                            EntityFeedActiveEmissiveStageCached(materialCache, viewDef, entity, material);
+                        surfaceClassAndFlags = residentRecord->surfaceClassId |
+                            (activeEmissiveStage ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
+                        residentRecord->activeEmissiveStage = activeEmissiveStage;
+                        residentRecord->surfaceClassAndFlags = surfaceClassAndFlags;
+                    }
                     if (!candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
                     {
                         continue;
@@ -930,7 +973,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                         captured.entity = entity;
                         captured.baseMaterial = residentRecord->remappedMaterial;
                         captured.surfaceClassId = residentRecord->surfaceClassId;
-                        captured.surfaceClassAndFlags = residentRecord->surfaceClassAndFlags;
+                        captured.surfaceClassAndFlags = surfaceClassAndFlags;
                         captured.currentArea = areaIndex;
                         memcpy(captured.objectToWorld, entity->modelMatrix, sizeof(captured.objectToWorld));
                         captured.distance = distance;
@@ -978,6 +1021,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 }
                 const uint32_t surfaceClassAndFlags = surfaceClassId |
                     (activeEmissiveStage ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
+                const bool activeEmissiveStageDynamic = EntityFeedActiveEmissiveStageIsDynamic(material);
                 RtPathTraceMeshKey meshKey;
                 meshKey.tri = tri;
                 meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri->ambientCache);
@@ -1060,6 +1104,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                             surfaceClassId,
                             surfaceClassAndFlags,
                             activeEmissiveStage,
+                            activeEmissiveStageDynamic,
                             meshKey,
                             rigidSnapshot,
                             captured.emissive);
