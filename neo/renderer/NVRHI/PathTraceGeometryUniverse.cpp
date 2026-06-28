@@ -3038,6 +3038,11 @@ void RtSmokeGeometryUniverse::ReleaseRigidBlasGpuScaffold()
     }
 }
 
+void RtSmokeGeometryUniverse::ClearRetiredRigidBlas()
+{
+    m_retiredRigidBlasRecords.clear();
+}
+
 void RtSmokeGeometryUniverse::DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const
 {
     common->Printf("PathTracePrimaryPass: PT rigid BLAS GPU scaffold source=%d frame=%llu generation=%llu scaffold=%d build=%d forceRebuild=%d meshRecords=%d retiredPending=%d valid=%d invalid=%d instances=%d verts/indexes/tris=%d/%d/%d bytes(v/i/upload)=%d/%d/%d buffers(v create/reuse uploads i create/reuse uploads)=%d/%d/%d %d/%d/%d blas(handles create/reuse builds/skips unchanged/recreated)=%d/%d/%d/%d/%d/%d skips noDevice/noCmd/invalid=%d/%d/%d renderPath=dynamicFallback tlasRoute=rigidResidencyRoute\n",
@@ -3291,10 +3296,12 @@ RtPathTraceRigidResidencyStats RtSmokeGeometryUniverse::UpdateRigidResidency(
     const int rigidRouteMaxInstances = idMath::ClampInt(1, 510, r_pathTracingRigidRouteMaxInstances.GetInteger());
     if (static_cast<int>(m_rigidResidentFrameInstances.size()) > rigidRouteMaxInstances)
     {
-        std::stable_sort(
+        std::partial_sort(
             m_rigidResidentFrameInstances.begin(),
+            m_rigidResidentFrameInstances.begin() + rigidRouteMaxInstances,
             m_rigidResidentFrameInstances.end(),
             RigidRouteInstancePriorityLess);
+        m_rigidResidentFrameInstances.resize(rigidRouteMaxInstances);
     }
 
     return m_rigidResidencyStats;

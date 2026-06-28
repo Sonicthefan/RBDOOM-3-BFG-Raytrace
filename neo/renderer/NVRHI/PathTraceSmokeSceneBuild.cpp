@@ -3169,6 +3169,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 resetDevice->waitForIdle();
             }
             ResetRayTracingSmokeSceneResources();
+            m_smokeGeometryUniverse.ClearRetiredRigidBlas();
             ClearSmokeMaterialTextureRegistry();
             ClearSmokeMaterialUniverse();
             m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
@@ -3191,6 +3192,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             resetDevice->waitForIdle();
         }
         ResetRayTracingSmokeSceneResources();
+        m_smokeGeometryUniverse.ClearRetiredRigidBlas();
         ClearSmokeMaterialTextureRegistry();
         ClearSmokeMaterialUniverse();
         m_frameResources.smokeReservoirNeedsClear = true;

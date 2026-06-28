@@ -668,6 +668,7 @@ public:
     void DumpRigidBlasInputStats(const RtPathTraceRigidBlasInputStats& stats, int sceneSource) const;
     RtPathTraceRigidBlasGpuStats UpdateRigidBlasGpuScaffold(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, bool submitBuilds);
     void ReleaseRigidBlasGpuScaffold();
+    void ClearRetiredRigidBlas();
     void DumpRigidBlasGpuStats(const RtPathTraceRigidBlasGpuStats& stats, int sceneSource, bool scaffoldEnabled, bool submitBuilds) const;
     RtPathTraceRigidResidencyStats UpdateRigidResidency(
         const viewDef_t* viewDef,
