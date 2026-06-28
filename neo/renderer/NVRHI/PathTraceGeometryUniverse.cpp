@@ -1186,6 +1186,8 @@ void RtSmokeGeometryUniverse::Clear()
     m_staticTriangleClassCache.clear();
     m_staticTriangleMaterialCache.clear();
     m_staticMaterialGeneration = 1;
+    m_previousStaticSnapshotGeneration = m_generation;
+    m_previousStaticSnapshotMaterialGeneration = m_staticMaterialGeneration;
     m_staticMaterialDirtyTriangleOffset = -1;
     m_staticMaterialDirtyTriangleCount = 0;
     m_previousStaticVertexCache.clear();
@@ -1300,6 +1302,8 @@ void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex, const idRenderWorldL
     m_previousStaticIndexCache = m_staticIndexCache;
     m_previousStaticTriangleClassCache = m_staticTriangleClassCache;
     m_previousStaticTriangleMaterialCache = m_staticTriangleMaterialCache;
+    m_previousStaticSnapshotGeneration = m_generation;
+    m_previousStaticSnapshotMaterialGeneration = m_staticMaterialGeneration;
     m_currentFrameIndex = frameIndex;
     m_staticMaterialDirtyTriangleOffset = -1;
     m_staticMaterialDirtyTriangleCount = 0;
@@ -1836,6 +1840,8 @@ RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats(bool validateReco
         !m_previousStaticIndexCache.empty() &&
         !m_previousStaticTriangleClassCache.empty() &&
         !m_previousStaticTriangleMaterialCache.empty();
+    stats.previousStaticSnapshotGeneration = m_previousStaticSnapshotGeneration;
+    stats.previousStaticSnapshotMaterialGeneration = m_previousStaticSnapshotMaterialGeneration;
     if (validateRecords && m_staticSurfaceKeys.size() != m_staticSurfaceRecords.size())
     {
         ++stats.staticKeyVectorMismatches;

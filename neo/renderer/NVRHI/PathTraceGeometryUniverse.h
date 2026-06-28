@@ -65,6 +65,8 @@ struct RtSmokeGeometryUniverseStats
     int previousStaticTriangles = 0;
     int previousStaticBytesKB = 0;
     bool previousStaticCpuSnapshotAvailable = false;
+    uint64 previousStaticSnapshotGeneration = 1;
+    uint64 previousStaticSnapshotMaterialGeneration = 1;
     uint64 frameIndex = 0;
     uint64 generation = 1;
     uint64 staticMaterialGeneration = 1;
@@ -792,6 +794,8 @@ private:
     bool m_frameActive = false;
     uint64 m_generation = 1;
     uint64 m_staticMaterialGeneration = 1;
+    uint64 m_previousStaticSnapshotGeneration = 1;
+    uint64 m_previousStaticSnapshotMaterialGeneration = 1;
     int m_staticMaterialDirtyTriangleOffset = -1;
     int m_staticMaterialDirtyTriangleCount = 0;
     std::vector<RtSmokePersistentStaticSurfaceRecord> m_staticSurfaceRecords;

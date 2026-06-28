@@ -1306,6 +1306,33 @@ uint64_t BuildSmokeVectorUploadSignature(const std::vector<T>& data)
         static_cast<int>(sizeof(spans) / sizeof(spans[0])));
 }
 
+uint64_t BuildSmokePreviousStaticSnapshotUploadSignature(
+    uint64_t snapshotGeneration,
+    uint64_t snapshotMaterialGeneration,
+    uint64_t staticMaterialIndexSignature,
+    size_t vertexCount,
+    size_t indexCount,
+    size_t triangleClassCount,
+    size_t triangleMaterialCount,
+    size_t triangleMaterialIndexCount)
+{
+    uint64_t hash = 1469598103934665603ull;
+    const uint64_t version = 1;
+    hash = HashSmokeBytes(hash, &version, sizeof(version));
+    hash = HashSmokeBytes(hash, &snapshotGeneration, sizeof(snapshotGeneration));
+    hash = HashSmokeBytes(hash, &snapshotMaterialGeneration, sizeof(snapshotMaterialGeneration));
+    hash = HashSmokeBytes(hash, &staticMaterialIndexSignature, sizeof(staticMaterialIndexSignature));
+    const uint64_t counts[] = {
+        static_cast<uint64_t>(vertexCount),
+        static_cast<uint64_t>(indexCount),
+        static_cast<uint64_t>(triangleClassCount),
+        static_cast<uint64_t>(triangleMaterialCount),
+        static_cast<uint64_t>(triangleMaterialIndexCount)
+    };
+    hash = HashSmokeBytes(hash, counts, sizeof(counts));
+    return hash;
+}
+
 bool SmokeBufferCanSkipVectorUpload(
     nvrhi::BufferHandle currentBuffer,
     nvrhi::BufferHandle previousBuffer,
@@ -6470,19 +6497,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !previousStaticTriangleClassCache.empty() &&
         !previousStaticTriangleMaterialCache.empty() &&
         !previousStaticTriangleMaterialIndexCache.empty();
-    const RtSmokePlanDataSpan previousStaticSnapshotSpans[] = {
-        MakeSmokePlanDataSpan(previousStaticVertexCache),
-        MakeSmokePlanDataSpan(previousStaticIndexCache),
-        MakeSmokePlanDataSpan(previousStaticTriangleClassCache),
-        MakeSmokePlanDataSpan(previousStaticTriangleMaterialCache),
-        MakeSmokePlanDataSpan(previousStaticTriangleMaterialIndexCache)
-    };
     const uint64 previousStaticSnapshotUploadSignature = previousStaticSnapshotDataAvailable
         ? [&]() {
             OPTICK_EVENT("PT Previous Static Upload Signature");
-            return BuildSmokePlanDataSpanSignature(
-                previousStaticSnapshotSpans,
-                static_cast<int>(sizeof(previousStaticSnapshotSpans) / sizeof(previousStaticSnapshotSpans[0])));
+            return BuildSmokePreviousStaticSnapshotUploadSignature(
+                geometryUniverseStats.previousStaticSnapshotGeneration,
+                geometryUniverseStats.previousStaticSnapshotMaterialGeneration,
+                m_smokeStaticTriangleMaterialIndexUploadSignature,
+                previousStaticVertexCache.size(),
+                previousStaticIndexCache.size(),
+                previousStaticTriangleClassCache.size(),
+                previousStaticTriangleMaterialCache.size(),
+                previousStaticTriangleMaterialIndexCache.size());
         }()
         : 0;
     RtSmokePreviousStaticSnapshotUploadPlanInput previousStaticSnapshotUploadPlanInput;
