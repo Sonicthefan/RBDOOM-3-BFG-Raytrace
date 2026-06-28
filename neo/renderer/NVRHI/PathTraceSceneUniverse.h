@@ -16,15 +16,23 @@ class idRenderWorldLocal;
 class RtSmokeGeometryUniverse;
 class idRenderEntityLocal;
 class idMaterial;
+struct srfTriangles_t;
 struct viewDef_t;
 
 struct RtPathTraceSceneUniverseSurface
 {
     uint64 key = 0;
     uint64 legacyDrawSurfKey = 0;
+    const idRenderEntityLocal* entity = nullptr;
+    const idMaterial* material = nullptr;
+    const srfTriangles_t* tri = nullptr;
     int entityIndex = -1;
     int surfaceIndex = -1;
+    uint32_t baseMaterialId = 0;
+    uint32_t surfaceClassId = 0;
     uint32_t materialId = 0;
+    int numVerts = 0;
+    int numIndexes = 0;
     int triangles = 0;
     idBounds bounds;
     int centerArea = -1;
@@ -33,6 +41,7 @@ struct RtPathTraceSceneUniverseSurface
     int areaCount = 0;
     int portalCount = 0;
     bool emissiveCapable = false;
+    bool validStaticBuild = false;
     bool areaBoundsSkipped = false;
     idStr modelName;
     idStr materialName;
