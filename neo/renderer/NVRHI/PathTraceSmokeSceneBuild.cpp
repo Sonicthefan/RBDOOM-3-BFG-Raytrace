@@ -1310,6 +1310,42 @@ bool SmokeBufferCanSkipVectorUpload(
         previousSignature == currentSignature;
 }
 
+template< typename T >
+bool FindSmokeVectorChangedRange(
+    const std::vector<T>& previousRecords,
+    const std::vector<T>& currentRecords,
+    int& firstChanged,
+    int& changedCount)
+{
+    firstChanged = -1;
+    changedCount = 0;
+    if (previousRecords.size() != currentRecords.size())
+    {
+        return false;
+    }
+
+    int lastChanged = -1;
+    for (int recordIndex = 0; recordIndex < static_cast<int>(currentRecords.size()); ++recordIndex)
+    {
+        if (std::memcmp(&previousRecords[recordIndex], &currentRecords[recordIndex], sizeof(T)) == 0)
+        {
+            continue;
+        }
+        if (firstChanged < 0)
+        {
+            firstChanged = recordIndex;
+        }
+        lastChanged = recordIndex;
+    }
+
+    if (firstChanged < 0)
+    {
+        return true;
+    }
+    changedCount = lastChanged - firstChanged + 1;
+    return true;
+}
+
 uint64_t BuildSmokeRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
 {
     const RtSmokePlanDataSpan spans[] = {
@@ -2810,6 +2846,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeDynamicMaterialUploadSignature = 0;
             m_smokeMaterialTableUploadSignatureValid = false;
             m_smokeDynamicMaterialUploadSignatureValid = false;
+            m_smokeMaterialTableMaterials.clear();
+            m_smokeDynamicMaterialRecords.clear();
             m_smokeEmissiveTriangleBuffer = nullptr;
             m_smokeEmissiveDistributionBuffer = nullptr;
             m_smokeLightCandidateBuffer = nullptr;
@@ -6067,24 +6105,76 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticTriangleMaterialIndexUploadSignature);
     const uint64 materialTableUploadSignature = BuildSmokeVectorUploadSignature(materialTable.materials);
     const uint64 dynamicMaterialUploadSignature = BuildSmokeVectorUploadSignature(dynamicMaterialRecords);
-    const bool skipMaterialTableUpload =
-        SmokeBufferCanSkipVectorUpload(
+    int materialTableDirtyOffset = -1;
+    int materialTableDirtyCount = 0;
+    const bool materialTableBufferReused =
+        smokeMaterialTableBuffer &&
+        smokeMaterialTableBuffer == m_smokeMaterialTableBuffer &&
+        SmokeBufferHasPayloadCapacity(
             smokeMaterialTableBuffer,
-            m_smokeMaterialTableBuffer,
             bufferCreateDesc.materialTableBytes,
-            sizeof(PathTraceSmokeMaterial),
-            m_smokeMaterialTableUploadSignatureValid,
-            m_smokeMaterialTableUploadSignature,
-            materialTableUploadSignature);
-    const bool skipDynamicMaterialUpload =
-        SmokeBufferCanSkipVectorUpload(
+            sizeof(PathTraceSmokeMaterial));
+    const bool materialTableRangeValid =
+        r_pathTracingResidency.GetInteger() != 0 &&
+        r_pathTracingResidencyMaterial.GetInteger() != 0 &&
+        materialTableBufferReused &&
+        FindSmokeVectorChangedRange(
+            m_smokeMaterialTableMaterials,
+            materialTable.materials,
+            materialTableDirtyOffset,
+            materialTableDirtyCount);
+    int dynamicMaterialDirtyOffset = -1;
+    int dynamicMaterialDirtyCount = 0;
+    const bool dynamicMaterialBufferReused =
+        smokeDynamicMaterialBuffer &&
+        smokeDynamicMaterialBuffer == m_smokeDynamicMaterialBuffer &&
+        SmokeBufferHasPayloadCapacity(
             smokeDynamicMaterialBuffer,
-            m_smokeDynamicMaterialBuffer,
             bufferCreateDesc.dynamicMaterialBytes,
-            sizeof(PathTraceDynamicMaterialRecord),
-            m_smokeDynamicMaterialUploadSignatureValid,
-            m_smokeDynamicMaterialUploadSignature,
-            dynamicMaterialUploadSignature);
+            sizeof(PathTraceDynamicMaterialRecord));
+    const bool dynamicMaterialRangeValid =
+        r_pathTracingResidency.GetInteger() != 0 &&
+        r_pathTracingResidencyMaterial.GetInteger() != 0 &&
+        dynamicMaterialBufferReused &&
+        FindSmokeVectorChangedRange(
+            m_smokeDynamicMaterialRecords,
+            dynamicMaterialRecords,
+            dynamicMaterialDirtyOffset,
+            dynamicMaterialDirtyCount);
+    const bool skipMaterialTableUpload =
+        materialTableRangeValid
+            ? materialTableDirtyOffset < 0
+            : SmokeBufferCanSkipVectorUpload(
+                smokeMaterialTableBuffer,
+                m_smokeMaterialTableBuffer,
+                bufferCreateDesc.materialTableBytes,
+                sizeof(PathTraceSmokeMaterial),
+                m_smokeMaterialTableUploadSignatureValid,
+                m_smokeMaterialTableUploadSignature,
+                materialTableUploadSignature);
+    const bool skipDynamicMaterialUpload =
+        dynamicMaterialRangeValid
+            ? dynamicMaterialDirtyOffset < 0
+            : SmokeBufferCanSkipVectorUpload(
+                smokeDynamicMaterialBuffer,
+                m_smokeDynamicMaterialBuffer,
+                bufferCreateDesc.dynamicMaterialBytes,
+                sizeof(PathTraceDynamicMaterialRecord),
+                m_smokeDynamicMaterialUploadSignatureValid,
+                m_smokeDynamicMaterialUploadSignature,
+                dynamicMaterialUploadSignature);
+    const int materialTableUploadOffset =
+        !skipMaterialTableUpload && materialTableRangeValid && materialTableDirtyOffset >= 0
+            ? materialTableDirtyOffset
+            : -1;
+    const int materialTableUploadCount =
+        materialTableUploadOffset >= 0 ? materialTableDirtyCount : 0;
+    const int dynamicMaterialUploadOffset =
+        !skipDynamicMaterialUpload && dynamicMaterialRangeValid && dynamicMaterialDirtyOffset >= 0
+            ? dynamicMaterialDirtyOffset
+            : -1;
+    const int dynamicMaterialUploadCount =
+        dynamicMaterialUploadOffset >= 0 ? dynamicMaterialDirtyCount : 0;
     const int skinnedGpuComputeVertexCount = SmokeSkinnedGpuComputeVertexCount(skinnedGpuScaffold.dispatchRecords);
     const int skinnedGpuComputeMaxVertexCount = SmokeSkinnedGpuComputeMaxVertexCount(skinnedGpuScaffold.dispatchRecords);
     std::vector<PathTraceSkinnedSurfaceDispatchRecord> skinnedGpuComputeDispatchRecords = skinnedGpuScaffold.dispatchRecords;
@@ -6132,8 +6222,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, skipMaterialTableUpload),
-        MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, skipDynamicMaterialUpload),
+        MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, skipMaterialTableUpload, materialTableUploadOffset, materialTableUploadCount),
+        MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, skipDynamicMaterialUpload, dynamicMaterialUploadOffset, dynamicMaterialUploadCount),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousEmissiveTriangleBuffer, previousEmissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeEmissiveRemapBuffer, emissiveLightRemap, nvrhi::ResourceStates::ShaderResource, false),
@@ -6889,6 +6979,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeRigidRouteSideBufferReadSlot = rigidRouteSideBufferWriteSlot;
     }
     m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
+    m_smokeMaterialTableMaterials = materialTable.materials;
+    m_smokeDynamicMaterialRecords = dynamicMaterialRecords;
     m_smokePreviousEmissiveTriangles = emissiveTriangles;
     m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;
     m_smokeStaticTriangleMaterialUploadSignature = staticTriangleMaterialUploadSignature;
