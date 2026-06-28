@@ -329,6 +329,7 @@ struct EntityFeedResidentSurfaceStore
     const idRenderWorldLocal* renderWorld = nullptr;
     idStr mapName;
     ID_TIME_T mapTimeStamp = 0;
+    int lastGcFrame = -1;
     std::vector<EntityFeedResidentEntitySlot> entitySlots;
 
     void ResetForWorld(const idRenderWorldLocal* world)
@@ -336,6 +337,7 @@ struct EntityFeedResidentSurfaceStore
         renderWorld = world;
         mapName = world ? world->mapName : "";
         mapTimeStamp = world ? world->mapTimeStamp : 0;
+        lastGcFrame = -1;
         entitySlots.clear();
     }
 };
@@ -352,6 +354,79 @@ EntityFeedResidentSurfaceStore& EntityFeedResidentStoreForWorld(const idRenderWo
         store.ResetForWorld(renderWorld);
     }
     return store;
+}
+
+bool EntityFeedResidentRecordValid(const RtEntityFeedResidentSurface& record)
+{
+    return record.baseValid;
+}
+
+int CountEntityFeedResidentRecords(const EntityFeedResidentSurfaceStore& store)
+{
+    int count = 0;
+    for (const EntityFeedResidentEntitySlot& entitySlot : store.entitySlots)
+    {
+        for (const RtEntityFeedResidentSurface& record : entitySlot.surfaceRecords)
+        {
+            if (EntityFeedResidentRecordValid(record))
+            {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
+int ClearEntityFeedResidentSlot(EntityFeedResidentEntitySlot& entitySlot)
+{
+    int evicted = 0;
+    for (const RtEntityFeedResidentSurface& record : entitySlot.surfaceRecords)
+    {
+        if (EntityFeedResidentRecordValid(record))
+        {
+            ++evicted;
+        }
+    }
+    entitySlot = EntityFeedResidentEntitySlot();
+    return evicted;
+}
+
+int PruneEntityFeedResidentStore(EntityFeedResidentSurfaceStore& store, int currentFrame)
+{
+    if (store.lastGcFrame == currentFrame)
+    {
+        return 0;
+    }
+    store.lastGcFrame = currentFrame;
+
+    const int ttlFrames = Max(0, r_pathTracingResidencyTtlFrames.GetInteger());
+    int evicted = 0;
+    for (EntityFeedResidentEntitySlot& entitySlot : store.entitySlots)
+    {
+        if (entitySlot.renderDefKey.world == nullptr)
+        {
+            continue;
+        }
+        if (!PtGeometryLifecycle::IsEntityKeyAlive(entitySlot.renderDefKey))
+        {
+            evicted += ClearEntityFeedResidentSlot(entitySlot);
+            continue;
+        }
+
+        for (RtEntityFeedResidentSurface& record : entitySlot.surfaceRecords)
+        {
+            if (!EntityFeedResidentRecordValid(record))
+            {
+                continue;
+            }
+            if (currentFrame - record.lastSeenFrame > ttlFrames)
+            {
+                record = RtEntityFeedResidentSurface();
+                ++evicted;
+            }
+        }
+    }
+    return evicted;
 }
 
 bool EntityFeedResidencyEnabled()
@@ -766,6 +841,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     if (residencyEnabled)
     {
         residentStore = &EntityFeedResidentStoreForWorld(renderWorld);
+        stats.residencyEvictedRecords += PruneEntityFeedResidentStore(*residentStore, tr.frameCount);
     }
 
     for (int areaIndex = 0; areaIndex < static_cast<int>(reachableAreas.size()); ++areaIndex)
@@ -1117,6 +1193,10 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
         }
     }
 
+    if (residentStore && r_pathTracingResidencyDump.GetInteger() != 0)
+    {
+        stats.residencyResidentRecords = CountEntityFeedResidentRecords(*residentStore);
+    }
     return capturedSurfaces;
 }
 
@@ -1165,11 +1245,13 @@ void DumpEntityFeedResidencyStatsIfNeeded(const RtPathTraceEntityFeedStats& s)
     }
     lastDumpFrame = s.frameIndex;
     common->Printf(
-        "PathTracePrimaryPass: RES entityFeed visited=%d derived=%d hits=%d misses=%d\n",
+        "PathTracePrimaryPass: RES entityFeed visited=%d derived=%d hits=%d misses=%d residents=%d evicted=%d\n",
         s.residencyVisited,
         s.residencyDerived,
         s.residencyCacheHits,
-        s.residencyCacheMisses);
+        s.residencyCacheMisses,
+        s.residencyResidentRecords,
+        s.residencyEvictedRecords);
 }
 
 std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int maxDepth, float maxDistance)
