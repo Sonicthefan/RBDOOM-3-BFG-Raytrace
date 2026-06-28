@@ -34,7 +34,7 @@ struct RtSmokeMaterialMetadataRegistrationTiming
 
 extern RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 
-void RegisterSmokeMaterialTextureInfo(const idMaterial* material);
+bool RegisterSmokeMaterialTextureInfo(const idMaterial* material);
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled);
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextureInfo(const viewDef_t* viewDef, bool enabled);
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMaterialIds(const std::vector<uint32_t>& materialIds, bool enabled);

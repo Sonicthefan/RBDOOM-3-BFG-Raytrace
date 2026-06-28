@@ -18,6 +18,8 @@
 #include "../RenderCommon.h"
 
 #include <algorithm>
+#include <cstring>
+#include <unordered_map>
 #include <unordered_set>
 
 RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
@@ -26,6 +28,15 @@ namespace {
 bool IsSmokePortalWindowFallbackMaterial(const idMaterial* material);
 bool IsSmokeObjectGlassFallbackMaterial(const idMaterial* material);
 bool IsSmokeTranslucentOverlayCardMaterial(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier);
+
+struct RtResidentMaterialFacts
+{
+    bool valid = false;
+    uint64 materialGeneration = 0;
+    RtSmokeMaterialTextureInfo info;
+};
+
+std::unordered_map<uint32_t, RtResidentMaterialFacts> g_residentMaterialFacts;
 
 bool PathTraceMaterialClassifierRequested()
 {
@@ -84,6 +95,92 @@ const char* SmokeTextureCodeHintName(RtSmokeTextureCodeHint hint)
         default:
             return "unknown";
     }
+}
+
+uint64 HashSmokeResidentMaterialValue(uint64 hash, uint64 value)
+{
+    hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+    return hash;
+}
+
+uint64 HashSmokeResidentMaterialString(uint64 hash, const char* value)
+{
+    const char* cursor = value ? value : "";
+    while (*cursor)
+    {
+        hash = HashSmokeResidentMaterialValue(hash, static_cast<uint8_t>(*cursor));
+        ++cursor;
+    }
+    return HashSmokeResidentMaterialValue(hash, 0xffu);
+}
+
+uint64 HashSmokeResidentMaterialFloat(uint64 hash, float value)
+{
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return HashSmokeResidentMaterialValue(hash, bits);
+}
+
+bool SmokeMaterialResidencyEnabled()
+{
+    return r_pathTracingResidency.GetInteger() != 0 &&
+        r_pathTracingResidencyMaterial.GetInteger() != 0;
+}
+
+uint64 ComputeSmokeResidentMaterialGeneration(const idMaterial* material, uint32_t materialId, const char* materialName)
+{
+    uint64 hash = 1469598103934665603ull;
+    hash = HashSmokeResidentMaterialValue(hash, materialId);
+    hash = HashSmokeResidentMaterialString(hash, materialName);
+    hash = HashSmokeResidentMaterialValue(hash, material ? static_cast<uint64>(material->Coverage()) : 0u);
+    hash = HashSmokeResidentMaterialValue(hash, material ? static_cast<uint64>(material->GetNumStages()) : 0u);
+    hash = HashSmokeResidentMaterialValue(hash, material && material->HasGui() ? 1u : 0u);
+    hash = HashSmokeResidentMaterialValue(hash, material ? static_cast<uint64>(material->Spectrum()) : 0u);
+    hash = HashSmokeResidentMaterialValue(hash, material && material->ConstantRegisters() ? 1u : 0u);
+    hash = HashSmokeResidentMaterialFloat(hash, material ? material->GetSort() : 0.0f);
+    hash = HashSmokeResidentMaterialValue(hash, r_pathTracingAllowGuiTextures.GetInteger() != 0 ? 1u : 0u);
+    hash = HashSmokeResidentMaterialValue(hash, r_pathTracingForceTextureCodeUse.GetInteger() != 0 ? 1u : 0u);
+    hash = HashSmokeResidentMaterialValue(hash, r_pathTracingSceneSource2RigidEntities.GetInteger() != 0 ? 1u : 0u);
+    hash = HashSmokeResidentMaterialValue(hash, static_cast<uint64>(GetPathTraceMaterialClassifierGeneration()));
+    return hash;
+}
+
+bool TryRegisterResidentMaterialFacts(const idMaterial* material, uint32_t materialId, uint64 materialGeneration)
+{
+    const std::unordered_map<uint32_t, RtResidentMaterialFacts>::const_iterator resident =
+        g_residentMaterialFacts.find(materialId);
+    if (resident == g_residentMaterialFacts.end() ||
+        !resident->second.valid ||
+        resident->second.materialGeneration != materialGeneration)
+    {
+        return false;
+    }
+
+    RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
+    if (!info)
+    {
+        ++g_smokeMaterialMetadataFrameStats.newEntries;
+        info = &AddSmokeMaterialTextureInfo(materialId, resident->second.info.materialName.c_str());
+    }
+
+    *info = resident->second.info;
+    info->tableIndex = -1;
+    RefreshSmokeMaterialTextureHandleState(*info);
+    if (PathTraceMaterialClassifierRequested())
+    {
+        RegisterPathTraceMaterialRecord(material, *info);
+    }
+    ++g_smokeMaterialMetadataFrameStats.cacheRefreshes;
+    return true;
+}
+
+void StoreResidentMaterialFacts(uint32_t materialId, uint64 materialGeneration, const RtSmokeMaterialTextureInfo& info)
+{
+    RtResidentMaterialFacts& resident = g_residentMaterialFacts[materialId];
+    resident.valid = true;
+    resident.materialGeneration = materialGeneration;
+    resident.info = info;
+    resident.info.tableIndex = -1;
 }
 
 RtSmokeTextureCodeHint SmokeTextureCodeHintFromImageName(const char* imageName)
@@ -1027,17 +1124,27 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
 
 }
 
-void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
+bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
 {
-    OPTICK_EVENT("PT Material Metadata Discover One");
-
     ++g_smokeMaterialMetadataFrameStats.registrations;
 
     const char* materialName = material ? material->GetName() : "<none>";
     const uint32_t materialId = HashSmokeMaterialName(materialName);
+    const bool residencyEnabled = SmokeMaterialResidencyEnabled();
+    const uint64 residentMaterialGeneration = residencyEnabled
+        ? ComputeSmokeResidentMaterialGeneration(material, materialId, materialName)
+        : 0;
+    const bool residentHit =
+        residencyEnabled &&
+        TryRegisterResidentMaterialFacts(material, materialId, residentMaterialGeneration);
+    if (residentHit)
+    {
+        return false;
+    }
 
     RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
-    if (info && r_pathTracingMaterialMetadataCache.GetInteger() != 0)
+    const bool residentNeedsDerive = residencyEnabled && !residentHit;
+    if (info && r_pathTracingMaterialMetadataCache.GetInteger() != 0 && !residentNeedsDerive)
     {
         const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
         const bool forceRediscoverAbsorbingBlack = IsSmokeAbsorbingBlackMaterial(material);
@@ -1053,9 +1160,15 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
             {
                 RegisterPathTraceMaterialRecord(material, *info);
             }
-            return;
+            if (residencyEnabled)
+            {
+                StoreResidentMaterialFacts(materialId, residentMaterialGeneration, *info);
+            }
+            return false;
         }
     }
+
+    OPTICK_EVENT("PT Material Metadata Discover One");
 
     if (!info)
     {
@@ -1314,6 +1427,11 @@ void RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     {
         RegisterPathTraceMaterialRecord(material, *info);
     }
+    if (residencyEnabled)
+    {
+        StoreResidentMaterialFacts(materialId, residentMaterialGeneration, *info);
+    }
+    return true;
 }
 
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled)
@@ -1498,8 +1616,19 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         }
 
         const int registrationStartMs = Sys_Milliseconds();
-        ++g_smokeMaterialMetadataFrameStats.idHydrationDerived;
-        RegisterSmokeMaterialTextureInfo(material);
+        const bool fullDiscover = RegisterSmokeMaterialTextureInfo(material);
+        if (fullDiscover)
+        {
+            ++g_smokeMaterialMetadataFrameStats.idHydrationDerived;
+        }
+        else
+        {
+            ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
+            if (g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses > 0)
+            {
+                --g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
+            }
+        }
         timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
         missingMaterialIds.erase(missing);
     }
