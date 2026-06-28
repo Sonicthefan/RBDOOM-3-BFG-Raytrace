@@ -277,6 +277,182 @@ struct EntityFeedCaptureMaterialCache
     std::unordered_map<EntityFeedEntityMaterialKey, bool, EntityFeedEntityMaterialKeyHash> activeEmissiveStage;
 };
 
+struct EntityFeedResidentSurfaceKey
+{
+    PtRenderDefKey renderDefKey;
+    int surfaceIndex = -1;
+
+    bool operator==(const EntityFeedResidentSurfaceKey& rhs) const
+    {
+        return
+            renderDefKey.world == rhs.renderDefKey.world &&
+            renderDefKey.index == rhs.renderDefKey.index &&
+            renderDefKey.generation == rhs.renderDefKey.generation &&
+            surfaceIndex == rhs.surfaceIndex;
+    }
+};
+
+struct EntityFeedResidentSurfaceKeyHash
+{
+    size_t operator()(const EntityFeedResidentSurfaceKey& key) const
+    {
+        const uintptr_t worldBits = reinterpret_cast<uintptr_t>(key.renderDefKey.world);
+        uint64 hash = 14695981039346656037ull;
+        hash ^= static_cast<uint64>(worldBits);
+        hash *= 1099511628211ull;
+        hash ^= static_cast<uint64>(key.renderDefKey.index);
+        hash *= 1099511628211ull;
+        hash ^= static_cast<uint64>(key.renderDefKey.generation);
+        hash *= 1099511628211ull;
+        hash ^= static_cast<uint64>(key.surfaceIndex);
+        hash *= 1099511628211ull;
+        return static_cast<size_t>(hash);
+    }
+};
+
+struct RtEntityFeedResidentSurface
+{
+    EntityFeedResidentSurfaceKey key;
+    uint32_t modelEpoch = 0;
+    uint64 materialOverrideToken = 0;
+    int lastSeenFrame = 0;
+    bool routeValid = false;
+    const idMaterial* remappedMaterial = nullptr;
+    RtPtFeedClass feedClass = RtPtFeedClass::Transient;
+    bool promotedEmissiveCard = false;
+    uint32_t baseMaterialId = 0;
+    uint32_t materialId = 0;
+    uint32_t materialClassSignature = 0;
+    uint32_t surfaceClassId = 0;
+    uint32_t surfaceClassAndFlags = 0;
+    bool activeEmissiveStage = false;
+    RtPathTraceMeshKey meshKey;
+    RtPathTraceRigidInstanceSnapshot rigidSnapshot;
+    bool emissive = false;
+    idStr materialName;
+    idStr modelName;
+};
+
+struct EntityFeedResidentSurfaceStore
+{
+    const idRenderWorldLocal* renderWorld = nullptr;
+    idStr mapName;
+    ID_TIME_T mapTimeStamp = 0;
+    std::unordered_map<EntityFeedResidentSurfaceKey, RtEntityFeedResidentSurface, EntityFeedResidentSurfaceKeyHash> records;
+
+    void ResetForWorld(const idRenderWorldLocal* world)
+    {
+        renderWorld = world;
+        mapName = world ? world->mapName : "";
+        mapTimeStamp = world ? world->mapTimeStamp : 0;
+        records.clear();
+    }
+};
+
+EntityFeedResidentSurfaceStore& EntityFeedResidentStoreForWorld(const idRenderWorldLocal* renderWorld)
+{
+    static EntityFeedResidentSurfaceStore store;
+    const char* mapName = renderWorld ? renderWorld->mapName.c_str() : "";
+    const ID_TIME_T mapTimeStamp = renderWorld ? renderWorld->mapTimeStamp : 0;
+    if (store.renderWorld != renderWorld ||
+        store.mapName.Icmp(mapName) != 0 ||
+        store.mapTimeStamp != mapTimeStamp)
+    {
+        store.ResetForWorld(renderWorld);
+    }
+    return store;
+}
+
+bool EntityFeedResidencyEnabled()
+{
+    return
+        r_pathTracingResidency.GetInteger() != 0 &&
+        r_pathTracingResidencyEntityFeed.GetInteger() != 0;
+}
+
+uint64 EntityFeedMaterialOverrideToken(const renderEntity_t& renderEntity)
+{
+    uint64 hash = 14695981039346656037ull;
+    const uintptr_t customSkin = reinterpret_cast<uintptr_t>(renderEntity.customSkin);
+    const uintptr_t customShader = reinterpret_cast<uintptr_t>(renderEntity.customShader);
+    hash ^= static_cast<uint64>(customSkin);
+    hash *= 1099511628211ull;
+    hash ^= static_cast<uint64>(customShader);
+    hash *= 1099511628211ull;
+    return hash;
+}
+
+RtEntityFeedResidentSurface* FindOrCreateEntityFeedResidentSurface(
+    EntityFeedResidentSurfaceStore* store,
+    const EntityFeedResidentSurfaceKey& key,
+    RtPathTraceEntityFeedStats& stats)
+{
+    if (!store)
+    {
+        ++stats.residencyCacheMisses;
+        return nullptr;
+    }
+
+    auto existing = store->records.find(key);
+    if (existing != store->records.end())
+    {
+        ++stats.residencyCacheHits;
+        return &existing->second;
+    }
+
+    ++stats.residencyCacheMisses;
+    RtEntityFeedResidentSurface record;
+    record.key = key;
+    auto inserted = store->records.emplace(key, record);
+    return &inserted.first->second;
+}
+
+void UpdateEntityFeedResidentSurfaceBase(
+    RtEntityFeedResidentSurface& record,
+    const EntityFeedResidentSurfaceKey& key,
+    uint32_t modelEpoch,
+    uint64 materialOverrideToken,
+    const idMaterial* material,
+    RtPtFeedClass feedClass,
+    bool promotedEmissiveCard,
+    const idRenderModel* model)
+{
+    record.key = key;
+    record.modelEpoch = modelEpoch;
+    record.materialOverrideToken = materialOverrideToken;
+    record.lastSeenFrame = tr.frameCount;
+    record.routeValid = false;
+    record.remappedMaterial = material;
+    record.feedClass = feedClass;
+    record.promotedEmissiveCard = promotedEmissiveCard;
+    record.materialName = material ? material->GetName() : "<none>";
+    record.modelName = model ? model->Name() : "<none>";
+}
+
+void UpdateEntityFeedResidentSurfaceRoute(
+    RtEntityFeedResidentSurface& record,
+    uint32_t baseMaterialId,
+    uint32_t materialId,
+    uint32_t materialClassSignature,
+    uint32_t surfaceClassId,
+    uint32_t surfaceClassAndFlags,
+    bool activeEmissiveStage,
+    const RtPathTraceMeshKey& meshKey,
+    const RtPathTraceRigidInstanceSnapshot& rigidSnapshot,
+    bool emissive)
+{
+    record.routeValid = true;
+    record.baseMaterialId = baseMaterialId;
+    record.materialId = materialId;
+    record.materialClassSignature = materialClassSignature;
+    record.surfaceClassId = surfaceClassId;
+    record.surfaceClassAndFlags = surfaceClassAndFlags;
+    record.activeEmissiveStage = activeEmissiveStage;
+    record.meshKey = meshKey;
+    record.rigidSnapshot = rigidSnapshot;
+    record.emissive = emissive;
+}
+
 idVec3 EntityFeedEntityOrigin(const idRenderEntityLocal* entity)
 {
     return idVec3(entity->modelMatrix[12], entity->modelMatrix[13], entity->modelMatrix[14]);
@@ -524,6 +700,8 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     std::unordered_set<uint32_t> registeredMaterialIds;
     std::unordered_set<const idRenderEntityLocal*> scannedEntities;
     EntityFeedCaptureMaterialCache materialCache;
+    const bool residencyEnabled = EntityFeedResidencyEnabled();
+    EntityFeedResidentSurfaceStore* residentStore = nullptr;
     capturedSurfaces.reserve(rigidRouteMaxInstances);
     candidateInstanceIds.reserve(rigidRouteMaxInstances * 2);
     registeredMaterialIds.reserve(128);
@@ -535,6 +713,10 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     if (!renderWorld)
     {
         return capturedSurfaces;
+    }
+    if (residencyEnabled)
+    {
+        residentStore = &EntityFeedResidentStoreForWorld(renderWorld);
     }
 
     for (int areaIndex = 0; areaIndex < static_cast<int>(reachableAreas.size()); ++areaIndex)
@@ -564,11 +746,31 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             }
 
             const renderEntity_t& renderEntity = entity->parms;
+            PtRenderDefKey entityRenderDefKey;
+            uint32_t entityModelEpoch = 0;
+            uint64 materialOverrideToken = 0;
+            if (residentStore)
+            {
+                entityRenderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                entityModelEpoch = PtGeometryLifecycle::EntityModelEpoch(entityRenderDefKey.world, entityRenderDefKey.index);
+                materialOverrideToken = EntityFeedMaterialOverrideToken(renderEntity);
+            }
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
                 ++stats.residencyVisited;
                 ++stats.residencyDerived;
-                ++stats.residencyCacheMisses;
+                EntityFeedResidentSurfaceKey residentKey;
+                RtEntityFeedResidentSurface* residentRecord = nullptr;
+                if (residentStore)
+                {
+                    residentKey.renderDefKey = entityRenderDefKey;
+                    residentKey.surfaceIndex = surfaceIndex;
+                    residentRecord = FindOrCreateEntityFeedResidentSurface(residentStore, residentKey, stats);
+                }
+                else
+                {
+                    ++stats.residencyCacheMisses;
+                }
                 const modelSurface_t* surface = model->Surface(surfaceIndex);
                 const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
                 const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
@@ -606,6 +808,18 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                         entity->cachedDynamicModel == nullptr &&
                         tri->staticModelWithJoints == nullptr &&
                         EntityFeedCanPromoteRigidEmissiveCardCached(materialCache, material);
+                }
+                if (residentRecord)
+                {
+                    UpdateEntityFeedResidentSurfaceBase(
+                        *residentRecord,
+                        residentKey,
+                        entityModelEpoch,
+                        materialOverrideToken,
+                        material,
+                        feedClass,
+                        promotedEmissiveCard,
+                        model);
                 }
 
                 bool visibleDrawSurf = false;
@@ -671,8 +885,13 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 meshKey.materialClassSignature = materialClassSignature;
                 meshKey.sourceKind = surfaceClassId;
 
-                const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
-                const uint32_t modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
+                PtRenderDefKey renderDefKey = entityRenderDefKey;
+                uint32_t modelEpoch = entityModelEpoch;
+                if (!residentStore)
+                {
+                    renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
+                    modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
+                }
                 uint32_t sourceFlags = RT_PT_INSTANCE_SOURCE_RIGID | RT_PT_INSTANCE_SOURCE_ENTITY_FEED;
                 if (renderEntity.customShader != nullptr || renderEntity.customSkin != nullptr)
                 {
@@ -726,6 +945,20 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     {
                         OPTICK_EVENT("PT EntityFeed Capture Material Facts");
                         captured.emissive = EntityFeedMaterialIsEmissiveCached(materialCache, materialId);
+                    }
+                    if (residentRecord)
+                    {
+                        UpdateEntityFeedResidentSurfaceRoute(
+                            *residentRecord,
+                            baseMaterialId,
+                            materialId,
+                            materialClassSignature,
+                            surfaceClassId,
+                            surfaceClassAndFlags,
+                            activeEmissiveStage,
+                            meshKey,
+                            rigidSnapshot,
+                            captured.emissive);
                     }
                     captured.materialName = material ? material->GetName() : "<none>";
                     captured.modelName = model ? model->Name() : "<none>";
