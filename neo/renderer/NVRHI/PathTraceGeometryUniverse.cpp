@@ -1294,6 +1294,12 @@ void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex, const idRenderWorldL
         ClearRigidResidencyCaches();
         ++m_generation;
     }
+    if (renderWorld == nullptr && m_rigidResidencyWorld != nullptr)
+    {
+        ClearRigidResidencyCaches();
+        m_rigidResidencyWorld = nullptr;
+        ++m_generation;
+    }
     if (renderWorld != nullptr)
     {
         m_rigidResidencyWorld = renderWorld;
@@ -3781,7 +3787,7 @@ bool RtSmokeGeometryUniverse::RigidResidentObservationMatchesCurrentModel(const 
     {
         return true;
     }
-    if (m_rigidResidencyWorld != nullptr && renderDefKey.world != m_rigidResidencyWorld)
+    if (m_rigidResidencyWorld == nullptr || renderDefKey.world != m_rigidResidencyWorld)
     {
         return false;
     }

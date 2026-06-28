@@ -3157,18 +3157,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         return;
     }
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
-    if (renderWorld)
+    if (!renderWorld)
     {
-        const bool renderWorldChanged = m_smokeSceneRenderWorld != renderWorld;
-        const bool mapChanged = m_smokeSceneMapName.Icmp(renderWorld->mapName) != 0 || m_smokeSceneMapTimeStamp != renderWorld->mapTimeStamp;
-        if (renderWorldChanged || mapChanged)
+        if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
         {
-            if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
-            {
-                common->Printf("PathTracePrimaryPass: PT render world map changed '%s' -> '%s'; clearing scene caches\n",
-                    m_smokeSceneMapName.c_str(),
-                    renderWorld->mapName.c_str());
-            }
+            common->Printf("PathTracePrimaryPass: PT render world unavailable; clearing scene caches for '%s'\n",
+                m_smokeSceneMapName.c_str());
             nvrhi::IDevice* resetDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
             if (resetDevice)
             {
@@ -3177,14 +3171,35 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             ResetRayTracingSmokeSceneResources();
             ClearSmokeMaterialTextureRegistry();
             ClearSmokeMaterialUniverse();
-            m_frameResources.smokeReservoirNeedsClear = true;
-            m_frameResources.smokeReservoirResetCount = 0;
-            m_frameResources.smokeReservoirClearCount = 0;
             m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
-            m_smokeSceneRenderWorld = renderWorld;
-            m_smokeSceneMapName = renderWorld->mapName;
-            m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
         }
+        return;
+    }
+    const bool renderWorldChanged = m_smokeSceneRenderWorld != renderWorld;
+    const bool mapChanged = m_smokeSceneMapName.Icmp(renderWorld->mapName) != 0 || m_smokeSceneMapTimeStamp != renderWorld->mapTimeStamp;
+    if (renderWorldChanged || mapChanged)
+    {
+        if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
+        {
+            common->Printf("PathTracePrimaryPass: PT render world map changed '%s' -> '%s'; clearing scene caches\n",
+                m_smokeSceneMapName.c_str(),
+                renderWorld->mapName.c_str());
+        }
+        nvrhi::IDevice* resetDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
+        if (resetDevice)
+        {
+            resetDevice->waitForIdle();
+        }
+        ResetRayTracingSmokeSceneResources();
+        ClearSmokeMaterialTextureRegistry();
+        ClearSmokeMaterialUniverse();
+        m_frameResources.smokeReservoirNeedsClear = true;
+        m_frameResources.smokeReservoirResetCount = 0;
+        m_frameResources.smokeReservoirClearCount = 0;
+        m_frameResources.MarkResetReason(RT_FRAME_RESET_SCENE_RESOURCES | RT_FRAME_RESET_RESERVOIR_SCENE_SIGNATURE);
+        m_smokeSceneRenderWorld = renderWorld;
+        m_smokeSceneMapName = renderWorld->mapName;
+        m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
     }
     if (viewDef && m_smokeLightUniverseRenderWorld != viewDef->renderWorld)
     {
