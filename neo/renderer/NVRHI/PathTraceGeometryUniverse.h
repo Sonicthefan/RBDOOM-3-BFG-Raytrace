@@ -57,6 +57,8 @@ struct RtSmokeGeometryUniverseStats
     int staticDirtyIndexCount = 0;
     int staticDirtyTriangleOffset = -1;
     int staticDirtyTriangleCount = 0;
+    int staticMaterialDirtyTriangleOffset = -1;
+    int staticMaterialDirtyTriangleCount = 0;
     int staticBytesKB = 0;
     int previousStaticVerts = 0;
     int previousStaticIndexes = 0;
@@ -65,6 +67,7 @@ struct RtSmokeGeometryUniverseStats
     bool previousStaticCpuSnapshotAvailable = false;
     uint64 frameIndex = 0;
     uint64 generation = 1;
+    uint64 staticMaterialGeneration = 1;
 };
 
 enum RtPathTraceRigidMeshCandidateRejectFlags : uint32_t
@@ -586,6 +589,7 @@ struct RtSmokePersistentStaticSurfaceRecord
     bool previousRangeValid = false;
     bool historyValid = false;
     bool dirty = true;
+    uint64 materialGeneration = 0;
     RtSmokeGeometryBufferFormat geometryFormat = RtSmokeGeometryBufferFormat::LegacySmokeVertex;
 };
 
@@ -612,6 +616,7 @@ public:
     void ReserveStaticSurfaceRecords(size_t surfaceCount);
     bool HasStaticSurface(uint64 key) const;
     RtSmokePersistentStaticSurfaceRecord* TouchStaticSurface(uint64 key);
+    bool RefreshStaticSurfaceMaterial(uint64 key, uint32_t materialId);
     bool CanAppendStaticSurface(int vertexCount, int indexCount, int maxVertexCount, int maxIndexCount) const;
     RtSmokeStaticSurfaceAppend BeginStaticSurfaceAppend(uint64 key, uint32_t surfaceClassId, uint32_t materialId, int vertexCount, int indexCount) const;
     void CompleteStaticSurfaceAppend(const RtSmokeStaticSurfaceAppend& append, int emittedIndexCount);
@@ -786,6 +791,9 @@ private:
     uint64 m_currentFrameIndex = 0;
     bool m_frameActive = false;
     uint64 m_generation = 1;
+    uint64 m_staticMaterialGeneration = 1;
+    int m_staticMaterialDirtyTriangleOffset = -1;
+    int m_staticMaterialDirtyTriangleCount = 0;
     std::vector<RtSmokePersistentStaticSurfaceRecord> m_staticSurfaceRecords;
     std::unordered_map<uint64, size_t> m_staticSurfaceLookup;
     std::vector<uint64> m_staticSurfaceKeys;

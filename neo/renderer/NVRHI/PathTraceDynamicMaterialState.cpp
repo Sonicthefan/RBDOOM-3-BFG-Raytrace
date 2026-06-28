@@ -24,6 +24,8 @@ struct RtSmokeMaterialTableCache
 {
     bool valid = false;
     uint64 signature = 0;
+    uint64 staticMaterialIdSequenceSignature = 0;
+    uint64 dynamicMaterialIdSequenceSignature = 0;
     RtSmokeMaterialTableBuild table;
     int hits = 0;
     int misses = 0;
@@ -97,6 +99,17 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(r_pathTracingMatClassDriveLegacySpec.GetInteger() != 0 ? 1 : 0));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(idMath::ClampInt(0, 2, r_pathTracingMatClassNormalDecodeMode.GetInteger())));
     hash = HashSmokeMaterialCacheValue(hash, GetPathTraceMaterialClassifierGeneration());
+    return hash;
+}
+
+uint64 ComputeSmokeMaterialIdSequenceSignature(const std::vector<uint32_t>& materialIds)
+{
+    uint64 hash = 1469598103934665603ull;
+    hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(materialIds.size()));
+    for (uint32_t materialId : materialIds)
+    {
+        hash = HashSmokeMaterialCacheValue(hash, materialId);
+    }
     return hash;
 }
 
@@ -992,6 +1005,8 @@ void RebuildSmokeDynamicMaterialIndexesFromCachedTable(RtSmokeMaterialTableBuild
 bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit, uint64& signature, bool& cacheHit)
 {
     signature = ComputeSmokeMaterialTableSignature(staticMaterialIds, dynamicMaterialIds, enableTextureProbe, minimumTextureTableLimit, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex);
+    const uint64 staticMaterialIdSequenceSignature = ComputeSmokeMaterialIdSequenceSignature(staticMaterialIds);
+    const uint64 dynamicMaterialIdSequenceSignature = ComputeSmokeMaterialIdSequenceSignature(dynamicMaterialIds);
     cacheHit = false;
     if (r_pathTracingMaterialCache.GetInteger() != 0 && g_smokeMaterialTableCache.valid && g_smokeMaterialTableCache.signature == signature)
     {
@@ -1003,16 +1018,21 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
             BuildSmokeMaterialTableFromUniverse(table, staticMaterialIds, dynamicMaterialIds, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex, enableTextureProbe, minimumTextureTableLimit);
             return false;
         }
-        if (table.staticMaterialIndexes.size() == staticMaterialIds.size())
-        {
-            RebuildSmokeDynamicMaterialIndexesFromCachedTable(table, dynamicMaterialIds);
-        }
-        else
+        const bool staticMaterialRemapChanged =
+            table.staticMaterialIndexes.size() != staticMaterialIds.size() ||
+            g_smokeMaterialTableCache.staticMaterialIdSequenceSignature != staticMaterialIdSequenceSignature;
+        const bool dynamicMaterialRemapChanged =
+            table.dynamicMaterialIndexes.size() != dynamicMaterialIds.size() ||
+            g_smokeMaterialTableCache.dynamicMaterialIdSequenceSignature != dynamicMaterialIdSequenceSignature;
+        if (staticMaterialRemapChanged || dynamicMaterialRemapChanged)
         {
             RebuildSmokeMaterialIndexesFromCachedTable(table, staticMaterialIds, dynamicMaterialIds);
             if (ValidateSmokeMaterialIndexes(table))
             {
                 g_smokeMaterialTableCache.table.staticMaterialIndexes = table.staticMaterialIndexes;
+                g_smokeMaterialTableCache.table.dynamicMaterialIndexes = table.dynamicMaterialIndexes;
+                g_smokeMaterialTableCache.staticMaterialIdSequenceSignature = staticMaterialIdSequenceSignature;
+                g_smokeMaterialTableCache.dynamicMaterialIdSequenceSignature = dynamicMaterialIdSequenceSignature;
             }
         }
         g_smokeMaterialTableBuildStats = RtSmokeMaterialTableBuildStats();
@@ -1021,6 +1041,8 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
         if (ValidateSmokeMaterialIndexes(table))
         {
             g_smokeMaterialTableCache.table = table;
+            g_smokeMaterialTableCache.staticMaterialIdSequenceSignature = staticMaterialIdSequenceSignature;
+            g_smokeMaterialTableCache.dynamicMaterialIdSequenceSignature = dynamicMaterialIdSequenceSignature;
         }
         cacheHit = true;
         ++g_smokeMaterialTableCache.hits;
@@ -1033,6 +1055,8 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
     {
         g_smokeMaterialTableCache.valid = true;
         g_smokeMaterialTableCache.signature = signature;
+        g_smokeMaterialTableCache.staticMaterialIdSequenceSignature = staticMaterialIdSequenceSignature;
+        g_smokeMaterialTableCache.dynamicMaterialIdSequenceSignature = dynamicMaterialIdSequenceSignature;
         g_smokeMaterialTableCache.table = table;
     }
     return false;

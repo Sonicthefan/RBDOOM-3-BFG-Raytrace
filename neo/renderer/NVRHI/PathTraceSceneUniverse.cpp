@@ -1250,6 +1250,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildFullStaticGeom
                     ++buildStats.skippedInvalid;
                     continue;
                 }
+                geometryUniverse.RefreshStaticSurfaceMaterial(key, materialId);
 
                 ++bucketRanges.buckets[0].surfaceCount;
                 ++buildStats.surfaces;
@@ -1482,6 +1483,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         RtSmokePersistentStaticSurfaceRecord* record = geometryUniverse.TouchStaticSurface(key);
         if (record)
         {
+            geometryUniverse.RefreshStaticSurfaceMaterial(key, materialId);
             ++buildStats.residencyCacheHits;
             if (alreadyCountedThisFrame)
             {
