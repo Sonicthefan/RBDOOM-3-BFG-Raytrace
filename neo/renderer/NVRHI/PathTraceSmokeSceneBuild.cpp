@@ -6920,8 +6920,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t rigidRouteSkippedUploadBytes =
         (skipRigidRouteSideBufferUpload ? rigidRouteGeometryBytes : 0ull) +
         (skipRigidRouteInstanceBufferUpload ? rigidRouteInstanceBytes : 0ull);
-    const uint64_t skinnedUploadBytes = SumSmokeUploadBytes(uploadItems, 39, 7);
-    const uint64_t skinnedSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 39, 7);
+    const uint64_t skinnedUploadBytes = SumSmokeUploadBytes(uploadItems, 41, 7);
+    const uint64_t skinnedSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 41, 7);
     if (r_pathTracingMaterialUploadDump.GetInteger() != 0)
     {
         const RtSmokeBufferUploadItem& materialTableUpload = uploadItems[15];
@@ -7312,7 +7312,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedGpuSkinningAvailable = skinnedGpuComputeDispatched;
     if (r_pathTracingSkinnedDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: PT skinned dump frame=%llu source=%d motionExport=%d rrGuideHistory=%d rrDebug=%d gpuSkinning=%d scaffoldMode=%d computeInputs=%d current records=%d surfaces/tris=%d/%d rtCpu=%d dynamicTris total/skinnedCpu/basePose/rtCpu=%d/%d/%d/%d previousBefore records/verts/joints=%d/%d/%d bridge matched/invalid/retainedVerts=%d/%d/%d invalid noFrame/noSurface/count/material/class/notRtCpu/skeleton/teleport/prevBuf=%d/%d/%d/%d/%d/%d/%d/%d/%d temporal topology/lod/transform/deform/material/prevBuf=%d/%d/%d/%d/%d/%d scaffold source/current/prevPos/dispatch/mapped/index/currentJoints/prevJoints=%d/%d/%d/%d/%d/%d/%d/%d compute ready/dispatched/targetDyn/writePrev/verts/max=%d/%d/%d/%d/%d/%d bytes source/current/prevPos/dispatch/index/currentJoints/prevJoints/upload/skip=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu capacity source/current/prevPos/dispatch/index/currentJoints/prevJoints=%llu/%llu/%llu/%llu/%llu/%llu/%llu timing captureClass/append/rtCpuAppend/bucket/bridge/scaffold/dispatchIndex/retainJoints/bufferCreate/upload=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
+        common->Printf("PathTracePrimaryPass: PT skinned dump frame=%llu source=%d motionExport=%d rrGuideHistory=%d rrDebug=%d gpuSkinning=%d scaffoldMode=%d computeInputs=%d current records=%d surfaces/tris=%d/%d rtCpu=%d dynamicTris total/skinnedCpu/basePose/rtCpu=%d/%d/%d/%d previousBefore records/verts/joints=%d/%d/%d bridge matched/invalid/retainedVerts=%d/%d/%d invalid noFrame/noSurface/count/material/class/notRtCpu/skeleton/teleport/prevBuf=%d/%d/%d/%d/%d/%d/%d/%d/%d temporal topology/lod/transform/deform/material/prevBuf=%d/%d/%d/%d/%d/%d scaffold source/current/prevPos/dispatch/mapped/index/currentJoints/prevJoints=%d/%d/%d/%d/%d/%d/%d/%d compute ready/dispatched/targetDyn/writePrev/verts/max=%d/%d/%d/%d/%d/%d bytes source/current/prevPos/dispatch/index/currentJoints/prevJoints/upload/skip=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu capacity source/current/prevPos/dispatch/index/currentJoints/prevJoints=%llu/%llu/%llu/%llu/%llu/%llu/%llu dynamicCapacity v/i/class/mat/matIndex=%llu/%llu/%llu/%llu/%llu timing captureClass/append/rtCpuAppend/bucket/bridge/scaffold/dispatchIndex/retainJoints/bufferCreate/upload=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             sceneSource,
             r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1 : 0,
@@ -7380,6 +7380,11 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedTriangleDispatchIndexBuffer, sizeof(uint32_t))),
             static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedCurrentJointMatrixBuffer, sizeof(PathTraceSkinnedJointMatrix))),
             static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedPreviousJointMatrixBuffer, sizeof(PathTraceSkinnedJointMatrix))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicVertexBuffer, sizeof(PathTraceSmokeVertex))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicIndexBuffer, sizeof(uint32_t))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleClassBuffer, sizeof(uint32_t))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleMaterialBuffer, sizeof(uint32_t))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleMaterialIndexBuffer, sizeof(uint32_t))),
             captureTiming.dynamicPassClassifyMs,
             captureTiming.dynamicAppendMs,
             captureTiming.rtCpuSkinningAppendMs,

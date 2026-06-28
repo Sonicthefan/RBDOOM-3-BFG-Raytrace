@@ -591,11 +591,18 @@ static nvrhi::BufferHandle CreateSmokeGeometryBuffer(nvrhi::IDevice* device, con
     return device->createBuffer(desc);
 }
 
-static nvrhi::BufferHandle ReuseOrCreateSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput, bool unorderedAccess = false)
+static nvrhi::BufferHandle ReuseOrCreateSmokeGeometryBuffer(nvrhi::IDevice* device, nvrhi::BufferHandle existingBuffer, const char* debugName, size_t byteSize, uint32_t structStride, bool vertexBuffer, bool indexBuffer, bool accelStructInput, bool unorderedAccess = false, bool shrinkWhenEmpty = false)
 {
     if (SmokeBufferHasCapacity(existingBuffer, byteSize, structStride, unorderedAccess))
     {
-        return existingBuffer;
+        const bool shouldShrinkEmpty =
+            shrinkWhenEmpty &&
+            byteSize == 0 &&
+            existingBuffer->getDesc().byteSize > SmokeBufferRequiredBytes(byteSize, structStride);
+        if (!shouldShrinkEmpty)
+        {
+            return existingBuffer;
+        }
     }
 
     return CreateSmokeGeometryBuffer(device, debugName, byteSize, structStride, vertexBuffer, indexBuffer, accelStructInput, unorderedAccess);
@@ -656,9 +663,9 @@ RtSmokeSceneBufferCreateResult CreateSmokeSceneBuffers(const RtSmokeSceneBufferC
     result.buffers.rigidRouteInstanceBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.rigidRouteInstanceBuffer, "PathTraceRigidRouteInstances", desc.rigidRouteInstanceBytes, sizeof(PathTraceRigidRouteInstance), false, false, false);
     result.buffers.skinnedSourceVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSourceVertexBuffer, "PathTraceSkinnedSourceVertices", desc.skinnedSourceVertexBytes, sizeof(PathTraceSkinnedSourceVertex));
     result.buffers.skinnedCurrentOutputVertexBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentOutputVertexBuffer, "PathTraceSkinnedCurrentOutputVertices", desc.skinnedCurrentOutputVertexBytes, sizeof(PathTraceSmokeVertex), true);
-    result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition), false, false, false, true);
-    result.buffers.skinnedSurfaceDispatchBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSurfaceDispatchBuffer, "PathTraceSkinnedSurfaceDispatch", desc.skinnedSurfaceDispatchBytes, sizeof(PathTraceSkinnedSurfaceDispatchRecord), false, false, false);
-    result.buffers.skinnedTriangleDispatchIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedTriangleDispatchIndexBuffer, "PathTraceSkinnedTriangleDispatchIndex", desc.skinnedTriangleDispatchIndexBytes, sizeof(uint32_t), false, false, false);
+    result.buffers.skinnedPreviousPositionBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousPositionBuffer, "PathTraceSkinnedPreviousPositions", desc.skinnedPreviousPositionBytes, sizeof(PathTraceSkinnedPreviousPosition), false, false, false, true, true);
+    result.buffers.skinnedSurfaceDispatchBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedSurfaceDispatchBuffer, "PathTraceSkinnedSurfaceDispatch", desc.skinnedSurfaceDispatchBytes, sizeof(PathTraceSkinnedSurfaceDispatchRecord), false, false, false, false, true);
+    result.buffers.skinnedTriangleDispatchIndexBuffer = ReuseOrCreateSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedTriangleDispatchIndexBuffer, "PathTraceSkinnedTriangleDispatchIndex", desc.skinnedTriangleDispatchIndexBytes, sizeof(uint32_t), false, false, false, false, true);
     result.buffers.skinnedCurrentJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedCurrentJointMatrixBuffer, "PathTraceSkinnedCurrentJointMatrices", desc.skinnedCurrentJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
     result.buffers.skinnedPreviousJointMatrixBuffer = ReuseOrCreateOptionalSmokeGeometryBuffer(desc.device, desc.existingBuffers.skinnedPreviousJointMatrixBuffer, "PathTraceSkinnedPreviousJointMatrices", desc.skinnedPreviousJointMatrixBytes, sizeof(PathTraceSkinnedJointMatrix));
 
