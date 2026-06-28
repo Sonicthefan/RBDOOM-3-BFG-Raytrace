@@ -11,6 +11,7 @@
 #include "PathTracePrimaryPass.h"
 #include "PathTraceCVars.h"
 #include "PathTraceDoomLights.h"
+#include "PathTraceDynamicMaterialState.h"
 #include "PathTraceMaterialTextureDiscovery.h"
 #include "PathTraceReservoirs.h"
 #include "PathTraceSmokeDispatch.h"
@@ -2145,6 +2146,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeLightUniverse.Clear();
     ClearSmokeMaterialTextureVariants();
     ClearSmokeResidentMaterialFacts();
+    ClearSmokeMaterialTableCache();
     m_remixFramePrepare.Clear();
     m_remixLightManager.Clear();
     m_remixRtxdiResources.Clear();

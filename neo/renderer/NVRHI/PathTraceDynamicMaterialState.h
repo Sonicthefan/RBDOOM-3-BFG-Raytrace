@@ -151,6 +151,7 @@ bool BuildSmokeMaterialTableCached(RtSmokeMaterialTableBuild& table, const std::
 RtSmokeMaterialTableCompareStats CompareSmokeMaterialTables(const RtSmokeMaterialTableBuild& expected, const RtSmokeMaterialTableBuild& actual);
 RtSmokeMaterialTableBuildStats GetSmokeMaterialTableBuildStats();
 RtSmokeMaterialTableCacheStats GetSmokeMaterialTableCacheStats();
+void ClearSmokeMaterialTableCache();
 void ArmSmokeCrosshairZeroRoughnessToggle();
 bool ConsumeSmokeCrosshairZeroRoughnessToggleRequest();
 bool ToggleSmokeMaterialZeroRoughnessOverride(uint32_t materialId, const char* materialName);
