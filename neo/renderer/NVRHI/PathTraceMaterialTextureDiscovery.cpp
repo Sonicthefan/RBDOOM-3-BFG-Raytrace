@@ -100,11 +100,13 @@ void DumpSmokeMaterialResidencyStatsIfNeeded()
         residentStatic,
         residentDynamic);
     common->Printf(
-        "PathTracePrimaryPass: RES materialHydration visited=%d derived=%d hits=%d misses=%d\n",
+        "PathTracePrimaryPass: RES materialHydration visited=%d derived=%d hits=%d misses=%d refresh/skip=%d/%d\n",
         g_smokeMaterialMetadataFrameStats.idHydrationVisited,
         g_smokeMaterialMetadataFrameStats.idHydrationDerived,
         g_smokeMaterialMetadataFrameStats.idHydrationCacheHits,
-        g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses);
+        g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses,
+        g_smokeMaterialMetadataFrameStats.idHydrationRefreshes,
+        g_smokeMaterialMetadataFrameStats.idHydrationRefreshSkips);
 }
 
 enum class RtSmokeTextureCodeHint
@@ -161,6 +163,15 @@ bool SmokeMaterialResidencyEnabled()
 {
     return r_pathTracingResidency.GetInteger() != 0 &&
         r_pathTracingResidencyMaterial.GetInteger() != 0;
+}
+
+bool SmokeMaterialTextureInfoNeedsHydrationRefresh(const RtSmokeMaterialTextureInfo& info)
+{
+    return (info.hasDiffuseImage && !info.hasTextureHandle) ||
+        (info.hasAlphaImage && !info.hasAlphaTextureHandle) ||
+        (info.hasNormalImage && !info.hasNormalTextureHandle) ||
+        (info.hasSpecularImage && !info.hasSpecularTextureHandle) ||
+        (info.hasEmissiveImage && !info.hasEmissiveTextureHandle);
 }
 
 bool SmokeResidentMaterialRegisterDependsOnRuntime(const idMaterial* material, int registerIndex)
@@ -1738,7 +1749,15 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         if (existing)
         {
             ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
-            RefreshSmokeMaterialTextureHandleState(*existing);
+            if (SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
+            {
+                RefreshSmokeMaterialTextureHandleState(*existing);
+                ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshes;
+            }
+            else
+            {
+                ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshSkips;
+            }
             continue;
         }
         ++g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;

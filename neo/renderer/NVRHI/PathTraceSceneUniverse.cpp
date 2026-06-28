@@ -1379,23 +1379,29 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     const bool useBakedStaticFacts =
         r_pathTracingResidency.GetInteger() != 0 &&
         r_pathTracingResidencyStatic.GetInteger() != 0;
-    RtPathTraceSceneUniverseSelectionStats selection =
-        BuildSelectionStats(viewDef, &geometryUniverse, idMath::ClampInt(0, 8, portalSteps), !useBakedStaticFacts);
+    RtPathTraceSceneUniverseSelectionStats selection;
+    {
+        OPTICK_EVENT("PT Static Area Selection");
+        selection = BuildSelectionStats(viewDef, &geometryUniverse, idMath::ClampInt(0, 8, portalSteps), !useBakedStaticFacts);
+    }
     if (!selection.valid)
     {
         return buildStats;
     }
 
     std::vector<bool> selectedAreas;
-    selectedAreas.assign(renderWorld->NumAreas(), bruteForceFullMap);
-    if (!bruteForceFullMap)
     {
-        for (int areaListIndex = 0; areaListIndex < selection.selectedAreaListCount; ++areaListIndex)
+        OPTICK_EVENT("PT Static Area Mask");
+        selectedAreas.assign(renderWorld->NumAreas(), bruteForceFullMap);
+        if (!bruteForceFullMap)
         {
-            const int area = selection.selectedAreaList[areaListIndex];
-            if (area >= 0 && area < static_cast<int>(selectedAreas.size()))
+            for (int areaListIndex = 0; areaListIndex < selection.selectedAreaListCount; ++areaListIndex)
             {
-                selectedAreas[area] = true;
+                const int area = selection.selectedAreaList[areaListIndex];
+                if (area >= 0 && area < static_cast<int>(selectedAreas.size()))
+                {
+                    selectedAreas[area] = true;
+                }
             }
         }
     }
@@ -1407,7 +1413,10 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
 
     buildStats.built = true;
     const size_t reserveSurfaceCount = useBakedStaticFacts ? m_surfaces.size() : static_cast<size_t>(selection.selectedSurfaces);
-    geometryUniverse.ReserveStaticSurfaceRecords(geometryUniverse.StaticSurfaceRecords().size() + reserveSurfaceCount);
+    {
+        OPTICK_EVENT("PT Static Area Reserve Records");
+        geometryUniverse.ReserveStaticSurfaceRecords(geometryUniverse.StaticSurfaceRecords().size() + reserveSurfaceCount);
+    }
 
     auto processSelectedSurface = [&](const RtPathTraceSceneUniverseSurface& surface) -> void
     {
@@ -1557,6 +1566,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
 
     if (useBakedStaticFacts)
     {
+        OPTICK_EVENT("PT Static Area Resident Walk");
         std::unordered_map<uint32_t, bool> selectedMaterials;
         std::unordered_map<uint32_t, bool> selectedEmissiveMaterials;
         selectedMaterials.reserve(128);
@@ -1656,6 +1666,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     }
     else
     {
+        OPTICK_EVENT("PT Static Area Legacy Walk");
         for (const RtPathTraceSceneUniverseSurface& surface : m_surfaces)
         {
             if (!SceneUniverseSurfaceTouchesSelectedArea(surface, selectedAreas))
@@ -1676,6 +1687,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
 
     if (dumpRequested)
     {
+        OPTICK_EVENT("PT Static Area Dump");
         common->Printf("PathTracePrimaryPass: PT static area preload currentArea=%d portalSteps=%d selectedAreas=%d selectedSurfaces=%d/%d built surfaces=%d triangles=%d verts=%d indexes=%d skipped invalid/limits/zero=%d/%d/%d emissive=%d staticCache records=%d verts=%d indexes=%d\n",
             selection.currentArea,
             selection.portalSteps,

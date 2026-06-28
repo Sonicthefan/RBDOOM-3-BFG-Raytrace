@@ -7,7 +7,7 @@
 
 #include <algorithm>
 #include <cstring>
-#include <map>
+#include <unordered_map>
 #include <utility>
 
 namespace {
@@ -53,6 +53,25 @@ bool operator==(const RemixUnifiedIdentityKey& a, const RemixUnifiedIdentityKey&
         a.identityB == b.identityB &&
         a.materialOrLightId == b.materialOrLightId;
 }
+
+struct RemixUnifiedIdentityKeyHash
+{
+    size_t operator()(const RemixUnifiedIdentityKey& key) const
+    {
+        uint64_t hash = 1469598103934665603ull;
+        const auto mix = [&hash](uint32_t value) {
+            hash ^= static_cast<uint64_t>(value);
+            hash *= 1099511628211ull;
+        };
+        mix(key.type);
+        mix(key.identityA);
+        mix(key.identityB);
+        mix(key.materialOrLightId);
+        return static_cast<size_t>(hash ^ (hash >> 32));
+    }
+};
+
+using RemixUnifiedIdentityIndexMap = std::unordered_map<RemixUnifiedIdentityKey, int, RemixUnifiedIdentityKeyHash>;
 
 bool RemixUnifiedIdentityKeyValid(const RemixUnifiedIdentityKey& key)
 {
@@ -118,9 +137,10 @@ void SortUnifiedLightPayloadRangeByStableIdentity(
 
 uint32_t BuildUniqueUnifiedIdentityIndex(
     const std::vector<PathTraceUnifiedLightRecord>& records,
-    std::map<RemixUnifiedIdentityKey, int>& identityToIndex)
+    RemixUnifiedIdentityIndexMap& identityToIndex)
 {
     identityToIndex.clear();
+    identityToIndex.reserve(records.size());
     uint32_t duplicateCount = 0;
     for (int index = 0; index < static_cast<int>(records.size()); ++index)
     {
@@ -193,7 +213,8 @@ uint32_t BuildDuplicateUnifiedIdentityCountsByType(
 {
     std::fill(duplicateCounts, duplicateCounts + PATH_TRACE_REMIX_LIGHT_TYPE_COUNT, 0u);
 
-    std::map<RemixUnifiedIdentityKey, int> identityToIndex;
+    RemixUnifiedIdentityIndexMap identityToIndex;
+    identityToIndex.reserve(records.size());
     uint32_t duplicateCount = 0;
     for (int index = 0; index < static_cast<int>(records.size()); ++index)
     {
@@ -350,9 +371,12 @@ void PathTraceRemixLightManager::PrepareSceneData(
     bool lightUniverseEnabled)
 {
     std::vector<PathTraceUnifiedLightRecord> lightUniversePreviousPayloads;
-    if (lightUniverseEnabled && m_lastPrepareWasLightUniverse && m_lightUniverseHistoryValid)
     {
-        lightUniversePreviousPayloads = m_currentLightPayloads;
+        OPTICK_EVENT("PT Remix Light Preserve Previous");
+        if (lightUniverseEnabled && m_lastPrepareWasLightUniverse && m_lightUniverseHistoryValid)
+        {
+            lightUniversePreviousPayloads = m_currentLightPayloads;
+        }
     }
 
     const std::vector<PathTraceSmokeEmissiveTriangle> emptyEmissiveTriangles;
@@ -361,27 +385,31 @@ void PathTraceRemixLightManager::PrepareSceneData(
     const std::vector<PathTraceDoomAnalyticLightCandidateIdentity> emptyAnalyticIdentities;
     const std::vector<PathTraceDoomAnalyticLightRemap> emptyAnalyticRemap;
 
-    PathTraceUnifiedLightBuild build = lightUniverseEnabled
-        ? BuildPathTraceUnifiedLights(
-            currentEmissiveTriangles,
-            emptyEmissiveTriangles,
-            emptyEmissiveRemap,
-            currentAnalyticLights,
-            emptyAnalyticLights,
-            currentAnalyticIdentities,
-            emptyAnalyticIdentities,
-            emptyAnalyticRemap,
-            analyticStateCompatibilityTolerance)
-        : BuildPathTraceUnifiedLights(
-            currentEmissiveTriangles,
-            previousEmissiveTriangles,
-            emissiveRemap,
-            currentAnalyticLights,
-            previousAnalyticLights,
-            currentAnalyticIdentities,
-            previousAnalyticIdentities,
-            analyticRemap,
-            analyticStateCompatibilityTolerance);
+    PathTraceUnifiedLightBuild build;
+    {
+        OPTICK_EVENT("PT Remix Light Build Unified");
+        build = lightUniverseEnabled
+            ? BuildPathTraceUnifiedLights(
+                currentEmissiveTriangles,
+                emptyEmissiveTriangles,
+                emptyEmissiveRemap,
+                currentAnalyticLights,
+                emptyAnalyticLights,
+                currentAnalyticIdentities,
+                emptyAnalyticIdentities,
+                emptyAnalyticRemap,
+                analyticStateCompatibilityTolerance)
+            : BuildPathTraceUnifiedLights(
+                currentEmissiveTriangles,
+                previousEmissiveTriangles,
+                emissiveRemap,
+                currentAnalyticLights,
+                previousAnalyticLights,
+                currentAnalyticIdentities,
+                previousAnalyticIdentities,
+                analyticRemap,
+                analyticStateCompatibilityTolerance);
+    }
 
     m_currentLightPayloads.swap(build.currentLights);
     if (lightUniverseEnabled)
@@ -391,6 +419,7 @@ void PathTraceRemixLightManager::PrepareSceneData(
         // Keep emissives in source-index order. The clean DI weighted emissive CDF
         // returns SmokeEmissiveTriangles source indices and maps them directly into
         // the RLU emissive range; sorting this range breaks that sampling contract.
+        OPTICK_EVENT("PT Remix Light Initial Sort");
         SortUnifiedLightPayloadRangeByStableIdentity(m_currentLightPayloads, currentEmissiveCount, currentAnalyticCount);
     }
     if (lightUniverseEnabled)
@@ -405,6 +434,7 @@ void PathTraceRemixLightManager::PrepareSceneData(
     uint32_t identityDuplicateCount = 0;
     if (lightUniverseEnabled)
     {
+        OPTICK_EVENT("PT Remix Light Stable Remap");
         identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity();
     }
     else
@@ -440,24 +470,51 @@ void PathTraceRemixLightManager::PrepareSceneData(
             }
         }
     }
-    RebuildPreviousToCurrentMap();
-    RebuildAnalyticStabilityClassification();
+    {
+        OPTICK_EVENT("PT Remix Light Previous Map");
+        RebuildPreviousToCurrentMap();
+    }
+    {
+        OPTICK_EVENT("PT Remix Light Stability");
+        RebuildAnalyticStabilityClassification();
+    }
     if (lightUniverseEnabled)
     {
         const uint32_t currentEmissiveCount = build.currentEmissiveLightCount;
         const uint32_t currentAnalyticCount = build.currentAnalyticLightCount;
-        SortCurrentDoomAnalyticRangeByCacheability(currentEmissiveCount, currentAnalyticCount);
-        identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity();
-        RebuildPreviousToCurrentMap();
-        RebuildAnalyticStabilityClassification();
+        {
+            OPTICK_EVENT("PT Remix Light Cacheability Sort");
+            SortCurrentDoomAnalyticRangeByCacheability(currentEmissiveCount, currentAnalyticCount);
+        }
+        {
+            OPTICK_EVENT("PT Remix Light Stable Remap After Sort");
+            identityDuplicateCount = RebuildCurrentToPreviousMapByStableIdentity();
+        }
+        {
+            OPTICK_EVENT("PT Remix Light Previous Map After Sort");
+            RebuildPreviousToCurrentMap();
+        }
+        {
+            OPTICK_EVENT("PT Remix Light Stability After Sort");
+            RebuildAnalyticStabilityClassification();
+        }
     }
-    RebuildLightRanges(
-        build.currentEmissiveLightCount,
-        build.currentAnalyticLightCount,
-        emissiveSampleCount,
-        doomAnalyticSampleCount);
-    RebuildSignatures();
-    RebuildStats(framePackage);
+    {
+        OPTICK_EVENT("PT Remix Light Ranges");
+        RebuildLightRanges(
+            build.currentEmissiveLightCount,
+            build.currentAnalyticLightCount,
+            emissiveSampleCount,
+            doomAnalyticSampleCount);
+    }
+    {
+        OPTICK_EVENT("PT Remix Light Signatures");
+        RebuildSignatures();
+    }
+    {
+        OPTICK_EVENT("PT Remix Light Stats");
+        RebuildStats(framePackage);
+    }
     m_stats.enabled = lightUniverseEnabled ? 1u : 0u;
     m_stats.domain = domain;
     m_stats.strictRemixMapping = strictRemixMapping ? 1u : 0u;
@@ -598,8 +655,8 @@ uint32_t PathTraceRemixLightManager::RebuildCurrentToPreviousMapByStableIdentity
         record.previousIndex = PATH_TRACE_UNIFIED_LIGHT_INVALID_INDEX;
     }
 
-    std::map<RemixUnifiedIdentityKey, int> currentIdentityToIndex;
-    std::map<RemixUnifiedIdentityKey, int> previousIdentityToIndex;
+    RemixUnifiedIdentityIndexMap currentIdentityToIndex;
+    RemixUnifiedIdentityIndexMap previousIdentityToIndex;
     const uint32_t duplicateCount =
         BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex) +
         BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
@@ -636,8 +693,8 @@ uint32_t PathTraceRemixLightManager::RebuildCurrentToPreviousMapByStableIdentity
 
 void PathTraceRemixLightManager::RebuildAnalyticStabilityClassification()
 {
-    std::map<RemixUnifiedIdentityKey, int> currentIdentityToIndex;
-    std::map<RemixUnifiedIdentityKey, int> previousIdentityToIndex;
+    RemixUnifiedIdentityIndexMap currentIdentityToIndex;
+    RemixUnifiedIdentityIndexMap previousIdentityToIndex;
     BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex);
     BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
 
@@ -948,8 +1005,8 @@ void PathTraceRemixLightManager::RebuildStats(const PathTraceRemixFramePrepareOb
         }
     }
     m_stats.previousOnlyCount = m_stats.previousInvalidCount;
-    std::map<RemixUnifiedIdentityKey, int> currentIdentityToIndex;
-    std::map<RemixUnifiedIdentityKey, int> previousIdentityToIndex;
+    RemixUnifiedIdentityIndexMap currentIdentityToIndex;
+    RemixUnifiedIdentityIndexMap previousIdentityToIndex;
     m_stats.invalidDuplicateIdentityCount =
         BuildUniqueUnifiedIdentityIndex(m_currentLightPayloads, currentIdentityToIndex) +
         BuildUniqueUnifiedIdentityIndex(m_previousLightPayloads, previousIdentityToIndex);
