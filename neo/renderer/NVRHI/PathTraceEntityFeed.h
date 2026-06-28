@@ -18,6 +18,10 @@ struct RtPathTraceEntityFeedStats
     int candidatesS4 = 0;
     int admitted = 0;
     int droppedBudget = 0;
+    int residencyVisited = 0;
+    int residencyDerived = 0;
+    int residencyCacheHits = 0;
+    int residencyCacheMisses = 0;
 };
 
 void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s);

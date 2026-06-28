@@ -132,6 +132,10 @@ struct RtPathTraceSceneUniverseBuildStats
     int emissiveCapableSurfaces = 0;
     int rigidEntitySurfaces = 0;
     int rigidEntityTriangles = 0;
+    int residencyVisited = 0;
+    int residencyDerived = 0;
+    int residencyCacheHits = 0;
+    int residencyCacheMisses = 0;
 };
 
 void SceneUniverseAddDynamicMaterialEvalStats(

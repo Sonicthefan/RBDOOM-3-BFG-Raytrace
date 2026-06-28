@@ -566,6 +566,9 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             const renderEntity_t& renderEntity = entity->parms;
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
+                ++stats.residencyVisited;
+                ++stats.residencyDerived;
+                ++stats.residencyCacheMisses;
                 const modelSurface_t* surface = model->Surface(surfaceIndex);
                 const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
                 const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
@@ -764,6 +767,27 @@ void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s)
         s.candidatesS4,
         s.admitted,
         s.droppedBudget);
+}
+
+void DumpEntityFeedResidencyStatsIfNeeded(const RtPathTraceEntityFeedStats& s)
+{
+    if (r_pathTracingResidencyDump.GetInteger() == 0)
+    {
+        return;
+    }
+
+    static int lastDumpFrame = -120;
+    if (s.frameIndex - lastDumpFrame < 120)
+    {
+        return;
+    }
+    lastDumpFrame = s.frameIndex;
+    common->Printf(
+        "PathTracePrimaryPass: RES entityFeed visited=%d derived=%d hits=%d misses=%d\n",
+        s.residencyVisited,
+        s.residencyDerived,
+        s.residencyCacheHits,
+        s.residencyCacheMisses);
 }
 
 std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int maxDepth, float maxDistance)
@@ -1122,4 +1146,5 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     {
         DumpEntityFeedStats(stats);
     }
+    DumpEntityFeedResidencyStatsIfNeeded(stats);
 }

@@ -26,6 +26,27 @@ const int PT_SCENE_UNIVERSE_MAX_SELECTION_AREAS = 16;
 const int PT_SCENE_UNIVERSE_STATIC_MAX_VERTS = 262144;
 const int PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES = 786432;
 
+void DumpSceneUniverseResidencyStatsIfNeeded(const RtPathTraceSceneUniverseBuildStats& stats)
+{
+    if (r_pathTracingResidencyDump.GetInteger() == 0)
+    {
+        return;
+    }
+
+    static int lastDumpFrame = -120;
+    if (tr.frameCount - lastDumpFrame < 120)
+    {
+        return;
+    }
+    lastDumpFrame = tr.frameCount;
+    common->Printf(
+        "PathTracePrimaryPass: RES staticArea visited=%d derived=%d hits=%d misses=%d\n",
+        stats.residencyVisited,
+        stats.residencyDerived,
+        stats.residencyCacheHits,
+        stats.residencyCacheMisses);
+}
+
 uint64 HashSceneUniverseValue(uint64 hash, uint64 value)
 {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
@@ -1370,12 +1391,14 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         {
             ++buildStats.emissiveCapableSurfaces;
         }
+        ++buildStats.residencyVisited;
 
         const RtSmokePersistentStaticSurfaceRecord* existingRecord = geometryUniverse.FindStaticSurface(key);
         const bool alreadyCountedThisFrame = existingRecord && existingRecord->seenThisFrame;
         RtSmokePersistentStaticSurfaceRecord* record = geometryUniverse.TouchStaticSurface(key);
         if (record)
         {
+            ++buildStats.residencyCacheHits;
             if (alreadyCountedThisFrame)
             {
                 continue;
@@ -1393,6 +1416,8 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             SceneUniverseAddDynamicMaterialEvalStatsForId(materialStats, viewDef, entity, material, record->currentRange.indexes.count, materialId);
             continue;
         }
+        ++buildStats.residencyDerived;
+        ++buildStats.residencyCacheMisses;
 
         if (!geometryUniverse.CanAppendStaticSurface(tri->numVerts, tri->numIndexes, PT_SCENE_UNIVERSE_STATIC_MAX_VERTS, PT_SCENE_UNIVERSE_STATIC_MAX_INDEXES))
         {
@@ -1482,6 +1507,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
                 area.bounds[1].z);
         }
     }
+    DumpSceneUniverseResidencyStatsIfNeeded(buildStats);
 
     return buildStats;
 }

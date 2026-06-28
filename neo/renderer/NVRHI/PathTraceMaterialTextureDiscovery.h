@@ -19,6 +19,10 @@ struct RtSmokeMaterialMetadataFrameStats
     int fullDiscovers = 0;
     int newEntries = 0;
     int duplicateSkips = 0;
+    int idHydrationVisited = 0;
+    int idHydrationDerived = 0;
+    int idHydrationCacheHits = 0;
+    int idHydrationCacheMisses = 0;
 };
 
 struct RtSmokeMaterialMetadataRegistrationTiming

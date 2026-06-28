@@ -15,6 +15,7 @@
 #include "PathTraceMaterialClassifier.h"
 #include "PathTraceSceneCapture.h"
 #include "PathTraceTextureRegistry.h"
+#include "../RenderCommon.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -30,6 +31,33 @@ bool PathTraceMaterialClassifierRequested()
 {
     return r_pathTracingMatClassEnable.GetInteger() != 0 ||
         r_pathTracingMatClassDebugList.GetInteger() != 0;
+}
+
+void DumpSmokeMaterialResidencyStatsIfNeeded()
+{
+    if (r_pathTracingResidencyDump.GetInteger() == 0)
+    {
+        return;
+    }
+
+    static int lastDumpFrame = -120;
+    if (tr.frameCount - lastDumpFrame < 120)
+    {
+        return;
+    }
+    lastDumpFrame = tr.frameCount;
+    common->Printf(
+        "PathTracePrimaryPass: RES materialDiscover visited=%d derived=%d hits=%d misses=%d\n",
+        g_smokeMaterialMetadataFrameStats.registrations,
+        g_smokeMaterialMetadataFrameStats.fullDiscovers,
+        g_smokeMaterialMetadataFrameStats.cacheRefreshes,
+        g_smokeMaterialMetadataFrameStats.fullDiscovers);
+    common->Printf(
+        "PathTracePrimaryPass: RES materialHydration visited=%d derived=%d hits=%d misses=%d\n",
+        g_smokeMaterialMetadataFrameStats.idHydrationVisited,
+        g_smokeMaterialMetadataFrameStats.idHydrationDerived,
+        g_smokeMaterialMetadataFrameStats.idHydrationCacheHits,
+        g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses);
 }
 
 enum class RtSmokeTextureCodeHint
@@ -1419,6 +1447,7 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
     if (!enabled || !declManager || materialIds.empty())
     {
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+        DumpSmokeMaterialResidencyStatsIfNeeded();
         return timing;
     }
 
@@ -1432,18 +1461,22 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         {
             continue;
         }
+        ++g_smokeMaterialMetadataFrameStats.idHydrationVisited;
         RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(materialId);
         if (existing)
         {
+            ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
             RefreshSmokeMaterialTextureHandleState(*existing);
             continue;
         }
+        ++g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
         missingMaterialIds.insert(materialId);
     }
 
     if (missingMaterialIds.empty())
     {
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+        DumpSmokeMaterialResidencyStatsIfNeeded();
         return timing;
     }
 
@@ -1465,11 +1498,13 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         }
 
         const int registrationStartMs = Sys_Milliseconds();
+        ++g_smokeMaterialMetadataFrameStats.idHydrationDerived;
         RegisterSmokeMaterialTextureInfo(material);
         timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
         missingMaterialIds.erase(missing);
     }
 
     timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+    DumpSmokeMaterialResidencyStatsIfNeeded();
     return timing;
 }
