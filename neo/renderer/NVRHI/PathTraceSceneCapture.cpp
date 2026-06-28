@@ -18,6 +18,7 @@
 #include "PathTraceRigidIdentity.h"
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
+#include "PathTraceTextureRegistry.h"
 #include "../GLMatrix.h"
 #include "../Model_local.h"
 #include "../RenderCommon.h"
@@ -1654,14 +1655,32 @@ void AddSmokeDynamicMaterialEvalStats(RtSmokeMaterialStats& stats, const drawSur
     AddSmokeDynamicMaterialEvalStatsForMaterialId(stats, drawSurf, indexes, SmokeMaterialId(drawSurf ? drawSurf->material : nullptr));
 }
 
+static bool SmokeResidencySkipsDynamicMaterialEval(uint32_t materialId)
+{
+    if (r_pathTracingResidency.GetInteger() == 0 || r_pathTracingResidencyMaterial.GetInteger() == 0)
+    {
+        return false;
+    }
+    const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
+    return info && SmokeMaterialTextureInfoHasMaterialMetadata(*info) && !info->isDynamic;
+}
+
 void AddSmokeDynamicMaterialEvalStatsForMaterialId(RtSmokeMaterialStats& stats, const drawSurf_t* drawSurf, int indexes, uint32_t materialId)
 {
+    if (SmokeResidencySkipsDynamicMaterialEval(materialId))
+    {
+        return;
+    }
     AddSmokeDynamicMaterialEvalStatsInternal(stats, drawSurf, indexes, materialId);
 }
 
 uint32_t SmokeRuntimeMaterialVariantIdForDrawSurf(const drawSurf_t* drawSurf, uint32_t baseMaterialId)
 {
     if (!drawSurf || !drawSurf->material || baseMaterialId == 0u)
+    {
+        return baseMaterialId;
+    }
+    if (SmokeResidencySkipsDynamicMaterialEval(baseMaterialId))
     {
         return baseMaterialId;
     }
@@ -1746,7 +1765,9 @@ static bool SmokeMaterialUsesRuntimeMaterialState(const idMaterial* material)
 
 static uint32_t SmokeRuntimeMaterialVariantIdForEntitySurface(const idRenderEntityLocal* entity, int modelSurfaceIndex, const idMaterial* material, uint32_t baseMaterialId)
 {
-    if (!entity || !material || baseMaterialId == 0u || !SmokeMaterialUsesRuntimeMaterialState(material))
+    if (!entity || !material || baseMaterialId == 0u ||
+        SmokeResidencySkipsDynamicMaterialEval(baseMaterialId) ||
+        !SmokeMaterialUsesRuntimeMaterialState(material))
     {
         return baseMaterialId;
     }

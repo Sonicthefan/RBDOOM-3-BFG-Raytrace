@@ -236,6 +236,20 @@ bool FindSmokeRuntimeMaterialEvalSample(const RtSmokeMaterialStats& materialStat
     return false;
 }
 
+bool SmokeTableMaterialIsResidentStatic(const RtSmokeMaterialTableBuild& table, int materialIndex)
+{
+    if (r_pathTracingResidency.GetInteger() == 0 || r_pathTracingResidencyMaterial.GetInteger() == 0)
+    {
+        return false;
+    }
+    if (materialIndex < 0 || materialIndex >= static_cast<int>(table.materialInfos.size()))
+    {
+        return false;
+    }
+    const RtSmokeMaterialTextureInfo& info = table.materialInfos[materialIndex];
+    return SmokeMaterialTextureInfoHasMaterialMetadata(info) && !info.isDynamic;
+}
+
 idVec4 SmokeRuntimeMaterialStageColor(const idMaterial* material, const shaderStage_t* stage, const float* regs)
 {
     idVec4 color(1.0f, 1.0f, 1.0f, 1.0f);
@@ -433,6 +447,10 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
         {
             continue;
         }
+        if (SmokeTableMaterialIsResidentStatic(table, materialIndex))
+        {
+            continue;
+        }
 
         PathTraceDynamicMaterialRecord record;
         record.color[0] = Max(0.0f, sample.color[0]);
@@ -545,6 +563,10 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
     for (int materialIndex = 0; materialIndex < infoCount; ++materialIndex)
     {
         const RtSmokeMaterialTextureInfo& info = table.materialInfos[materialIndex];
+        if (SmokeTableMaterialIsResidentStatic(table, materialIndex))
+        {
+            continue;
+        }
         if (!info.detailDecal || info.detailDecalSpectrum <= 0)
         {
             continue;
@@ -745,8 +767,12 @@ RtSmokeRuntimeMaterialApplyStats ApplySmokeRuntimeMaterialRegistersToTable(const
             continue;
         }
 
-        ++stats.candidates;
         const RtSmokeMaterialTextureInfo* info = materialIndex < static_cast<int>(table.materialInfos.size()) ? &table.materialInfos[materialIndex] : nullptr;
+        if (SmokeTableMaterialIsResidentStatic(table, materialIndex))
+        {
+            continue;
+        }
+        ++stats.candidates;
         const uint32_t materialId = table.materialIds[materialIndex];
         const char* materialName = info ? info->materialName.c_str() : nullptr;
         const bool runtimeVariant = IsSmokeMaterialTextureVariant(materialId);

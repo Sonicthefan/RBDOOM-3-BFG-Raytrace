@@ -128,6 +128,7 @@ uint64 ComputeSmokePersistentMaterialSignature(uint32_t materialId, const RtSmok
     hash = HashSmokeMaterialUniverseValue(hash, info.filterDecalBlackKey ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecal ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecalDynamic ? 1u : 0u);
+    hash = HashSmokeMaterialUniverseValue(hash, info.isDynamic ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, info.detailDecalDiffuseLit ? 1u : 0u);
     hash = HashSmokeMaterialUniverseValue(hash, static_cast<uint64>(Max(0, info.detailDecalSpectrum)));
     hash = HashSmokeMaterialUniverseValue(hash, info.alphaFromDiffuseLuma ? 1u : 0u);
@@ -249,6 +250,7 @@ RtSmokePersistentMaterialRecord BuildSmokePersistentMaterialRecord(uint32_t mate
     record.facts.materialId = materialId;
     record.facts.universeIndex = universeIndex;
     record.facts.materialFlags = record.material.flags;
+    record.facts.isDynamic = info.isDynamic;
     record.facts.hasFallbackAlbedo = info.hasFallbackAlbedo;
     record.facts.fallbackAlbedo = info.hasFallbackAlbedo ? info.fallbackAlbedo : idVec4(record.material.debugAlbedo[0], record.material.debugAlbedo[1], record.material.debugAlbedo[2], record.material.debugAlbedo[3]);
     record.facts.alphaTested = (record.material.flags & RT_SMOKE_MATERIAL_ALPHA_TEST) != 0;
@@ -291,6 +293,7 @@ bool SmokePersistentMaterialRecordsEqual(const RtSmokePersistentMaterialRecord& 
         lhs.facts.materialId == rhs.facts.materialId &&
         lhs.facts.universeIndex == rhs.facts.universeIndex &&
         lhs.facts.materialFlags == rhs.facts.materialFlags &&
+        lhs.facts.isDynamic == rhs.facts.isDynamic &&
         lhs.facts.hasFallbackAlbedo == rhs.facts.hasFallbackAlbedo &&
         lhs.facts.fallbackAlbedo == rhs.facts.fallbackAlbedo &&
         lhs.facts.alphaTested == rhs.facts.alphaTested &&

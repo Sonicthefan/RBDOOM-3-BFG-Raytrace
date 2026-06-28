@@ -20,6 +20,7 @@ struct RtSmokeMaterialUniverseFacts
     uint32_t materialId = 0;
     uint32_t universeIndex = UINT32_MAX;
     uint32_t materialFlags = 0;
+    bool isDynamic = true;
     bool hasFallbackAlbedo = false;
     idVec4 fallbackAlbedo = idVec4(0.0f, 0.0f, 0.0f, 1.0f);
     bool alphaTested = false;

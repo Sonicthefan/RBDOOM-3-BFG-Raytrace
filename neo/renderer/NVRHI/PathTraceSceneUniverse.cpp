@@ -7,6 +7,7 @@
 #include "PathTraceDynamicMaterialState.h"
 #include "PathTraceGeometryUniverse.h"
 #include "PathTraceSceneCapture.h"
+#include "PathTraceTextureRegistry.h"
 #include "../Material.h"
 #include "../Model.h"
 #include "../GLMatrix.h"
@@ -727,6 +728,14 @@ void SceneUniverseAddDynamicMaterialEvalStatsForId(
     if (!viewDef || !entity || !material)
     {
         return;
+    }
+    if (r_pathTracingResidency.GetInteger() != 0 && r_pathTracingResidencyMaterial.GetInteger() != 0)
+    {
+        const RtSmokeMaterialTextureInfo* info = FindSmokeMaterialTextureInfo(materialId);
+        if (info && SmokeMaterialTextureInfoHasMaterialMetadata(*info) && !info->isDynamic)
+        {
+            return;
+        }
     }
 
     const renderEntity_t& renderEntity = entity->parms;

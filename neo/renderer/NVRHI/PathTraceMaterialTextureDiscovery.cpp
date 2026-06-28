@@ -6,6 +6,15 @@
 // This pass walks visible material declarations and records the texture metadata
 // that the dynamic material table can safely bind. Rejections are preserved as
 // diagnostics because many Doom materials are still intentionally unsupported.
+//
+// RES-31 material fact ownership:
+// STATIC resident facts: material identity/name, coverage, selected stable image
+// names and safe handles, fallback albedo, constant alpha cutoff, decal routing,
+// emissive base color, texture formats/usages, and classifier/static surface flags.
+// DYNAMIC per-frame override facts: runtime register-driven condition/color/alpha/
+// texture matrix values, cinematic/video/currentRender/GUI/render-target images,
+// alpha test thresholds driven by registers, program-stage output, animated stages,
+// and time/predefined-register-dependent stage state.
 
 #include "PathTraceCVars.h"
 #include "PathTraceMaterialTextureDiscovery.h"
@@ -44,6 +53,27 @@ bool PathTraceMaterialClassifierRequested()
         r_pathTracingMatClassDebugList.GetInteger() != 0;
 }
 
+void CountSmokeResidentMaterialDynamicSplit(int& residentStatic, int& residentDynamic)
+{
+    residentStatic = 0;
+    residentDynamic = 0;
+    for (const std::pair<const uint32_t, RtResidentMaterialFacts>& resident : g_residentMaterialFacts)
+    {
+        if (!resident.second.valid)
+        {
+            continue;
+        }
+        if (resident.second.info.isDynamic)
+        {
+            ++residentDynamic;
+        }
+        else
+        {
+            ++residentStatic;
+        }
+    }
+}
+
 void DumpSmokeMaterialResidencyStatsIfNeeded()
 {
     if (r_pathTracingResidencyDump.GetInteger() == 0)
@@ -57,12 +87,17 @@ void DumpSmokeMaterialResidencyStatsIfNeeded()
         return;
     }
     lastDumpFrame = tr.frameCount;
+    int residentStatic = 0;
+    int residentDynamic = 0;
+    CountSmokeResidentMaterialDynamicSplit(residentStatic, residentDynamic);
     common->Printf(
-        "PathTracePrimaryPass: RES materialDiscover visited=%d derived=%d hits=%d misses=%d\n",
+        "PathTracePrimaryPass: RES materialDiscover visited=%d derived=%d hits=%d misses=%d residentStatic=%d residentDynamic=%d\n",
         g_smokeMaterialMetadataFrameStats.registrations,
         g_smokeMaterialMetadataFrameStats.fullDiscovers,
         g_smokeMaterialMetadataFrameStats.cacheRefreshes,
-        g_smokeMaterialMetadataFrameStats.fullDiscovers);
+        g_smokeMaterialMetadataFrameStats.fullDiscovers,
+        residentStatic,
+        residentDynamic);
     common->Printf(
         "PathTracePrimaryPass: RES materialHydration visited=%d derived=%d hits=%d misses=%d\n",
         g_smokeMaterialMetadataFrameStats.idHydrationVisited,
@@ -127,8 +162,107 @@ bool SmokeMaterialResidencyEnabled()
         r_pathTracingResidencyMaterial.GetInteger() != 0;
 }
 
+bool SmokeResidentMaterialRegisterDependsOnRuntime(const idMaterial* material, int registerIndex)
+{
+    if (registerIndex < 0)
+    {
+        return false;
+    }
+    if (registerIndex < EXP_REG_NUM_PREDEFINED)
+    {
+        return true;
+    }
+    return material && material->ConstantRegisters() == nullptr;
+}
+
+bool SmokeResidentMaterialImageIsDynamic(idImage* image)
+{
+    if (!image)
+    {
+        return false;
+    }
+    const auto& opts = image->GetOpts();
+    return opts.isRenderTarget ||
+        opts.isUAV ||
+        IsSmokeImageNameGuiLike(image->GetName()) ||
+        !IsSmokeImageNameSafeForRayTracing(image->GetName());
+}
+
+bool SmokeResidentMaterialStageHasDynamicFacts(const idMaterial* material, const shaderStage_t* stage)
+{
+    if (!material || !stage)
+    {
+        return false;
+    }
+
+    if (SmokeResidentMaterialRegisterDependsOnRuntime(material, stage->conditionRegister))
+    {
+        return true;
+    }
+    if (stage->hasAlphaTest && SmokeResidentMaterialRegisterDependsOnRuntime(material, stage->alphaTestRegister))
+    {
+        return true;
+    }
+    for (int component = 0; component < 4; ++component)
+    {
+        if (SmokeResidentMaterialRegisterDependsOnRuntime(material, stage->color.registers[component]))
+        {
+            return true;
+        }
+    }
+    if (stage->texture.hasMatrix)
+    {
+        for (int row = 0; row < 2; ++row)
+        {
+            for (int column = 0; column < 3; ++column)
+            {
+                if (SmokeResidentMaterialRegisterDependsOnRuntime(material, stage->texture.matrix[row][column]))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return stage->texture.cinematic != nullptr ||
+        stage->texture.dynamic != DI_STATIC ||
+        stage->texture.dynamicFrameCount > 0 ||
+        stage->texture.texgen == TG_SCREEN ||
+        stage->texture.texgen == TG_SCREEN2 ||
+        stage->texture.texgen == TG_GLASSWARP ||
+        SmokeStageIsRenderMap(stage) ||
+        stage->newStage != nullptr ||
+        SmokeResidentMaterialImageIsDynamic(stage->texture.image);
+}
+
+bool SmokeResidentMaterialHasDynamicFacts(const idMaterial* material, const RtSmokeTranslucentClassifierInfo& classifier)
+{
+    if (!material)
+    {
+        return true;
+    }
+    if (material->HasGui() ||
+        classifier.nameLooksGui ||
+        classifier.sortIsGuiOrSubview ||
+        classifier.sortIsPostProcess ||
+        classifier.hasScreenTexgen)
+    {
+        return true;
+    }
+
+    for (int stageIndex = 0; stageIndex < material->GetNumStages(); ++stageIndex)
+    {
+        if (SmokeResidentMaterialStageHasDynamicFacts(material, material->GetStage(stageIndex)))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 uint64 ComputeSmokeResidentMaterialGeneration(const idMaterial* material, uint32_t materialId, const char* materialName)
 {
+    const RtSmokeTranslucentClassifierInfo classifier = BuildSmokeTranslucentClassifierInfo(material);
     uint64 hash = 1469598103934665603ull;
     hash = HashSmokeResidentMaterialValue(hash, materialId);
     hash = HashSmokeResidentMaterialString(hash, materialName);
@@ -138,6 +272,7 @@ uint64 ComputeSmokeResidentMaterialGeneration(const idMaterial* material, uint32
     hash = HashSmokeResidentMaterialValue(hash, material ? static_cast<uint64>(material->Spectrum()) : 0u);
     hash = HashSmokeResidentMaterialValue(hash, material && material->ConstantRegisters() ? 1u : 0u);
     hash = HashSmokeResidentMaterialFloat(hash, material ? material->GetSort() : 0.0f);
+    hash = HashSmokeResidentMaterialValue(hash, SmokeResidentMaterialHasDynamicFacts(material, classifier) ? 1u : 0u);
     hash = HashSmokeResidentMaterialValue(hash, r_pathTracingAllowGuiTextures.GetInteger() != 0 ? 1u : 0u);
     hash = HashSmokeResidentMaterialValue(hash, r_pathTracingForceTextureCodeUse.GetInteger() != 0 ? 1u : 0u);
     hash = HashSmokeResidentMaterialValue(hash, r_pathTracingSceneSource2RigidEntities.GetInteger() != 0 ? 1u : 0u);
@@ -801,6 +936,7 @@ void ForceSmokeAbsorbingBlackMaterialInfo(RtSmokeMaterialTextureInfo& info)
     info.filterDecalBlackKey = false;
     info.detailDecal = false;
     info.detailDecalDynamic = false;
+    info.isDynamic = false;
     info.alphaFromDiffuseLuma = false;
     info.forceFallbackAlbedo = true;
     info.alphaFromDiffuseDarkKey = false;
@@ -1292,6 +1428,10 @@ bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
     // receive light from lights with a matching spectrum. The per-frame record
     // synthesis keys off this (PathTraceSmokeSceneBuild).
     info->detailDecalSpectrum = info->detailDecal && material ? material->Spectrum() : 0;
+    info->isDynamic =
+        SmokeResidentMaterialHasDynamicFacts(material, classifier) ||
+        info->detailDecalDynamic ||
+        info->detailDecalSpectrum > 0;
     info->alphaFromDiffuseLuma =
         (info->hasAlphaTest &&
             diffuseImage != nullptr &&
