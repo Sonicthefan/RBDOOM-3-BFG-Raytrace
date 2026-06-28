@@ -2381,9 +2381,15 @@ idCVar r_pathTracingMaterialMetadataCache(
 
 idCVar r_pathTracingSmokeLog(
     "r_pathTracingSmokeLog",
-    "1",
+    "0",
     CVAR_RENDERER | CVAR_INTEGER,
-    "Enable periodic RT smoke debug logging" );
+    "Enable broad periodic RT smoke debug logging; verbose diagnostic firehose" );
+
+idCVar r_pathTracingMaterialUploadDump(
+    "r_pathTracingMaterialUploadDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump current material table and dynamic-material upload/dirty-range stats once" );
 
 idCVar r_pathTracingTimingLog(
     "r_pathTracingTimingLog",

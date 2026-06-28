@@ -6518,6 +6518,34 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t rigidRouteSkippedUploadBytes =
         (skipRigidRouteSideBufferUpload ? rigidRouteGeometryBytes : 0ull) +
         (skipRigidRouteInstanceBufferUpload ? rigidRouteInstanceBytes : 0ull);
+    if (r_pathTracingMaterialUploadDump.GetInteger() != 0)
+    {
+        const RtSmokeBufferUploadItem& materialTableUpload = uploadItems[15];
+        const RtSmokeBufferUploadItem& dynamicMaterialUpload = uploadItems[16];
+        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialTable entries=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d dynamicRecords=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
+            static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
+            r_pathTracingResidency.GetInteger() != 0 ? 1 : 0,
+            r_pathTracingResidencyMaterial.GetInteger() != 0 ? 1 : 0,
+            materialTableCacheHit ? 1 : 0,
+            static_cast<int>(materialTable.materials.size()),
+            static_cast<unsigned long long>(bufferCreateDesc.materialTableBytes),
+            static_cast<unsigned long long>(materialTableUpload.byteSize),
+            materialTableUpload.skip ? 1 : 0,
+            materialTableRangeValid ? 1 : 0,
+            materialTableUploadOffset,
+            materialTableUploadCount,
+            static_cast<int>(dynamicMaterialRecords.size()),
+            static_cast<unsigned long long>(bufferCreateDesc.dynamicMaterialBytes),
+            static_cast<unsigned long long>(dynamicMaterialUpload.byteSize),
+            dynamicMaterialUpload.skip ? 1 : 0,
+            dynamicMaterialRangeValid ? 1 : 0,
+            dynamicMaterialUploadOffset,
+            dynamicMaterialUploadCount,
+            static_cast<unsigned long long>(materialUploadBytes),
+            static_cast<unsigned long long>(materialTableUploadSignature),
+            static_cast<unsigned long long>(dynamicMaterialUploadSignature));
+        r_pathTracingMaterialUploadDump.SetInteger(0);
+    }
     if (r_pathTracingRigidRouteDump.GetInteger() != 0)
     {
         common->Printf("PathTracePrimaryPass: PT rigid route dump source=%d frame=%llu enabled=%d instances=%d uniqueMeshes=%d max=%d seen/cache=%d/%d prevXform/continuous=%d/%d verts/indexes/tris=%d/%d/%d bytes(geom/inst/upload/skip)=%llu/%llu/%llu/%llu buildMs=%d async/cache/queued=%d/%d/%d sideRing(skipGeom/skipInst/slot/read)=%d/%d/%d/%d residency(cached/resident/retained/meshLive/meshAged/retiredBlas/feedCap)=%d/%d/%d/%d/%d/%d/%d skipped nonRigid/missingMesh/missingBlas=%d/%d/%d missingMaterialIndex=%d\n",
