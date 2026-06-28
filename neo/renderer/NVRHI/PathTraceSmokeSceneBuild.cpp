@@ -5888,6 +5888,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     RtSmokeSceneBufferCreateDesc bufferCreateDesc;
+    {
+        OPTICK_EVENT("PT Scene Buffer Desc Build");
     bufferCreateDesc.device = device;
     bufferCreateDesc.existingBuffers.staticVertexBuffer = m_smokeStaticVertexBuffer;
     bufferCreateDesc.existingBuffers.staticIndexBuffer = m_smokeStaticIndexBuffer;
@@ -5998,6 +6000,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.skinnedTriangleDispatchIndexBytes = skinnedGpuScaffold.dynamicTriangleDispatchIndexes.size() * sizeof(uint32_t);
     bufferCreateDesc.skinnedCurrentJointMatrixBytes = skinnedGpuScaffold.currentJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix);
     bufferCreateDesc.skinnedPreviousJointMatrixBytes = skinnedGpuScaffold.previousJointMatrices.size() * sizeof(PathTraceSkinnedJointMatrix);
+    }
     RtSmokeSceneBufferCreateResult bufferCreateResult;
     {
         OPTICK_EVENT("PT Create Scene Buffers");
@@ -6449,8 +6452,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     staticDirtyUploadPlanInput.dirtyTriangleCount = geometryUniverseStats.staticDirtyTriangleCount;
     staticDirtyUploadPlanInput.totalTriangleClassCount = staticTriangleClassCache.size();
     staticDirtyUploadPlanInput.totalTriangleMaterialCount = staticTriangleMaterialCache.size();
-    const RtSmokeStaticDirtyUploadPlan staticDirtyUploadPlan =
-        BuildSmokeStaticDirtyUploadPlan(staticDirtyUploadPlanInput);
+    const RtSmokeStaticDirtyUploadPlan staticDirtyUploadPlan = [&]() {
+        OPTICK_EVENT("PT Static Dirty Upload Plan");
+        return BuildSmokeStaticDirtyUploadPlan(staticDirtyUploadPlanInput);
+    }();
     const bool staticDirtyRangesValid = staticDirtyUploadPlan.dirtyRangesValid;
     const bool useStaticDirtyRangeUploads = staticDirtyUploadPlan.useDirtyRangeUploads;
     const bool previousStaticSnapshotBuffersReused =
@@ -6473,20 +6478,31 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokePlanDataSpan(previousStaticTriangleMaterialIndexCache)
     };
     const uint64 previousStaticSnapshotUploadSignature = previousStaticSnapshotDataAvailable
-        ? BuildSmokePlanDataSpanSignature(
-            previousStaticSnapshotSpans,
-            static_cast<int>(sizeof(previousStaticSnapshotSpans) / sizeof(previousStaticSnapshotSpans[0])))
+        ? [&]() {
+            OPTICK_EVENT("PT Previous Static Upload Signature");
+            return BuildSmokePlanDataSpanSignature(
+                previousStaticSnapshotSpans,
+                static_cast<int>(sizeof(previousStaticSnapshotSpans) / sizeof(previousStaticSnapshotSpans[0])));
+        }()
         : 0;
     RtSmokePreviousStaticSnapshotUploadPlanInput previousStaticSnapshotUploadPlanInput;
     previousStaticSnapshotUploadPlanInput.dataAvailable = previousStaticSnapshotDataAvailable;
     previousStaticSnapshotUploadPlanInput.buffersReused = previousStaticSnapshotBuffersReused;
     previousStaticSnapshotUploadPlanInput.previousUploadSignature = m_smokePreviousStaticSnapshotUploadSignature;
     previousStaticSnapshotUploadPlanInput.currentUploadSignature = previousStaticSnapshotUploadSignature;
-    const RtSmokePreviousStaticSnapshotUploadPlan previousStaticSnapshotUploadPlan =
-        BuildSmokePreviousStaticSnapshotUploadPlan(previousStaticSnapshotUploadPlanInput);
+    const RtSmokePreviousStaticSnapshotUploadPlan previousStaticSnapshotUploadPlan = [&]() {
+        OPTICK_EVENT("PT Previous Static Upload Plan");
+        return BuildSmokePreviousStaticSnapshotUploadPlan(previousStaticSnapshotUploadPlanInput);
+    }();
     const bool skipPreviousStaticSnapshotUpload = previousStaticSnapshotUploadPlan.skipUpload;
-    const uint64 staticTriangleMaterialUploadSignature = BuildSmokeVectorUploadSignature(staticTriangleMaterialCache);
-    const uint64 staticTriangleMaterialIndexUploadSignature = BuildSmokeVectorUploadSignature(materialTable.staticMaterialIndexes);
+    const uint64 staticTriangleMaterialUploadSignature = [&]() {
+        OPTICK_EVENT("PT Static Material Upload Signature");
+        return BuildSmokeVectorUploadSignature(staticTriangleMaterialCache);
+    }();
+    const uint64 staticTriangleMaterialIndexUploadSignature = [&]() {
+        OPTICK_EVENT("PT Static Material Index Upload Signature");
+        return BuildSmokeVectorUploadSignature(materialTable.staticMaterialIndexes);
+    }();
     const bool skipStaticTriangleMaterialUpload =
         SmokeBufferCanSkipVectorUpload(
             smokeStaticTriangleMaterialBuffer,
@@ -6505,8 +6521,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticTriangleMaterialIndexUploadSignatureValid,
             m_smokeStaticTriangleMaterialIndexUploadSignature,
             staticTriangleMaterialIndexUploadSignature);
-    const uint64 materialTableUploadSignature = BuildSmokeVectorUploadSignature(gpuMaterialTableMaterials);
-    const uint64 dynamicMaterialUploadSignature = BuildSmokeVectorUploadSignature(dynamicMaterialRecords);
+    const uint64 materialTableUploadSignature = [&]() {
+        OPTICK_EVENT("PT Material Table Upload Signature");
+        return BuildSmokeVectorUploadSignature(gpuMaterialTableMaterials);
+    }();
+    const uint64 dynamicMaterialUploadSignature = [&]() {
+        OPTICK_EVENT("PT Dynamic Material Upload Signature");
+        return BuildSmokeVectorUploadSignature(dynamicMaterialRecords);
+    }();
     int materialTableDirtyOffset = -1;
     int materialTableDirtyCount = 0;
     const bool materialTableBufferReused =
@@ -6667,14 +6689,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     uploadBatchDesc.items = uploadItems;
     uploadBatchDesc.itemCount = static_cast<int>(sizeof(uploadItems) / sizeof(uploadItems[0]));
     int bufferUploadMs = 0;
-    if (optickGpuMarkers)
     {
-        OPTICK_GPU_EVENT("PT GPU Upload Scene Buffers");
-        bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
-    }
-    else
-    {
-        bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
+        OPTICK_EVENT("PT Upload Scene Buffers");
+        if (optickGpuMarkers)
+        {
+            OPTICK_GPU_EVENT("PT GPU Upload Scene Buffers");
+            bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
+        }
+        else
+        {
+            bufferUploadMs = UploadSmokeAccelerationBuffers(uploadBatchDesc);
+        }
     }
     if (dumpRestirLightManager)
     {
@@ -6693,83 +6718,89 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(bufferCreateDesc.restirLightManagerPreviousPayloadBytes));
         r_pathTracingRestirLightManagerDump.SetInteger(0);
     }
-    if (skinnedGpuComputeReady)
     {
-        nvrhi::BufferHandle previousJointMatrixBuffer = smokeSkinnedPreviousJointMatrixBuffer ? smokeSkinnedPreviousJointMatrixBuffer : smokeSkinnedCurrentJointMatrixBuffer;
-        const nvrhi::BufferHandle previousBoundPreviousJointMatrixBuffer =
-            m_smokeSkinnedPreviousJointMatrixBuffer ? m_smokeSkinnedPreviousJointMatrixBuffer : m_smokeSkinnedCurrentJointMatrixBuffer;
-        const bool skinningBindingSetReusable =
-            m_smokeSkinnedGpuSkinningBindingSet &&
-            smokeSkinnedSourceVertexBuffer == m_smokeSkinnedSourceVertexBuffer &&
-            smokeSkinnedGpuComputeOutputBuffer == m_smokeSkinnedGpuSkinningOutputBuffer &&
-            smokeSkinnedPreviousPositionBuffer == m_smokeSkinnedGpuSkinningPreviousPositionBuffer &&
-            smokeSkinnedSurfaceDispatchBuffer == m_smokeSkinnedSurfaceDispatchBuffer &&
-            smokeSkinnedCurrentJointMatrixBuffer == m_smokeSkinnedCurrentJointMatrixBuffer &&
-            previousJointMatrixBuffer == previousBoundPreviousJointMatrixBuffer;
-        if (!skinningBindingSetReusable)
+        OPTICK_EVENT("PT Skinned GPU Compute Dispatch");
+        if (skinnedGpuComputeReady)
         {
-            nvrhi::BindingSetDesc skinningBindingSetDesc;
-            skinningBindingSetDesc.bindings = {
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(0, smokeSkinnedSourceVertexBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_UAV(0, smokeSkinnedGpuComputeOutputBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_UAV(1, smokeSkinnedPreviousPositionBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(1, smokeSkinnedSurfaceDispatchBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(2, smokeSkinnedCurrentJointMatrixBuffer),
-                nvrhi::BindingSetItem::StructuredBuffer_SRV(3, previousJointMatrixBuffer)
-            };
-            m_smokeSkinnedGpuSkinningBindingSet = device->createBindingSet(skinningBindingSetDesc, m_smokeSkinnedGpuSkinningBindingLayout);
-            m_smokeSkinnedGpuSkinningOutputBuffer = m_smokeSkinnedGpuSkinningBindingSet ? smokeSkinnedGpuComputeOutputBuffer : nullptr;
-            m_smokeSkinnedGpuSkinningPreviousPositionBuffer = m_smokeSkinnedGpuSkinningBindingSet ? smokeSkinnedPreviousPositionBuffer : nullptr;
+            nvrhi::BufferHandle previousJointMatrixBuffer = smokeSkinnedPreviousJointMatrixBuffer ? smokeSkinnedPreviousJointMatrixBuffer : smokeSkinnedCurrentJointMatrixBuffer;
+            const nvrhi::BufferHandle previousBoundPreviousJointMatrixBuffer =
+                m_smokeSkinnedPreviousJointMatrixBuffer ? m_smokeSkinnedPreviousJointMatrixBuffer : m_smokeSkinnedCurrentJointMatrixBuffer;
+            const bool skinningBindingSetReusable =
+                m_smokeSkinnedGpuSkinningBindingSet &&
+                smokeSkinnedSourceVertexBuffer == m_smokeSkinnedSourceVertexBuffer &&
+                smokeSkinnedGpuComputeOutputBuffer == m_smokeSkinnedGpuSkinningOutputBuffer &&
+                smokeSkinnedPreviousPositionBuffer == m_smokeSkinnedGpuSkinningPreviousPositionBuffer &&
+                smokeSkinnedSurfaceDispatchBuffer == m_smokeSkinnedSurfaceDispatchBuffer &&
+                smokeSkinnedCurrentJointMatrixBuffer == m_smokeSkinnedCurrentJointMatrixBuffer &&
+                previousJointMatrixBuffer == previousBoundPreviousJointMatrixBuffer;
+            if (!skinningBindingSetReusable)
+            {
+                nvrhi::BindingSetDesc skinningBindingSetDesc;
+                skinningBindingSetDesc.bindings = {
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(0, smokeSkinnedSourceVertexBuffer),
+                    nvrhi::BindingSetItem::StructuredBuffer_UAV(0, smokeSkinnedGpuComputeOutputBuffer),
+                    nvrhi::BindingSetItem::StructuredBuffer_UAV(1, smokeSkinnedPreviousPositionBuffer),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(1, smokeSkinnedSurfaceDispatchBuffer),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(2, smokeSkinnedCurrentJointMatrixBuffer),
+                    nvrhi::BindingSetItem::StructuredBuffer_SRV(3, previousJointMatrixBuffer)
+                };
+                m_smokeSkinnedGpuSkinningBindingSet = device->createBindingSet(skinningBindingSetDesc, m_smokeSkinnedGpuSkinningBindingLayout);
+                m_smokeSkinnedGpuSkinningOutputBuffer = m_smokeSkinnedGpuSkinningBindingSet ? smokeSkinnedGpuComputeOutputBuffer : nullptr;
+                m_smokeSkinnedGpuSkinningPreviousPositionBuffer = m_smokeSkinnedGpuSkinningBindingSet ? smokeSkinnedPreviousPositionBuffer : nullptr;
+            }
+            if (m_smokeSkinnedGpuSkinningBindingSet)
+            {
+                nvrhi::ComputeState skinningComputeState;
+                skinningComputeState.pipeline = m_smokeSkinnedGpuSkinningPipeline;
+                skinningComputeState.bindings = { m_smokeSkinnedGpuSkinningBindingSet };
+                commandList->setComputeState(skinningComputeState);
+                const uint32_t groupsX = (static_cast<uint32_t>(skinnedGpuComputeMaxVertexCount) + 63u) / 64u;
+                commandList->dispatch(groupsX, static_cast<uint32_t>(skinnedGpuComputeDispatchRecords.size()), 1);
+                commandList->setBufferState(
+                    smokeSkinnedGpuComputeOutputBuffer,
+                    skinnedGpuComputeTargetsDynamicVertices ? nvrhi::ResourceStates::AccelStructBuildInput : nvrhi::ResourceStates::ShaderResource);
+                commandList->setBufferState(smokeSkinnedPreviousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
+                commandList->commitBarriers();
+                skinnedGpuComputeDispatched = true;
+            }
         }
-        if (m_smokeSkinnedGpuSkinningBindingSet)
+        else
         {
-            nvrhi::ComputeState skinningComputeState;
-            skinningComputeState.pipeline = m_smokeSkinnedGpuSkinningPipeline;
-            skinningComputeState.bindings = { m_smokeSkinnedGpuSkinningBindingSet };
-            commandList->setComputeState(skinningComputeState);
-            const uint32_t groupsX = (static_cast<uint32_t>(skinnedGpuComputeMaxVertexCount) + 63u) / 64u;
-            commandList->dispatch(groupsX, static_cast<uint32_t>(skinnedGpuComputeDispatchRecords.size()), 1);
-            commandList->setBufferState(
-                smokeSkinnedGpuComputeOutputBuffer,
-                skinnedGpuComputeTargetsDynamicVertices ? nvrhi::ResourceStates::AccelStructBuildInput : nvrhi::ResourceStates::ShaderResource);
-            commandList->setBufferState(smokeSkinnedPreviousPositionBuffer, nvrhi::ResourceStates::ShaderResource);
-            commandList->commitBarriers();
-            skinnedGpuComputeDispatched = true;
+            m_smokeSkinnedGpuSkinningBindingSet = nullptr;
+            m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
+            m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
         }
-    }
-    else
-    {
-        m_smokeSkinnedGpuSkinningBindingSet = nullptr;
-        m_smokeSkinnedGpuSkinningOutputBuffer = nullptr;
-        m_smokeSkinnedGpuSkinningPreviousPositionBuffer = nullptr;
     }
 
     RtSmokeAccelSubmitDesc accelSubmitDesc;
     std::vector<nvrhi::rt::InstanceDesc> rigidTlasRouteInstances;
     const bool routeRigidTlasInstances = enableRigidRouteForMode;
-    if (routeRigidTlasInstances)
     {
-        if (!rigidTlasPlanValid)
+        OPTICK_EVENT("PT Rigid TLAS Instance Descs");
+        if (routeRigidTlasInstances)
         {
-            const int rigidTlasPlanStartMs = Sys_Milliseconds();
-            rigidTlasSnapshot = m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
-                m_instanceUniverse,
-                2,
-                0x02,
-                rigidRouteMaxInstances);
-            rigidTlasPlanInputToken = BuildSmokeRigidTlasPlanInputToken(rigidTlasSnapshot);
-            rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
-            rigidTlasPlanMs = Sys_Milliseconds() - rigidTlasPlanStartMs;
-            rigidTlasPlanValid = true;
-        }
-        const int routedRigidInstances =
-            m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(rigidTlasPlan, rigidTlasRouteInstances);
-        if (r_pathTracingSmokeLog.GetInteger() != 0 && routedRigidInstances > 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
-        {
-            common->Printf("PathTracePrimaryPass: PT rigid TLAS route debug mode active mode=%d routedInstances=%d renderPath=dynamicFallback traceMask=%s\n",
-                requestedDebugMode,
-                routedRigidInstances,
-                requestedDebugMode == 23 ? "rigidOnly" : (requestedDebugMode == 24 ? "fallbackAndRigidValidation" : (requestedDebugMode == 25 ? "fallbackAndRigidLighting" : (requestedDebugMode == 29 ? "mode29RestirPTPrimaryHistory" : (requestedDebugMode == 28 ? "mode28RestirPTInitialVisibility" : (requestedDebugMode == 27 ? "mode27RestirPTInitialShading" : (requestedDebugMode == 26 ? "mode26RestirPTInitial" : (requestedDebugMode == 20 ? "mode20Integration" : "mode18Integration"))))))));
+            if (!rigidTlasPlanValid)
+            {
+                const int rigidTlasPlanStartMs = Sys_Milliseconds();
+                rigidTlasSnapshot = m_smokeGeometryUniverse.CaptureRigidTlasInstancePlanSnapshot(
+                    m_instanceUniverse,
+                    2,
+                    0x02,
+                    rigidRouteMaxInstances);
+                rigidTlasPlanInputToken = BuildSmokeRigidTlasPlanInputToken(rigidTlasSnapshot);
+                rigidTlasPlan = BuildSmokeRigidTlasPlan(rigidTlasSnapshot);
+                rigidTlasPlanMs = Sys_Milliseconds() - rigidTlasPlanStartMs;
+                rigidTlasPlanValid = true;
+            }
+            const int routedRigidInstances =
+                m_smokeGeometryUniverse.BuildRigidTlasInstanceDescs(rigidTlasPlan, rigidTlasRouteInstances);
+            if (r_pathTracingSmokeLog.GetInteger() != 0 && routedRigidInstances > 0 && (m_smokeGeometryFrameIndex % 120ull) == 1ull)
+            {
+                common->Printf("PathTracePrimaryPass: PT rigid TLAS route debug mode active mode=%d routedInstances=%d renderPath=dynamicFallback traceMask=%s\n",
+                    requestedDebugMode,
+                    routedRigidInstances,
+                    requestedDebugMode == 23 ? "rigidOnly" : (requestedDebugMode == 24 ? "fallbackAndRigidValidation" : (requestedDebugMode == 25 ? "fallbackAndRigidLighting" : (requestedDebugMode == 29 ? "mode29RestirPTPrimaryHistory" : (requestedDebugMode == 28 ? "mode28RestirPTInitialVisibility" : (requestedDebugMode == 27 ? "mode27RestirPTInitialShading" : (requestedDebugMode == 26 ? "mode26RestirPTInitial" : (requestedDebugMode == 20 ? "mode20Integration" : "mode18Integration"))))))));
+            }
         }
     }
     accelSubmitDesc.commandList = commandList;
@@ -6828,6 +6859,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     RtSmokeBindingBuildDesc bindingBuildDesc;
+    {
+        OPTICK_EVENT("PT Binding Desc Build");
     bindingBuildDesc.device = device;
     bindingBuildDesc.tlas = m_smokeTlas;
     bindingBuildDesc.outputTexture = m_frameResources.outputTexture;
@@ -6865,6 +6898,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bindingBuildDesc.enableTextureProbe = enableTextureProbe;
     bindingBuildDesc.forceFallbackTexture = r_pathTracingTextureForceFallback.GetInteger() != 0;
     bindingBuildDesc.maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;
+    }
 
     RtSmokeBindingBuildResult bindingBuildResult;
     {
@@ -7043,6 +7077,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
 
     RtPathTraceSceneInputs sceneInputs;
+    {
+        OPTICK_EVENT("PT Scene Input Populate");
     sceneInputs.valid = true;
     sceneInputs.sceneSource = sceneSource;
     sceneInputs.debugMode = requestedDebugMode;
@@ -7495,6 +7531,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.diagnostics.bufferCreateMs = bufferCreateMs;
     sceneInputs.diagnostics.bufferUploadMs = bufferUploadMs;
     sceneInputs.diagnostics.accelSubmitMs = accelSubmitMs;
+    }
 
     RtSmokeSceneResourceCommitBuildDesc resourceCommitBuildDesc;
     resourceCommitBuildDesc.sceneInputs = sceneInputs;
@@ -7533,50 +7570,57 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     resourceCommitBuildDesc.restirLightManagerCurrentPayloadCount = sceneInputs.lights.restirLightManagerCurrentPayloadCount;
     resourceCommitBuildDesc.restirLightManagerPreviousPayloadCount = sceneInputs.lights.restirLightManagerPreviousPayloadCount;
     resourceCommitBuildDesc.reservoirSceneSignature = reservoirSceneSignature;
-    const RtSmokeSceneResourceCommitDesc resourceCommitDesc = CreateSmokeSceneResourceCommitDesc(resourceCommitBuildDesc);
+    RtSmokeSceneResourceCommitDesc resourceCommitDesc;
+    {
+        OPTICK_EVENT("PT Commit Scene Desc Build");
+        resourceCommitDesc = CreateSmokeSceneResourceCommitDesc(resourceCommitBuildDesc);
+    }
     {
         OPTICK_EVENT("PT Commit Scene Resources");
         CommitRayTracingSmokeSceneResources(resourceCommitDesc);
     }
-    if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
     {
-        RtSmokeRigidRouteSideBufferSlot& sideSlot =
-            m_smokeRigidRouteSideBufferSlots[rigidRouteSideBufferWriteSlot];
-        sideSlot.geometryUploadSignature = rigidRouteGeometryUploadSignature;
-        sideSlot.instanceUploadSignature = rigidRouteInstanceUploadSignature;
-        sideSlot.geometryUploadSignatureValid = true;
-        sideSlot.instanceUploadSignatureValid = true;
-        m_smokeRigidRouteSideBufferReadSlot = rigidRouteSideBufferWriteSlot;
+        OPTICK_EVENT("PT Post Commit State Cache");
+        if (asyncRigidRouteSideBufferRing && rigidRouteSideBufferWriteSlot >= 0)
+        {
+            RtSmokeRigidRouteSideBufferSlot& sideSlot =
+                m_smokeRigidRouteSideBufferSlots[rigidRouteSideBufferWriteSlot];
+            sideSlot.geometryUploadSignature = rigidRouteGeometryUploadSignature;
+            sideSlot.instanceUploadSignature = rigidRouteInstanceUploadSignature;
+            sideSlot.geometryUploadSignatureValid = true;
+            sideSlot.instanceUploadSignatureValid = true;
+            m_smokeRigidRouteSideBufferReadSlot = rigidRouteSideBufferWriteSlot;
+        }
+        m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
+        m_smokeMaterialTableMaterials = gpuMaterialTableMaterials;
+        m_smokeDynamicMaterialRecords = dynamicMaterialRecords;
+        m_smokePreviousEmissiveTriangles = emissiveTriangles;
+        m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;
+        m_smokeStaticTriangleMaterialUploadSignature = staticTriangleMaterialUploadSignature;
+        m_smokeStaticTriangleMaterialIndexUploadSignature = staticTriangleMaterialIndexUploadSignature;
+        m_smokeMaterialTableUploadSignature = materialTableUploadSignature;
+        m_smokeDynamicMaterialUploadSignature = dynamicMaterialUploadSignature;
+        m_smokeStaticTriangleMaterialUploadSignatureValid =
+            SmokeBufferHasPayloadCapacity(
+                smokeStaticTriangleMaterialBuffer,
+                bufferCreateDesc.staticTriangleMaterialBytes,
+                sizeof(uint32_t));
+        m_smokeStaticTriangleMaterialIndexUploadSignatureValid =
+            SmokeBufferHasPayloadCapacity(
+                smokeStaticTriangleMaterialIndexBuffer,
+                bufferCreateDesc.staticTriangleMaterialIndexBytes,
+                sizeof(uint32_t));
+        m_smokeMaterialTableUploadSignatureValid =
+            SmokeBufferHasPayloadCapacity(
+                smokeMaterialTableBuffer,
+                bufferCreateDesc.materialTableBytes,
+                sizeof(PathTraceSmokeMaterial));
+        m_smokeDynamicMaterialUploadSignatureValid =
+            SmokeBufferHasPayloadCapacity(
+                smokeDynamicMaterialBuffer,
+                bufferCreateDesc.dynamicMaterialBytes,
+                sizeof(PathTraceDynamicMaterialRecord));
     }
-    m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
-    m_smokeMaterialTableMaterials = gpuMaterialTableMaterials;
-    m_smokeDynamicMaterialRecords = dynamicMaterialRecords;
-    m_smokePreviousEmissiveTriangles = emissiveTriangles;
-    m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;
-    m_smokeStaticTriangleMaterialUploadSignature = staticTriangleMaterialUploadSignature;
-    m_smokeStaticTriangleMaterialIndexUploadSignature = staticTriangleMaterialIndexUploadSignature;
-    m_smokeMaterialTableUploadSignature = materialTableUploadSignature;
-    m_smokeDynamicMaterialUploadSignature = dynamicMaterialUploadSignature;
-    m_smokeStaticTriangleMaterialUploadSignatureValid =
-        SmokeBufferHasPayloadCapacity(
-            smokeStaticTriangleMaterialBuffer,
-            bufferCreateDesc.staticTriangleMaterialBytes,
-            sizeof(uint32_t));
-    m_smokeStaticTriangleMaterialIndexUploadSignatureValid =
-        SmokeBufferHasPayloadCapacity(
-            smokeStaticTriangleMaterialIndexBuffer,
-            bufferCreateDesc.staticTriangleMaterialIndexBytes,
-            sizeof(uint32_t));
-    m_smokeMaterialTableUploadSignatureValid =
-        SmokeBufferHasPayloadCapacity(
-            smokeMaterialTableBuffer,
-            bufferCreateDesc.materialTableBytes,
-            sizeof(PathTraceSmokeMaterial));
-    m_smokeDynamicMaterialUploadSignatureValid =
-        SmokeBufferHasPayloadCapacity(
-            smokeDynamicMaterialBuffer,
-            bufferCreateDesc.dynamicMaterialBytes,
-            sizeof(PathTraceDynamicMaterialRecord));
 
     const int sceneMs = Sys_Milliseconds() - sceneStartMs;
     RtSmokeSceneBuildDiagnosticLogDesc sceneLogDesc;
@@ -7607,6 +7651,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.rigidRouteVertexCount = rigidRouteBuild.stats.vertices;
     sceneLogDesc.rigidRouteIndexCount = rigidRouteBuild.stats.indexes;
     sceneLogDesc.rigidRouteTriangleCount = rigidRouteBuild.stats.triangles;
+    {
+        OPTICK_EVENT("PT BVH Frame Planning");
     std::vector<RtSmokeStaticTlasBucketObservation> staticActiveBuckets;
     m_smokeGeometryUniverse.BuildStaticTlasBucketObservations(
         staticActiveBuckets,
@@ -7844,6 +7890,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.bvhGeometryContentSignature = bvhFrameToken.dirtyToken.geometryContentSignature;
     sceneLogDesc.bvhActiveBlasInputSignature = bvhFrameToken.dirtyToken.activeBlasInputSignature;
     sceneLogDesc.bvhTlasInstanceSignature = bvhFrameToken.dirtyToken.tlasInstanceSignature;
+    }
     sceneLogDesc.requestedDebugMode = requestedDebugMode;
     sceneLogDesc.staticUploadBytes = staticUploadBytes;
     sceneLogDesc.previousStaticUploadBytes = previousStaticUploadBytes;
@@ -7905,5 +7952,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneLogDesc.lastSceneTimingLogMs = &g_smokeLastSceneTimingLogMs;
     sceneLogDesc.sceneRebuildLogged = &m_smokeSceneRebuildLogged;
     sceneLogDesc.sceneLogCooldownFrames = &m_smokeSceneLogCooldownFrames;
-    RunSmokeSceneBuildDiagnosticLogs(sceneLogDesc);
+    {
+        OPTICK_EVENT("PT Scene Diagnostic Logs");
+        RunSmokeSceneBuildDiagnosticLogs(sceneLogDesc);
+    }
 }
