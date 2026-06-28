@@ -292,24 +292,6 @@ struct EntityFeedResidentSurfaceKey
     }
 };
 
-struct EntityFeedResidentSurfaceKeyHash
-{
-    size_t operator()(const EntityFeedResidentSurfaceKey& key) const
-    {
-        const uintptr_t worldBits = reinterpret_cast<uintptr_t>(key.renderDefKey.world);
-        uint64 hash = 14695981039346656037ull;
-        hash ^= static_cast<uint64>(worldBits);
-        hash *= 1099511628211ull;
-        hash ^= static_cast<uint64>(key.renderDefKey.index);
-        hash *= 1099511628211ull;
-        hash ^= static_cast<uint64>(key.renderDefKey.generation);
-        hash *= 1099511628211ull;
-        hash ^= static_cast<uint64>(key.surfaceIndex);
-        hash *= 1099511628211ull;
-        return static_cast<size_t>(hash);
-    }
-};
-
 struct RtEntityFeedResidentSurface
 {
     EntityFeedResidentSurfaceKey key;
@@ -333,19 +315,26 @@ struct RtEntityFeedResidentSurface
     idStr modelName;
 };
 
+struct EntityFeedResidentEntitySlot
+{
+    PtRenderDefKey renderDefKey;
+    int lastScannedFrame = -1;
+    std::vector<RtEntityFeedResidentSurface> surfaceRecords;
+};
+
 struct EntityFeedResidentSurfaceStore
 {
     const idRenderWorldLocal* renderWorld = nullptr;
     idStr mapName;
     ID_TIME_T mapTimeStamp = 0;
-    std::unordered_map<EntityFeedResidentSurfaceKey, RtEntityFeedResidentSurface, EntityFeedResidentSurfaceKeyHash> records;
+    std::vector<EntityFeedResidentEntitySlot> entitySlots;
 
     void ResetForWorld(const idRenderWorldLocal* world)
     {
         renderWorld = world;
         mapName = world ? world->mapName : "";
         mapTimeStamp = world ? world->mapTimeStamp : 0;
-        records.clear();
+        entitySlots.clear();
     }
 };
 
@@ -382,29 +371,62 @@ uint64 EntityFeedMaterialOverrideToken(const renderEntity_t& renderEntity)
     return hash;
 }
 
-RtEntityFeedResidentSurface* FindOrCreateEntityFeedResidentSurface(
+EntityFeedResidentEntitySlot* FindOrCreateEntityFeedResidentEntitySlot(
     EntityFeedResidentSurfaceStore* store,
+    const PtRenderDefKey& key)
+{
+    if (!store ||
+        key.index < 0 ||
+        key.generation == 0 ||
+        !PtGeometryLifecycle::IsEntityKeyAlive(key))
+    {
+        return nullptr;
+    }
+
+    if (key.index >= static_cast<int>(store->entitySlots.size()))
+    {
+        store->entitySlots.resize(static_cast<size_t>(key.index + 1));
+    }
+
+    EntityFeedResidentEntitySlot& slot = store->entitySlots[static_cast<size_t>(key.index)];
+    if (slot.renderDefKey.world != key.world ||
+        slot.renderDefKey.index != key.index ||
+        slot.renderDefKey.generation != key.generation)
+    {
+        slot = EntityFeedResidentEntitySlot();
+        slot.renderDefKey = key;
+    }
+
+    return &slot;
+}
+
+RtEntityFeedResidentSurface* FindOrCreateEntityFeedResidentSurface(
+    EntityFeedResidentEntitySlot* entitySlot,
     const EntityFeedResidentSurfaceKey& key,
     RtPathTraceEntityFeedStats& stats)
 {
-    if (!store)
+    if (!entitySlot || key.surfaceIndex < 0)
     {
         ++stats.residencyCacheMisses;
         return nullptr;
     }
 
-    auto existing = store->records.find(key);
-    if (existing != store->records.end())
+    if (key.surfaceIndex >= static_cast<int>(entitySlot->surfaceRecords.size()))
+    {
+        entitySlot->surfaceRecords.resize(static_cast<size_t>(key.surfaceIndex + 1));
+    }
+
+    RtEntityFeedResidentSurface& record = entitySlot->surfaceRecords[static_cast<size_t>(key.surfaceIndex)];
+    if (record.key == key)
     {
         ++stats.residencyCacheHits;
-        return &existing->second;
+        return &record;
     }
 
     ++stats.residencyCacheMisses;
-    RtEntityFeedResidentSurface record;
+    record = RtEntityFeedResidentSurface();
     record.key = key;
-    auto inserted = store->records.emplace(key, record);
-    return &inserted.first->second;
+    return &record;
 }
 
 void UpdateEntityFeedResidentSurfaceBase(
@@ -740,20 +762,29 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             {
                 continue;
             }
-            if (!scannedEntities.insert(entity).second)
-            {
-                continue;
-            }
-
             const renderEntity_t& renderEntity = entity->parms;
             PtRenderDefKey entityRenderDefKey;
             uint32_t entityModelEpoch = 0;
             uint64 materialOverrideToken = 0;
+            EntityFeedResidentEntitySlot* residentEntitySlot = nullptr;
             if (residentStore)
             {
                 entityRenderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
-                entityModelEpoch = PtGeometryLifecycle::EntityModelEpoch(entityRenderDefKey.world, entityRenderDefKey.index);
-                materialOverrideToken = EntityFeedMaterialOverrideToken(renderEntity);
+                residentEntitySlot = FindOrCreateEntityFeedResidentEntitySlot(residentStore, entityRenderDefKey);
+                if (residentEntitySlot)
+                {
+                    if (residentEntitySlot->lastScannedFrame == tr.frameCount)
+                    {
+                        continue;
+                    }
+                    residentEntitySlot->lastScannedFrame = tr.frameCount;
+                    entityModelEpoch = PtGeometryLifecycle::EntityModelEpoch(entityRenderDefKey.world, entityRenderDefKey.index);
+                    materialOverrideToken = EntityFeedMaterialOverrideToken(renderEntity);
+                }
+            }
+            if (!residentEntitySlot && !scannedEntities.insert(entity).second)
+            {
+                continue;
             }
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
@@ -761,11 +792,11 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 ++stats.residencyDerived;
                 EntityFeedResidentSurfaceKey residentKey;
                 RtEntityFeedResidentSurface* residentRecord = nullptr;
-                if (residentStore)
+                if (residentEntitySlot)
                 {
                     residentKey.renderDefKey = entityRenderDefKey;
                     residentKey.surfaceIndex = surfaceIndex;
-                    residentRecord = FindOrCreateEntityFeedResidentSurface(residentStore, residentKey, stats);
+                    residentRecord = FindOrCreateEntityFeedResidentSurface(residentEntitySlot, residentKey, stats);
                 }
                 else
                 {
@@ -887,7 +918,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
 
                 PtRenderDefKey renderDefKey = entityRenderDefKey;
                 uint32_t modelEpoch = entityModelEpoch;
-                if (!residentStore)
+                if (!residentEntitySlot)
                 {
                     renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                     modelEpoch = PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index);
