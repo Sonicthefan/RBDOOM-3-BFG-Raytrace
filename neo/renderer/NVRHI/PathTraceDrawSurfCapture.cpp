@@ -520,16 +520,16 @@ void RecordPathTraceDrawSurfMirrorObservation(
     instanceObservation.modelName = meshObservation.modelName;
 
     instanceUniverse.RecordObservation(meshObservation, instanceObservation, surfaceClass, tri->numVerts, tri->numIndexes);
+    const bool eligibleRigid = PtMirrorIsEligibleRigidCandidate(meshObservation, instanceObservation);
     if ((boundsOverlayMode == 1 || boundsOverlayMode == 2) && boundsOverlayDrawn < boundsOverlayMax)
     {
-        const bool eligibleRigid = PtMirrorIsEligibleRigidCandidate(meshObservation, instanceObservation);
         if (boundsOverlayLines && (boundsOverlayMode >= 2 || eligibleRigid))
         {
             PtMirrorAppendBoundsOverlayLines(drawSurf, tri, PtMirrorBoundsColor(surfaceClass, meshObservation, instanceObservation), *boundsOverlayLines);
             ++boundsOverlayDrawn;
         }
     }
-    if (geometryUniverse)
+    if (geometryUniverse && eligibleRigid)
     {
         RtPathTraceRigidMeshCandidateObservation candidateObservation;
         candidateObservation.tri = tri;
@@ -713,7 +713,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords,
     std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache,
     RtPathTraceInstanceUniverse* instanceUniverse,
-    std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines)
+    std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines,
+    bool recordAllInstanceClasses)
 {
     OPTICK_EVENT("PT Capture Dynamic Frame From DrawSurf Mirror");
 
@@ -897,7 +898,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                     (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
                 cachedSurface->materialClassSignature = materialClassSignature;
             }
-            if (instanceUniverse)
+            const bool recordInstanceObservation =
+                instanceUniverse &&
+                (recordAllInstanceClasses || RtPathTraceSourceFlagsAreDurableRigid(sourceFlags));
+            if (recordInstanceObservation)
             {
                 RecordPathTraceDrawSurfMirrorObservation(
                     viewDef,
