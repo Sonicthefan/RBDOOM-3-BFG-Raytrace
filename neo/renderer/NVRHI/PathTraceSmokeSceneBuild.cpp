@@ -1319,13 +1319,12 @@ bool FindSmokeVectorChangedRange(
 {
     firstChanged = -1;
     changedCount = 0;
-    if (previousRecords.size() != currentRecords.size())
-    {
-        return false;
-    }
 
     int lastChanged = -1;
-    for (int recordIndex = 0; recordIndex < static_cast<int>(currentRecords.size()); ++recordIndex)
+    const int previousCount = static_cast<int>(previousRecords.size());
+    const int currentCount = static_cast<int>(currentRecords.size());
+    const int sharedCount = Min(previousCount, currentCount);
+    for (int recordIndex = 0; recordIndex < sharedCount; ++recordIndex)
     {
         if (std::memcmp(&previousRecords[recordIndex], &currentRecords[recordIndex], sizeof(T)) == 0)
         {
@@ -1336,6 +1335,14 @@ bool FindSmokeVectorChangedRange(
             firstChanged = recordIndex;
         }
         lastChanged = recordIndex;
+    }
+    if (currentCount > previousCount)
+    {
+        if (firstChanged < 0)
+        {
+            firstChanged = previousCount;
+        }
+        lastChanged = currentCount - 1;
     }
 
     if (firstChanged < 0)
@@ -6522,19 +6529,23 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     {
         const RtSmokeBufferUploadItem& materialTableUpload = uploadItems[15];
         const RtSmokeBufferUploadItem& dynamicMaterialUpload = uploadItems[16];
-        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialTable entries=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d dynamicRecords=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
+        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             r_pathTracingResidency.GetInteger() != 0 ? 1 : 0,
             r_pathTracingResidencyMaterial.GetInteger() != 0 ? 1 : 0,
             materialTableCacheHit ? 1 : 0,
+            static_cast<int>(m_smokeMaterialTableMaterials.size()),
             static_cast<int>(materialTable.materials.size()),
+            materialTableBufferReused ? 1 : 0,
             static_cast<unsigned long long>(bufferCreateDesc.materialTableBytes),
             static_cast<unsigned long long>(materialTableUpload.byteSize),
             materialTableUpload.skip ? 1 : 0,
             materialTableRangeValid ? 1 : 0,
             materialTableUploadOffset,
             materialTableUploadCount,
+            static_cast<int>(m_smokeDynamicMaterialRecords.size()),
             static_cast<int>(dynamicMaterialRecords.size()),
+            dynamicMaterialBufferReused ? 1 : 0,
             static_cast<unsigned long long>(bufferCreateDesc.dynamicMaterialBytes),
             static_cast<unsigned long long>(dynamicMaterialUpload.byteSize),
             dynamicMaterialUpload.skip ? 1 : 0,
