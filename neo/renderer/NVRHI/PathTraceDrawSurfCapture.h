@@ -55,7 +55,7 @@ void CapturePathTraceDrawSurfMirror(
 bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     const viewDef_t* viewDef,
     const RtPathTraceSceneUniverse* sceneUniverse,
-    const RtSmokeGeometryUniverse* geometryUniverse,
+    RtSmokeGeometryUniverse* geometryUniverse,
     std::vector<PathTraceSmokeVertex>& vertexData,
     std::vector<uint32_t>& indexData,
     std::vector<uint32_t>& triangleClassData,
@@ -74,4 +74,6 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     RtSmokeSceneCaptureTiming& captureTiming,
     RtSmokeSurfaceClassReasonSamples* reasonSamples,
     std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr,
-    std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache = nullptr);
+    std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache = nullptr,
+    RtPathTraceInstanceUniverse* instanceUniverse = nullptr,
+    std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines = nullptr);
