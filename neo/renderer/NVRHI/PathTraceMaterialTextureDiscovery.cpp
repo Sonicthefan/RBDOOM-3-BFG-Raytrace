@@ -46,6 +46,7 @@ struct RtResidentMaterialFacts
 };
 
 std::unordered_map<uint32_t, RtResidentMaterialFacts> g_residentMaterialFacts;
+uint64 g_residentMaterialFactsGeneration = 1;
 
 bool PathTraceMaterialClassifierRequested()
 {
@@ -312,10 +313,18 @@ bool TryRegisterResidentMaterialFacts(const idMaterial* material, uint32_t mater
 void StoreResidentMaterialFacts(uint32_t materialId, uint64 materialGeneration, const RtSmokeMaterialTextureInfo& info)
 {
     RtResidentMaterialFacts& resident = g_residentMaterialFacts[materialId];
+    const bool changed =
+        !resident.valid ||
+        resident.materialGeneration != materialGeneration ||
+        resident.info.isDynamic != info.isDynamic;
     resident.valid = true;
     resident.materialGeneration = materialGeneration;
     resident.info = info;
     resident.info.tableIndex = -1;
+    if (changed)
+    {
+        ++g_residentMaterialFactsGeneration;
+    }
 }
 
 RtSmokeTextureCodeHint SmokeTextureCodeHintFromImageName(const char* imageName)
@@ -1258,6 +1267,11 @@ idImage* FindSmokeAlphaImage(const idMaterial* material, idStr& reason)
     return nullptr;
 }
 
+}
+
+uint64 SmokeResidentMaterialFactsGeneration()
+{
+    return g_residentMaterialFactsGeneration;
 }
 
 bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
