@@ -37,6 +37,7 @@ struct RtSmokeMaterialMetadataRegistrationTiming
 extern RtSmokeMaterialMetadataFrameStats g_smokeMaterialMetadataFrameStats;
 
 uint64 SmokeResidentMaterialFactsGeneration();
+int ClearSmokeResidentMaterialFacts();
 bool RegisterSmokeMaterialTextureInfo(const idMaterial* material);
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForFrame(const viewDef_t* viewDef, bool enabled);
 RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeWorldStaticMaterialTextureInfo(const viewDef_t* viewDef, bool enabled);

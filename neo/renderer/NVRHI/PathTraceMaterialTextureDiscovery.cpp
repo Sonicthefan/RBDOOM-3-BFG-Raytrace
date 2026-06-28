@@ -1285,6 +1285,17 @@ uint64 SmokeResidentMaterialFactsGeneration()
     return g_residentMaterialFactsGeneration;
 }
 
+int ClearSmokeResidentMaterialFacts()
+{
+    const int removedCount = static_cast<int>(g_residentMaterialFacts.size());
+    g_residentMaterialFacts.clear();
+    if (removedCount > 0)
+    {
+        ++g_residentMaterialFactsGeneration;
+    }
+    return removedCount;
+}
+
 bool RegisterSmokeMaterialTextureInfo(const idMaterial* material)
 {
     ++g_smokeMaterialMetadataFrameStats.registrations;
@@ -1749,9 +1760,9 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         if (existing)
         {
             ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
-            if (SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
+            const bool refreshed = RefreshSmokeMaterialTextureHandleState(*existing);
+            if (refreshed || SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
             {
-                RefreshSmokeMaterialTextureHandleState(*existing);
                 ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshes;
             }
             else

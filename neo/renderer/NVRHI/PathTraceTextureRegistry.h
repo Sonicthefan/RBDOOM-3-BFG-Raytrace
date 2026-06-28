@@ -98,7 +98,7 @@ bool IsSmokeMaterialTextureVariant(uint32_t materialId);
 uint32_t SmokeMaterialTextureVariantBase(uint32_t materialId);
 int ClearSmokeMaterialTextureVariants();
 int ClearSmokeMaterialTextureRegistry();
-void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info);
+bool RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info);
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex);
 bool SmokeMaterialTextureInfoHasMaterialMetadata(const RtSmokeMaterialTextureInfo& info);
 const idStr& SmokeBestSafeTextureName(const RtSmokeMaterialTextureInfo& info);

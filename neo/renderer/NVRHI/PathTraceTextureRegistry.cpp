@@ -289,7 +289,7 @@ int ClearSmokeMaterialTextureRegistry()
     return removedCount;
 }
 
-void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
+bool RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
 {
     const bool oldHasTextureHandle = info.hasTextureHandle;
     const bool oldHasAlphaTextureHandle = info.hasAlphaTextureHandle;
@@ -301,6 +301,11 @@ void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
     const bool oldHasSafeNormalTexture = info.hasSafeNormalTexture;
     const bool oldHasSafeSpecularTexture = info.hasSafeSpecularTexture;
     const bool oldHasSafeEmissiveTexture = info.hasSafeEmissiveTexture;
+    const nvrhi::TextureHandle oldDiffuseTexture = info.diffuseTexture;
+    const nvrhi::TextureHandle oldAlphaTexture = info.alphaTexture;
+    const nvrhi::TextureHandle oldNormalTexture = info.normalTexture;
+    const nvrhi::TextureHandle oldSpecularTexture = info.specularTexture;
+    const nvrhi::TextureHandle oldEmissiveTexture = info.emissiveTexture;
 
     info.diffuseTexture = info.diffuseImage ? info.diffuseImage->GetTextureHandle() : nullptr;
     info.alphaTexture = info.alphaImage ? info.alphaImage->GetTextureHandle() : nullptr;
@@ -318,7 +323,8 @@ void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
     info.hasSafeSpecularTexture = info.hasSpecularTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.specularImage);
     info.hasSafeEmissiveTexture = info.hasEmissiveTextureHandle && IsSmokeDiffuseImageSafeForRayTracing(info.emissiveImage);
 
-    if (oldHasTextureHandle != info.hasTextureHandle ||
+    const bool changed =
+        oldHasTextureHandle != info.hasTextureHandle ||
         oldHasAlphaTextureHandle != info.hasAlphaTextureHandle ||
         oldHasNormalTextureHandle != info.hasNormalTextureHandle ||
         oldHasSpecularTextureHandle != info.hasSpecularTextureHandle ||
@@ -327,10 +333,17 @@ void RefreshSmokeMaterialTextureHandleState(RtSmokeMaterialTextureInfo& info)
         oldHasSafeAlphaTexture != info.hasSafeAlphaTexture ||
         oldHasSafeNormalTexture != info.hasSafeNormalTexture ||
         oldHasSafeSpecularTexture != info.hasSafeSpecularTexture ||
-        oldHasSafeEmissiveTexture != info.hasSafeEmissiveTexture)
+        oldHasSafeEmissiveTexture != info.hasSafeEmissiveTexture ||
+        oldDiffuseTexture.Get() != info.diffuseTexture.Get() ||
+        oldAlphaTexture.Get() != info.alphaTexture.Get() ||
+        oldNormalTexture.Get() != info.normalTexture.Get() ||
+        oldSpecularTexture.Get() != info.specularTexture.Get() ||
+        oldEmissiveTexture.Get() != info.emissiveTexture.Get();
+    if (changed)
     {
         ++g_smokeMaterialTextureRegistryGeneration;
     }
+    return changed;
 }
 
 RtSmokeMaterialTextureInfo ResolveSmokeMaterialTextureInfo(uint32_t materialId, int tableIndex)
