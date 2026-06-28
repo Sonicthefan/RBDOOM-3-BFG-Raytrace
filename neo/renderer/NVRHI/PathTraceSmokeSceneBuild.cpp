@@ -3152,7 +3152,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         (cleanRtxdiDiSceneBuildResolveView == 16 || cleanRtxdiDiMaterialClassifierProofRoute);
     const bool enableTextureProbe = (requestedDebugMode >= 8 && requestedDebugMode <= 20) || currentFrameStaticEmissiveProducerPolicy || cleanRtxdiDiSceneBuildRluEmissives || cleanRtxdiDiMaterialValidationRoute || neeCacheSceneBuildRluEmissives || integratorDebugMode || requestedDebugMode == 38 || requestedDebugMode == 39 || requestedDebugMode == 40 || requestedDebugMode == 41 || requestedDebugMode == 42 || requestedDebugMode == 43 || requestedDebugMode == 44 || requestedDebugMode == 45 || requestedDebugMode == 46 || requestedDebugMode == 47 || requestedDebugMode == 48 || requestedDebugMode == 49 || requestedDebugMode == 57;
 
-    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_smokeTextureDescriptorTable || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.rrGuidePositionTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
+    if (!m_smokeTlas || !m_smokeBindingLayout || !m_smokeTextureBindlessLayout || !m_frameResources.outputTexture || !m_frameResources.accumulationTexture || !m_frameResources.rrInputColorTexture || !m_frameResources.motionVectorTexture || !m_frameResources.rrMotionVectorTexture || !m_frameResources.motionVectorMaskTexture || !m_frameResources.rrGuideAlbedoTexture || !m_frameResources.rrGuideSpecularAlbedoTexture || !m_frameResources.rrGuideNormalRoughnessTexture || !m_frameResources.rrGuideDepthTexture || !m_frameResources.rrGuideHitDistanceTexture || !m_frameResources.rrGuideResetMaskTexture || !m_frameResources.rrGuidePositionTexture || !m_smokeConstantsBuffer || !m_smokeBoundsOverlayLineBuffer)
     {
         return;
     }
@@ -3217,6 +3217,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     if (!device)
     {
         return;
+    }
+    if (!m_smokeTextureDescriptorTable)
+    {
+        m_smokeTextureDescriptorTable = device->createDescriptorTable(m_smokeTextureBindlessLayout);
+        if (!m_smokeTextureDescriptorTable)
+        {
+            common->Printf("PathTracePrimaryPass: failed to recreate RT smoke texture descriptor table after reset\n");
+            return;
+        }
     }
 
     if (viewDef)
@@ -6476,6 +6485,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }();
     int materialTableDirtyOffset = -1;
     int materialTableDirtyCount = 0;
+    const bool conservativeMaterialUpload = true;
     const bool materialTableBufferReused =
         smokeMaterialTableBuffer &&
         smokeMaterialTableBuffer == m_smokeMaterialTableBuffer &&
@@ -6484,6 +6494,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             bufferCreateDesc.materialTableBytes,
             sizeof(PathTraceSmokeMaterial));
     const bool materialTableRangeValid =
+        !conservativeMaterialUpload &&
         r_pathTracingResidency.GetInteger() != 0 &&
         r_pathTracingResidencyMaterial.GetInteger() != 0 &&
         materialTableBufferReused &&
@@ -6502,6 +6513,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             bufferCreateDesc.dynamicMaterialBytes,
             sizeof(PathTraceDynamicMaterialRecord));
     const bool dynamicMaterialRangeValid =
+        !conservativeMaterialUpload &&
         r_pathTracingResidency.GetInteger() != 0 &&
         r_pathTracingResidencyMaterial.GetInteger() != 0 &&
         dynamicMaterialBufferReused &&
@@ -6511,7 +6523,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicMaterialDirtyOffset,
             dynamicMaterialDirtyCount);
     const bool skipMaterialTableUpload =
-        materialTableRangeValid
+        !conservativeMaterialUpload &&
+        (materialTableRangeValid
             ? materialTableDirtyOffset < 0
             : SmokeBufferCanSkipVectorUpload(
                 smokeMaterialTableBuffer,
@@ -6520,9 +6533,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 sizeof(PathTraceSmokeMaterial),
                 m_smokeMaterialTableUploadSignatureValid,
                 m_smokeMaterialTableUploadSignature,
-                materialTableUploadSignature);
+                materialTableUploadSignature));
     const bool skipDynamicMaterialUpload =
-        dynamicMaterialRangeValid
+        !conservativeMaterialUpload &&
+        (dynamicMaterialRangeValid
             ? dynamicMaterialDirtyOffset < 0
             : SmokeBufferCanSkipVectorUpload(
                 smokeDynamicMaterialBuffer,
@@ -6531,7 +6545,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 sizeof(PathTraceDynamicMaterialRecord),
                 m_smokeDynamicMaterialUploadSignatureValid,
                 m_smokeDynamicMaterialUploadSignature,
-                dynamicMaterialUploadSignature);
+                dynamicMaterialUploadSignature));
     const int materialTableUploadOffset =
         !skipMaterialTableUpload && materialTableRangeValid && materialTableDirtyOffset >= 0
             ? materialTableDirtyOffset
@@ -6916,12 +6930,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicMaterialRecords,
             dynamicMaterialUploadOffset,
             dynamicMaterialUploadCount);
-        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialGpuStable=%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/debug/emissive/texture/alpha/flags/classifier/other)=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/color/texMatrix/identity/flags/other)=%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
+        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialGpuStable=%d descriptor(active/created/written)=%d/%d/%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/debug/emissive/texture/alpha/flags/classifier/other)=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/color/texMatrix/identity/flags/other)=%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             r_pathTracingResidency.GetInteger() != 0 ? 1 : 0,
             r_pathTracingResidencyMaterial.GetInteger() != 0 ? 1 : 0,
             materialTableCacheHit ? 1 : 0,
             stableGpuMaterialTableCovered ? 1 : 0,
+            Max(0, static_cast<int>(bindingBuildResult.activeTextureTable.size()) - 1),
+            bindingBuildResult.textureDescriptorTableCreated ? 1 : 0,
+            bindingBuildResult.textureDescriptorTableWritten ? 1 : 0,
             static_cast<int>(m_smokeMaterialTableMaterials.size()),
             static_cast<int>(gpuMaterialTableMaterials.size()),
             materialTableBufferReused ? 1 : 0,

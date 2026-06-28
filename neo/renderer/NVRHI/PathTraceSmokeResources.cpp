@@ -758,12 +758,19 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
             textureDescriptorTableReused &&
             desc.existingActiveTextureTable &&
             !SmokeTextureTableChanged(*desc.existingActiveTextureTable, result.activeTextureTable);
+        const int textureDescriptorSlotWriteCount =
+            skipTextureDescriptorTableWrite
+                ? 0
+                : idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, desc.maxActiveTextures);
         {
             OPTICK_EVENT("PT Write Texture Descriptor Table");
-            result.textureDescriptorTableWritten = !skipTextureDescriptorTableWrite && textureSlotCount > 0;
-            for (int textureSlot = 0; !skipTextureDescriptorTableWrite && textureSlot < textureSlotCount; ++textureSlot)
+            result.textureDescriptorTableWritten = textureDescriptorSlotWriteCount > 0;
+            for (int textureSlot = 0; textureSlot < textureDescriptorSlotWriteCount; ++textureSlot)
             {
-                nvrhi::TextureHandle texture = result.activeTextureTable[textureSlot + 1];
+                nvrhi::TextureHandle texture =
+                    textureSlot < textureSlotCount
+                        ? result.activeTextureTable[textureSlot + 1]
+                        : desc.fallbackTexture;
                 if (!desc.device->writeDescriptorTable(result.textureDescriptorTable, nvrhi::BindingSetItem::Texture_SRV(textureSlot, texture)))
                 {
                     result.errorMessage = "failed to write RT smoke bindless texture descriptor slot";
@@ -2232,6 +2239,7 @@ void PathTracePrimaryPass::ResetRayTracingSmokeSceneResources()
     m_smokeCleanRtxdiDiHistorySignature = 0;
     m_smokeCleanRtxdiDiHistoryResetCount = 0;
     m_smokeCleanRtxdiDiPreviousReservoirResetReason = 1u;
+    m_smokeTextureDescriptorTable = nullptr;
     m_smokeActiveTextureTable.clear();
     m_smokeMaterialTableEntryCount = 0;
     m_smokeEmissiveTriangleCount = 0;
