@@ -23,6 +23,23 @@
 
 namespace {
 
+void AddSmokeSurfaceSkipStats(RtSmokeSurfaceSkipStats& dst, const RtSmokeSurfaceSkipStats& src)
+{
+    dst.nullSurface += src.nullSurface;
+    dst.missingGeometry += src.missingGeometry;
+    dst.nullMaterial += src.nullMaterial;
+    dst.nullSpace += src.nullSpace;
+    dst.nullModel += src.nullModel;
+    dst.invalidIndexCount += src.invalidIndexCount;
+    dst.conditionedOff += src.conditionedOff;
+    dst.nonCurrentCache += src.nonCurrentCache;
+    dst.limitExceeded += src.limitExceeded;
+    dst.zeroAreaOnly += src.zeroAreaOnly;
+    dst.emptyClassBuffer += src.emptyClassBuffer;
+    dst.guiSurface += src.guiSurface;
+    dst.callbackEntity += src.callbackEntity;
+}
+
 uint32_t PtDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t materialId, uint32_t localTriangleIndex)
 {
     const idRenderEntityLocal* entity = (drawSurf && drawSurf->space) ? drawSurf->space->entityDef : nullptr;
@@ -428,7 +445,8 @@ void CapturePathTraceDrawSurfMirror(
     const RtPathTraceSceneUniverse* sceneUniverse,
     RtSmokeGeometryUniverse* geometryUniverse,
     RtPathTraceInstanceUniverse& instanceUniverse,
-    std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines)
+    std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines,
+    const std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache)
 {
     if (!viewDef || !viewDef->drawSurfs)
     {
@@ -436,7 +454,11 @@ void CapturePathTraceDrawSurfMirror(
         return;
     }
 
+    const bool useSurfaceCache =
+        surfaceCache != nullptr &&
+        static_cast<int>(surfaceCache->size()) == viewDef->numDrawSurfs;
     std::unordered_set<uint64> sceneUniverseLegacyKeys;
+    if (!useSurfaceCache)
     {
         OPTICK_EVENT("PT DrawSurf Mirror Static Keys");
         BuildSceneUniverseLegacyKeySet(sceneUniverse, sceneUniverseLegacyKeys);
@@ -453,45 +475,82 @@ void CapturePathTraceDrawSurfMirror(
         OPTICK_EVENT("PT DrawSurf Mirror Visible Loop");
         for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
-            const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            const RtPathTraceDrawSurfMirrorSurfaceCache* cachedSurface =
+                useSurfaceCache ? &(*surfaceCache)[surfaceIndex] : nullptr;
+            const drawSurf_t* drawSurf = cachedSurface ? cachedSurface->drawSurf : viewDef->drawSurfs[surfaceIndex];
             const srfTriangles_t* tri = nullptr;
             RtSmokeSurfaceSkipStats skipStats;
-            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, &skipStats))
+            RtSmokeSurfaceClass classifiedSurfaceClass = RtSmokeSurfaceClass::Unknown;
+            RtSmokeSurfaceClass surfaceClass = RtSmokeSurfaceClass::Unknown;
+            const idMaterial* material = nullptr;
+            uint32_t baseMaterialId = 0;
+            uint32_t materialId = 0;
+            uint32_t sourceKind = 0;
+            uint32_t sourceFlags = 0;
+            uint32_t surfaceClassId = 0;
+            uint32_t surfaceClassAndFlags = 0;
+            uint32_t materialClassSignature = 0;
+            uint64 legacyStaticKey = 0;
+            if (cachedSurface)
             {
-                instanceUniverse.RecordSkippedDrawSurf(skipStats);
-                continue;
+                if (!cachedSurface->valid)
+                {
+                    instanceUniverse.RecordSkippedDrawSurf(cachedSurface->skipStats);
+                    continue;
+                }
+                tri = cachedSurface->tri;
+                classifiedSurfaceClass = cachedSurface->classifiedSurfaceClass;
+                surfaceClass = cachedSurface->surfaceClass;
+                material = drawSurf ? drawSurf->material : nullptr;
+                baseMaterialId = cachedSurface->baseMaterialId;
+                materialId = cachedSurface->materialId;
+                sourceKind = cachedSurface->sourceKind;
+                sourceFlags = cachedSurface->sourceFlags;
+                surfaceClassId = cachedSurface->surfaceClassId;
+                surfaceClassAndFlags = cachedSurface->surfaceClassAndFlags;
+                materialClassSignature = cachedSurface->materialClassSignature;
+                legacyStaticKey = cachedSurface->legacyStaticKey;
+            }
+            else
+            {
+                if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, &skipStats))
+                {
+                    instanceUniverse.RecordSkippedDrawSurf(skipStats);
+                    continue;
+                }
+
+                classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
+                surfaceClass = PtMirrorEffectiveSurfaceClass(drawSurf, tri, classifiedSurfaceClass);
+                material = drawSurf ? drawSurf->material : nullptr;
+                baseMaterialId = SmokeMaterialId(material);
+                materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
+                sourceKind = SmokeSurfaceClassId(surfaceClass);
+                const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+                surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+                surfaceClassAndFlags = surfaceClassId |
+                    (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
+                materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
+                legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
+                sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
+                if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())
+                {
+                    sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH;
+                }
+                if (geometryUniverse && geometryUniverse->HasStaticSurface(legacyStaticKey))
+                {
+                    sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
+                }
             }
 
-            const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
-            const RtSmokeSurfaceClass surfaceClass = PtMirrorEffectiveSurfaceClass(drawSurf, tri, classifiedSurfaceClass);
-            const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
             const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
             const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
             const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
             const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
             const char* modelName = renderModel ? "<live render model>" : "<none>";
-            const uint32_t baseMaterialId = SmokeMaterialId(material);
-            const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
-            const uint32_t sourceKind = SmokeSurfaceClassId(surfaceClass);
-            const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
-            const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
-            const uint32_t surfaceClassAndFlags = surfaceClassId |
-                (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
-            const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
-            const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
             const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
             const uint32_t modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
                 ? PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index)
                 : 0;
-            uint32_t sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
-            if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())
-            {
-                sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH;
-            }
-            if (geometryUniverse && geometryUniverse->HasStaticSurface(legacyStaticKey))
-            {
-                sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
-            }
 
             RtPathTraceMeshKey meshKey;
             meshKey.tri = tri;
@@ -610,7 +669,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
     RtSmokeSurfaceClassReasonSamples* reasonSamples,
-    std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords)
+    std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords,
+    std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache)
 {
     OPTICK_EVENT("PT Capture Dynamic Frame From DrawSurf Mirror");
 
@@ -627,6 +687,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     if (reasonSamples)
     {
         *reasonSamples = RtSmokeSurfaceClassReasonSamples();
+    }
+    if (surfaceCache)
+    {
+        surfaceCache->clear();
     }
 
     {
@@ -652,6 +716,10 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     if (!viewDef || !viewDef->drawSurfs)
     {
         return false;
+    }
+    if (surfaceCache)
+    {
+        surfaceCache->assign(viewDef->numDrawSurfs, RtPathTraceDrawSurfMirrorSurfaceCache());
     }
 
     std::unordered_set<uint64> sceneUniverseLegacyKeys;
@@ -708,12 +776,24 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         OPTICK_EVENT("PT Capture Dynamic Surface Loop");
         for (int surfaceIndex = 0; surfaceIndex < viewDef->numDrawSurfs; ++surfaceIndex)
         {
+            RtPathTraceDrawSurfMirrorSurfaceCache* cachedSurface =
+                surfaceCache ? &(*surfaceCache)[surfaceIndex] : nullptr;
             const drawSurf_t* drawSurf = viewDef->drawSurfs[surfaceIndex];
+            if (cachedSurface)
+            {
+                cachedSurface->drawSurf = drawSurf;
+            }
             const srfTriangles_t* tri = nullptr;
             const int validationStartMs = Sys_Milliseconds();
-            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, &skipStats))
+            RtSmokeSurfaceSkipStats surfaceSkipStats;
+            if (!ValidateSmokeDrawSurface(viewDef, drawSurf, tri, cachedSurface ? &surfaceSkipStats : &skipStats))
             {
                 captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
+                if (cachedSurface)
+                {
+                    cachedSurface->skipStats = surfaceSkipStats;
+                    AddSmokeSurfaceSkipStats(skipStats, surfaceSkipStats);
+                }
                 continue;
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
@@ -722,12 +802,44 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
             const RtSmokeSurfaceClass surfaceClass = PtMirrorEffectiveSurfaceClass(drawSurf, tri, classifiedSurfaceClass);
             captureTiming.dynamicPassClassifyMs += Sys_Milliseconds() - classifyStartMs;
+            const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
+            const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
+            const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
+            const uint32_t baseMaterialId = SmokeMaterialId(material);
+            const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
+            const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
+            const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
+            uint32_t sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
+            if (!sceneUniverseLegacyKeys.empty() && sceneUniverseLegacyKeys.find(legacyStaticKey) != sceneUniverseLegacyKeys.end())
+            {
+                sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_UNIVERSE_MATCH;
+            }
+            if (geometryUniverse && geometryUniverse->HasStaticSurface(legacyStaticKey))
+            {
+                sourceFlags |= RT_PT_INSTANCE_SOURCE_STATIC_CACHE_MATCH;
+            }
+            if (cachedSurface)
+            {
+                cachedSurface->valid = true;
+                cachedSurface->tri = tri;
+                cachedSurface->classifiedSurfaceClass = classifiedSurfaceClass;
+                cachedSurface->surfaceClass = surfaceClass;
+                cachedSurface->translucentSubtype = translucentSubtype;
+                cachedSurface->legacyStaticKey = legacyStaticKey;
+                cachedSurface->baseMaterialId = baseMaterialId;
+                cachedSurface->materialId = materialId;
+                cachedSurface->sourceKind = SmokeSurfaceClassId(surfaceClass);
+                cachedSurface->sourceFlags = sourceFlags;
+                cachedSurface->surfaceClassId = surfaceClassId;
+                cachedSurface->surfaceClassAndFlags = surfaceClassId |
+                    (SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf) ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF);
+                cachedSurface->materialClassSignature = materialClassSignature;
+            }
             if (surfaceClass == RtSmokeSurfaceClass::StaticWorld)
             {
                 continue;
             }
 
-            const uint64 legacyStaticKey = BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri);
             if (DrawSurfMirrorIsStaticMatch(geometryUniverse, sceneUniverseLegacyKeys, legacyStaticKey))
             {
                 continue;
@@ -735,20 +847,14 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             if (removeRoutedRigidDynamic && surfaceClass == RtSmokeSurfaceClass::RigidEntity && geometryUniverse)
             {
                 ++routedRigidDynamicTested;
-                const idMaterial* material = drawSurf ? drawSurf->material : nullptr;
                 const viewEntity_t* space = drawSurf ? drawSurf->space : nullptr;
                 const idRenderEntityLocal* entity = space ? space->entityDef : nullptr;
                 const renderEntity_t* renderEntity = entity ? &entity->parms : nullptr;
                 const idRenderModel* renderModel = renderEntity ? renderEntity->hModel : nullptr;
-                const uint32_t baseMaterialId = SmokeMaterialId(material);
-                const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
-                const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
-                const uint32_t materialClassSignature = SmokeMaterialRouteClassSignature(material, surfaceClass, translucentSubtype);
                 const PtRenderDefKey renderDefKey = PtGeometryLifecycle::MakeEntityKey(entity);
                 const uint32_t modelEpoch = (renderDefKey.world && renderDefKey.index >= 0)
                     ? PtGeometryLifecycle::EntityModelEpoch(renderDefKey.world, renderDefKey.index)
                     : 0;
-                const uint32_t sourceFlags = PtSourceFlagsForDrawSurf(viewDef, drawSurf, tri, surfaceClass);
 
                 RtPathTraceMeshKey meshKey;
                 meshKey.tri = tri;
@@ -813,10 +919,6 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 continue;
             }
 
-            const RtSmokeTranslucentSubtype translucentSubtype = surfaceClass == RtSmokeSurfaceClass::ParticleAlpha ? ClassifySmokeTranslucentSubtype(drawSurf) : RtSmokeTranslucentSubtype::Unknown;
-            const uint32_t surfaceClassId = SmokeSurfaceClassAndSubtypeId(surfaceClass, translucentSubtype);
-            const uint32_t baseMaterialId = SmokeMaterialId(drawSurf->material);
-            const uint32_t materialId = SmokeRuntimeMaterialTableIdForDrawSurf(drawSurf, baseMaterialId);
             const int bucketIndex = idMath::ClampInt(0, RT_SMOKE_CLASS_COUNT - 1, static_cast<int>(surfaceClassId & RT_SMOKE_TRIANGLE_CLASS_MASK));
 
             std::vector<PathTraceSmokeVertex>& bucketVertices = bucketVertexData[bucketIndex];

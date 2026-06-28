@@ -25,12 +25,32 @@ struct RtPathTraceBoundsOverlayLine
     idVec4 color = idVec4(1.0f, 1.0f, 1.0f, 1.0f);
 };
 
+struct RtPathTraceDrawSurfMirrorSurfaceCache
+{
+    bool valid = false;
+    const drawSurf_t* drawSurf = nullptr;
+    const srfTriangles_t* tri = nullptr;
+    RtSmokeSurfaceSkipStats skipStats;
+    RtSmokeSurfaceClass classifiedSurfaceClass = RtSmokeSurfaceClass::Unknown;
+    RtSmokeSurfaceClass surfaceClass = RtSmokeSurfaceClass::Unknown;
+    RtSmokeTranslucentSubtype translucentSubtype = RtSmokeTranslucentSubtype::Unknown;
+    uint64 legacyStaticKey = 0;
+    uint32_t baseMaterialId = 0;
+    uint32_t materialId = 0;
+    uint32_t sourceKind = 0;
+    uint32_t sourceFlags = 0;
+    uint32_t surfaceClassId = 0;
+    uint32_t surfaceClassAndFlags = 0;
+    uint32_t materialClassSignature = 0;
+};
+
 void CapturePathTraceDrawSurfMirror(
     const viewDef_t* viewDef,
     const RtPathTraceSceneUniverse* sceneUniverse,
     RtSmokeGeometryUniverse* geometryUniverse,
     RtPathTraceInstanceUniverse& instanceUniverse,
-    std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines = nullptr);
+    std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines = nullptr,
+    const std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache = nullptr);
 
 bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     const viewDef_t* viewDef,
@@ -53,4 +73,5 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     RtSmokeBucketRanges& bucketRanges,
     RtSmokeSceneCaptureTiming& captureTiming,
     RtSmokeSurfaceClassReasonSamples* reasonSamples,
-    std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr);
+    std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr,
+    std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache = nullptr);
