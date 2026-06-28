@@ -298,6 +298,7 @@ struct RtEntityFeedResidentSurface
     uint32_t modelEpoch = 0;
     uint64 materialOverrideToken = 0;
     int lastSeenFrame = 0;
+    bool baseValid = false;
     bool routeValid = false;
     const idMaterial* remappedMaterial = nullptr;
     RtPtFeedClass feedClass = RtPtFeedClass::Transient;
@@ -402,12 +403,10 @@ EntityFeedResidentEntitySlot* FindOrCreateEntityFeedResidentEntitySlot(
 
 RtEntityFeedResidentSurface* FindOrCreateEntityFeedResidentSurface(
     EntityFeedResidentEntitySlot* entitySlot,
-    const EntityFeedResidentSurfaceKey& key,
-    RtPathTraceEntityFeedStats& stats)
+    const EntityFeedResidentSurfaceKey& key)
 {
     if (!entitySlot || key.surfaceIndex < 0)
     {
-        ++stats.residencyCacheMisses;
         return nullptr;
     }
 
@@ -419,11 +418,9 @@ RtEntityFeedResidentSurface* FindOrCreateEntityFeedResidentSurface(
     RtEntityFeedResidentSurface& record = entitySlot->surfaceRecords[static_cast<size_t>(key.surfaceIndex)];
     if (record.key == key)
     {
-        ++stats.residencyCacheHits;
         return &record;
     }
 
-    ++stats.residencyCacheMisses;
     record = RtEntityFeedResidentSurface();
     record.key = key;
     return &record;
@@ -443,6 +440,7 @@ void UpdateEntityFeedResidentSurfaceBase(
     record.modelEpoch = modelEpoch;
     record.materialOverrideToken = materialOverrideToken;
     record.lastSeenFrame = tr.frameCount;
+    record.baseValid = true;
     record.routeValid = false;
     record.remappedMaterial = material;
     record.feedClass = feedClass;
@@ -789,68 +787,79 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
                 ++stats.residencyVisited;
-                ++stats.residencyDerived;
                 EntityFeedResidentSurfaceKey residentKey;
                 RtEntityFeedResidentSurface* residentRecord = nullptr;
                 if (residentEntitySlot)
                 {
                     residentKey.renderDefKey = entityRenderDefKey;
                     residentKey.surfaceIndex = surfaceIndex;
-                    residentRecord = FindOrCreateEntityFeedResidentSurface(residentEntitySlot, residentKey, stats);
-                }
-                else
-                {
-                    ++stats.residencyCacheMisses;
+                    residentRecord = FindOrCreateEntityFeedResidentSurface(residentEntitySlot, residentKey);
                 }
                 const modelSurface_t* surface = model->Surface(surfaceIndex);
                 const srfTriangles_t* tri = surface ? surface->geometry : nullptr;
                 const idMaterial* surfaceMaterial = surface ? surface->shader : nullptr;
-                const idMaterial* material = nullptr;
-                {
-                    OPTICK_EVENT("PT EntityFeed Capture Material Remap");
-                    material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
-                }
+                const bool residentBaseHit =
+                    residentRecord &&
+                    residentRecord->baseValid &&
+                    residentRecord->modelEpoch == entityModelEpoch &&
+                    residentRecord->materialOverrideToken == materialOverrideToken;
 
-                RtPtFeedClass feedClass = RtPtFeedClass::Transient;
-                {
-                    OPTICK_EVENT("PT EntityFeed Capture Classify");
-                    feedClass = ClassifyEntityFeedSurface(entity, model, surface);
-                }
+                const idMaterial* material = residentBaseHit ? residentRecord->remappedMaterial : nullptr;
+                RtPtFeedClass feedClass = residentBaseHit ? residentRecord->feedClass : RtPtFeedClass::Transient;
+                bool promotedEmissiveCard = residentBaseHit ? residentRecord->promotedEmissiveCard : false;
 
-                bool promotedEmissiveCard = false;
-                if (feedClass == RtPtFeedClass::Transient)
+                if (residentBaseHit)
                 {
-                    OPTICK_EVENT("PT EntityFeed Capture Emissive Card Test");
-                    promotedEmissiveCard =
-                        r_pathTracingRigidRouteEmissiveCards.GetInteger() != 0 &&
-                        entity &&
-                        model &&
-                        tri &&
-                        material &&
-                        !model->IsStaticWorldModel() &&
-                        model->IsDynamicModel() == DM_STATIC &&
-                        renderEntity.joints == nullptr &&
-                        renderEntity.numJoints <= 0 &&
-                        renderEntity.callback == nullptr &&
-                        renderEntity.forceUpdate == 0 &&
-                        !renderEntity.weaponDepthHack &&
-                        renderEntity.modelDepthHack == 0.0f &&
-                        entity->dynamicModel == nullptr &&
-                        entity->cachedDynamicModel == nullptr &&
-                        tri->staticModelWithJoints == nullptr &&
-                        EntityFeedCanPromoteRigidEmissiveCardCached(materialCache, material);
+                    residentRecord->lastSeenFrame = tr.frameCount;
                 }
-                if (residentRecord)
+                else
                 {
-                    UpdateEntityFeedResidentSurfaceBase(
-                        *residentRecord,
-                        residentKey,
-                        entityModelEpoch,
-                        materialOverrideToken,
-                        material,
-                        feedClass,
-                        promotedEmissiveCard,
-                        model);
+                    ++stats.residencyCacheMisses;
+                    ++stats.residencyDerived;
+                    {
+                        OPTICK_EVENT("PT EntityFeed Capture Material Remap");
+                        material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
+                    }
+
+                    {
+                        OPTICK_EVENT("PT EntityFeed Capture Classify");
+                        feedClass = ClassifyEntityFeedSurface(entity, model, surface);
+                    }
+
+                    if (feedClass == RtPtFeedClass::Transient)
+                    {
+                        OPTICK_EVENT("PT EntityFeed Capture Emissive Card Test");
+                        promotedEmissiveCard =
+                            r_pathTracingRigidRouteEmissiveCards.GetInteger() != 0 &&
+                            entity &&
+                            model &&
+                            tri &&
+                            material &&
+                            !model->IsStaticWorldModel() &&
+                            model->IsDynamicModel() == DM_STATIC &&
+                            renderEntity.joints == nullptr &&
+                            renderEntity.numJoints <= 0 &&
+                            renderEntity.callback == nullptr &&
+                            renderEntity.forceUpdate == 0 &&
+                            !renderEntity.weaponDepthHack &&
+                            renderEntity.modelDepthHack == 0.0f &&
+                            entity->dynamicModel == nullptr &&
+                            entity->cachedDynamicModel == nullptr &&
+                            tri->staticModelWithJoints == nullptr &&
+                            EntityFeedCanPromoteRigidEmissiveCardCached(materialCache, material);
+                    }
+                    if (residentRecord)
+                    {
+                        UpdateEntityFeedResidentSurfaceBase(
+                            *residentRecord,
+                            residentKey,
+                            entityModelEpoch,
+                            materialOverrideToken,
+                            material,
+                            feedClass,
+                            promotedEmissiveCard,
+                            model);
+                    }
                 }
 
                 bool visibleDrawSurf = false;
@@ -860,21 +869,85 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 }
                 if (promotedEmissiveCard && visibleDrawSurf)
                 {
+                    if (residentBaseHit)
+                    {
+                        ++stats.residencyCacheHits;
+                    }
                     continue;
                 }
                 if (feedClass == RtPtFeedClass::RigidEntity && visibleDrawSurf)
                 {
+                    if (residentBaseHit)
+                    {
+                        ++stats.residencyCacheHits;
+                    }
                     continue;
                 }
                 if (feedClass != RtPtFeedClass::RigidEntity && !promotedEmissiveCard)
                 {
+                    if (residentBaseHit)
+                    {
+                        ++stats.residencyCacheHits;
+                    }
                     continue;
                 }
                 ++stats.candidatesS1;
 
                 if (!EntityFeedSurfaceUsableForRigidRoute(surface, tri, material))
                 {
+                    if (residentBaseHit)
+                    {
+                        ++stats.residencyCacheHits;
+                    }
                     continue;
+                }
+
+                if (residentBaseHit && residentRecord->routeValid)
+                {
+                    ++stats.residencyCacheHits;
+                    const RtPathTraceRigidInstanceSnapshot& rigidSnapshot = residentRecord->rigidSnapshot;
+                    if (!candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
+                    {
+                        continue;
+                    }
+
+                    float distance = 0.0f;
+                    {
+                        OPTICK_EVENT("PT EntityFeed Capture Distance");
+                        distance = EntityFeedEntityDistance(entity, viewOrigin);
+                    }
+                    if (maxDistance > 0.0f && distance > maxDistance)
+                    {
+                        ++stats.droppedBudget;
+                        continue;
+                    }
+
+                    {
+                        OPTICK_EVENT("PT EntityFeed Capture Surface Snapshot");
+                        EntityFeedCapturedRigidSurface captured;
+                        captured.meshKey = residentRecord->meshKey;
+                        captured.rigidSnapshot = rigidSnapshot;
+                        captured.entity = entity;
+                        captured.baseMaterial = residentRecord->remappedMaterial;
+                        captured.surfaceClassId = residentRecord->surfaceClassId;
+                        captured.surfaceClassAndFlags = residentRecord->surfaceClassAndFlags;
+                        captured.currentArea = areaIndex;
+                        memcpy(captured.objectToWorld, entity->modelMatrix, sizeof(captured.objectToWorld));
+                        captured.distance = distance;
+                        captured.projectedSize = EntityFeedProjectedSizeProxy(entity, distance);
+                        captured.onScreen = entity->viewCount == tr.viewCount;
+                        captured.emissive = residentRecord->emissive;
+                        captured.materialName = residentRecord->materialName;
+                        captured.modelName = residentRecord->modelName;
+                        capturedSurfaces.push_back(captured);
+                    }
+                    continue;
+                }
+
+                if (residentBaseHit)
+                {
+                    ++stats.residencyCacheMisses;
+                    ++stats.residencyDerived;
                 }
 
                 uint32_t baseMaterialId = 0;
