@@ -1286,6 +1286,15 @@ bool SmokeBufferHasPayloadCapacity(nvrhi::BufferHandle buffer, size_t byteSize, 
     return buffer && buffer->getDesc().byteSize >= SmokeRequiredBufferBytes(byteSize, structStride);
 }
 
+size_t SmokeBufferCapacityElements(nvrhi::BufferHandle buffer, size_t structStride)
+{
+    if (!buffer || structStride == 0)
+    {
+        return 0;
+    }
+    return buffer->getDesc().byteSize / structStride;
+}
+
 template< typename T >
 uint64_t BuildSmokeVectorUploadSignature(const std::vector<T>& data)
 {
@@ -2574,7 +2583,8 @@ void RetainSmokeSkinnedCurrentJointMatrices(
 }
 
 RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
-    int gpuSkinningMode,
+    int scaffoldMode,
+    bool buildGpuSkinningInputs,
     std::vector<RtSmokeSkinnedSurfaceRecord>& currentRecords,
     const std::vector<RtSmokeSkinnedSurfaceRecord>& previousRecords,
     const std::vector<PathTraceSmokeVertex>& dynamicVertexData,
@@ -2582,7 +2592,7 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
     const std::vector<PathTraceSkinnedJointMatrix>& previousSkinnedJointMatrices)
 {
     RtSmokeSkinnedGpuScaffoldBuild build;
-    if (gpuSkinningMode <= 0 || currentRecords.empty())
+    if (scaffoldMode <= 0 || currentRecords.empty())
     {
         return build;
     }
@@ -2601,14 +2611,19 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
             continue;
         }
 
-        record.gpuSourceVertexOffset = static_cast<int>(build.sourceVertices.size());
-        record.gpuOutputVertexOffset = static_cast<int>(build.currentOutputVertices.size());
+        record.gpuSourceVertexOffset = -1;
+        record.gpuOutputVertexOffset = -1;
         record.gpuPreviousPositionOffset = -1;
 
-        for (int vertexIndex = 0; vertexIndex < record.vertexCount; ++vertexIndex)
+        if (buildGpuSkinningInputs)
         {
-            build.sourceVertices.push_back(BuildSmokeSkinnedSourceVertex(tri->verts[vertexIndex]));
-            build.currentOutputVertices.push_back(dynamicVertexData[record.currentVertexOffset + vertexIndex]);
+            record.gpuSourceVertexOffset = static_cast<int>(build.sourceVertices.size());
+            record.gpuOutputVertexOffset = static_cast<int>(build.currentOutputVertices.size());
+            for (int vertexIndex = 0; vertexIndex < record.vertexCount; ++vertexIndex)
+            {
+                build.sourceVertices.push_back(BuildSmokeSkinnedSourceVertex(tri->verts[vertexIndex]));
+                build.currentOutputVertices.push_back(dynamicVertexData[record.currentVertexOffset + vertexIndex]);
+            }
         }
 
         const bool hasPreviousPositionRange =
@@ -2632,8 +2647,8 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
         }
 
         PathTraceSkinnedSurfaceDispatchRecord dispatch = {};
-        dispatch.sourceVertexOffset = static_cast<uint32_t>(record.gpuSourceVertexOffset);
-        dispatch.outputVertexOffset = static_cast<uint32_t>(record.gpuOutputVertexOffset);
+        dispatch.sourceVertexOffset = record.gpuSourceVertexOffset >= 0 ? static_cast<uint32_t>(record.gpuSourceVertexOffset) : UINT32_MAX;
+        dispatch.outputVertexOffset = record.gpuOutputVertexOffset >= 0 ? static_cast<uint32_t>(record.gpuOutputVertexOffset) : UINT32_MAX;
         dispatch.previousPositionOffset = record.gpuPreviousPositionOffset >= 0 ? static_cast<uint32_t>(record.gpuPreviousPositionOffset) : UINT32_MAX;
         dispatch.vertexCount = static_cast<uint32_t>(record.vertexCount);
         dispatch.currentJointOffset = UINT32_MAX;
@@ -2651,27 +2666,30 @@ RtSmokeSkinnedGpuScaffoldBuild BuildSmokeSkinnedGpuScaffold(
         CopySmokeObjectToWorldRows(dispatch.currentObjectToWorld, record.objectToWorld);
         const RtSmokeSkinnedSurfaceRecord* previousRecord = FindSmokeSkinnedPreviousRecord(previousRecords, record);
         CopySmokeObjectToWorldRows(dispatch.previousObjectToWorld, previousRecord ? previousRecord->objectToWorld : record.objectToWorld);
-        int currentJointOffset = -1;
-        if (AppendSmokeSkinnedJointMatrices(
-                SmokeSkinnedRecordJoints(record),
-                record.jointCount,
-                build.currentJointMatrices,
-                currentJointOffset))
+        if (buildGpuSkinningInputs)
         {
-            dispatch.currentJointOffset = static_cast<uint32_t>(currentJointOffset);
-            dispatch.flags |= PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS;
-        }
-        if (record.previousValid &&
-            previousRecord &&
-            previousRecord->jointCount == record.jointCount &&
-            SmokeSkinnedJointRangeValid(*previousRecord, previousSkinnedJointMatrices))
-        {
-            dispatch.previousJointOffset = static_cast<uint32_t>(build.previousJointMatrices.size());
-            build.previousJointMatrices.insert(
-                build.previousJointMatrices.end(),
-                previousSkinnedJointMatrices.begin() + previousRecord->retainedJointOffset,
-                previousSkinnedJointMatrices.begin() + previousRecord->retainedJointOffset + previousRecord->jointCount);
-            dispatch.flags |= PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS;
+            int currentJointOffset = -1;
+            if (AppendSmokeSkinnedJointMatrices(
+                    SmokeSkinnedRecordJoints(record),
+                    record.jointCount,
+                    build.currentJointMatrices,
+                    currentJointOffset))
+            {
+                dispatch.currentJointOffset = static_cast<uint32_t>(currentJointOffset);
+                dispatch.flags |= PT_SKINNED_DISPATCH_HAS_CURRENT_JOINTS;
+            }
+            if (record.previousValid &&
+                previousRecord &&
+                previousRecord->jointCount == record.jointCount &&
+                SmokeSkinnedJointRangeValid(*previousRecord, previousSkinnedJointMatrices))
+            {
+                dispatch.previousJointOffset = static_cast<uint32_t>(build.previousJointMatrices.size());
+                build.previousJointMatrices.insert(
+                    build.previousJointMatrices.end(),
+                    previousSkinnedJointMatrices.begin() + previousRecord->retainedJointOffset,
+                    previousSkinnedJointMatrices.begin() + previousRecord->retainedJointOffset + previousRecord->jointCount);
+                dispatch.flags |= PT_SKINNED_DISPATCH_HAS_PREVIOUS_JOINTS;
+            }
         }
         build.dispatchRecords.push_back(dispatch);
     }
@@ -3293,6 +3311,10 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     std::vector<uint32_t> dynamicTriangleIdentityData;
     std::vector<RtSmokeSkinnedSurfaceRecord> currentSkinnedSurfaceRecords;
     RtSmokeSkinnedGpuScaffoldBuild skinnedGpuScaffold;
+    int skinnedPreviousBridgeMs = 0;
+    int skinnedGpuScaffoldMs = 0;
+    int skinnedTriangleDispatchIndexMs = 0;
+    int skinnedRetainJointsMs = 0;
     int sourceSurfaces = 0;
     int sourceVerts = 0;
     int sourceIndexes = 0;
@@ -3636,16 +3658,21 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             staticCacheChanged = m_smokeGeometryUniverse.PruneMissingStaticSurfaces() || staticCacheChanged;
         }
     }
+    const int previousSkinnedSurfaceRecordCountBeforeBridge = static_cast<int>(m_smokePreviousSkinnedSurfaceRecords.size());
+    const int previousSkinnedVertexDataCountBeforeBridge = static_cast<int>(m_smokePreviousSkinnedVertexData.size());
+    const int previousSkinnedJointMatrixCountBeforeBridge = static_cast<int>(m_smokePreviousSkinnedJointMatrices.size());
     std::vector<PathTraceSmokeVertex> nextPreviousSkinnedVertexData;
     std::vector<PathTraceSkinnedJointMatrix> nextPreviousSkinnedJointMatrices;
     {
         OPTICK_EVENT("PT Skinned Previous Bridge");
+        const int skinnedPreviousBridgeStartMs = Sys_Milliseconds();
         m_smokeSkinnedPreviousStats = UpdateSmokeSkinnedPreviousCpuBridge(
             currentSkinnedSurfaceRecords,
             m_smokePreviousSkinnedSurfaceRecords,
             m_smokePreviousSkinnedVertexData,
             dynamicVertexData,
             nextPreviousSkinnedVertexData);
+        skinnedPreviousBridgeMs = Sys_Milliseconds() - skinnedPreviousBridgeStartMs;
     }
     const int gpuSkinningMode = idMath::ClampInt(0, 2, r_pathTracingGpuSkinning.GetInteger());
     const bool rrGuideNeedsSkinnedHistory =
@@ -3656,25 +3683,33 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         r_pathTracingMotionVectorExport.GetInteger() != 0 ||
         r_pathTracingDLSSRRGuideDebugView.GetInteger() != 0;
     const int skinnedScaffoldMode = skinnedMotionBridgeNeedsScaffold ? Max(1, gpuSkinningMode) : gpuSkinningMode;
+    const bool buildSkinnedGpuSkinningInputs = gpuSkinningMode > 0;
     {
         OPTICK_EVENT("PT Skinned GPU Scaffold");
+        const int skinnedGpuScaffoldStartMs = Sys_Milliseconds();
         skinnedGpuScaffold = BuildSmokeSkinnedGpuScaffold(
             skinnedScaffoldMode,
+            buildSkinnedGpuSkinningInputs,
             currentSkinnedSurfaceRecords,
             m_smokePreviousSkinnedSurfaceRecords,
             dynamicVertexData,
             m_smokePreviousSkinnedVertexData,
             m_smokePreviousSkinnedJointMatrices);
+        skinnedGpuScaffoldMs = Sys_Milliseconds() - skinnedGpuScaffoldStartMs;
     }
     {
         OPTICK_EVENT("PT Skinned Triangle Dispatch Index");
+        const int skinnedTriangleDispatchIndexStartMs = Sys_Milliseconds();
         BuildSmokeSkinnedTriangleDispatchIndex(skinnedGpuScaffold, static_cast<int>(dynamicIndexData.size() / 3));
+        skinnedTriangleDispatchIndexMs = Sys_Milliseconds() - skinnedTriangleDispatchIndexStartMs;
     }
     {
         OPTICK_EVENT("PT Retain Skinned Joints");
+        const int skinnedRetainJointsStartMs = Sys_Milliseconds();
         RetainSmokeSkinnedCurrentJointMatrices(
             currentSkinnedSurfaceRecords,
             nextPreviousSkinnedJointMatrices);
+        skinnedRetainJointsMs = Sys_Milliseconds() - skinnedRetainJointsStartMs;
     }
     m_smokeSkinnedSurfaceRecords = currentSkinnedSurfaceRecords;
     m_smokePreviousSkinnedSurfaceRecords = m_smokeSkinnedSurfaceRecords;
@@ -6885,6 +6920,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const uint64_t rigidRouteSkippedUploadBytes =
         (skipRigidRouteSideBufferUpload ? rigidRouteGeometryBytes : 0ull) +
         (skipRigidRouteInstanceBufferUpload ? rigidRouteInstanceBytes : 0ull);
+    const uint64_t skinnedUploadBytes = SumSmokeUploadBytes(uploadItems, 39, 7);
+    const uint64_t skinnedSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 39, 7);
     if (r_pathTracingMaterialUploadDump.GetInteger() != 0)
     {
         const RtSmokeBufferUploadItem& materialTableUpload = uploadItems[15];
@@ -7273,6 +7310,88 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedGpuComputeTargetsDynamicVertexBuffer = skinnedGpuComputeDispatched && skinnedGpuComputeTargetsDynamicVertices;
     sceneInputs.geometry.skinnedGpuComputeWritesPreviousPositions = skinnedGpuComputeDispatched && skinnedGpuComputeWritesPreviousPositions;
     sceneInputs.geometry.skinnedGpuSkinningAvailable = skinnedGpuComputeDispatched;
+    if (r_pathTracingSkinnedDump.GetInteger() != 0)
+    {
+        common->Printf("PathTracePrimaryPass: PT skinned dump frame=%llu source=%d motionExport=%d rrGuideHistory=%d rrDebug=%d gpuSkinning=%d scaffoldMode=%d computeInputs=%d current records=%d surfaces/tris=%d/%d rtCpu=%d dynamicTris total/skinnedCpu/basePose/rtCpu=%d/%d/%d/%d previousBefore records/verts/joints=%d/%d/%d bridge matched/invalid/retainedVerts=%d/%d/%d invalid noFrame/noSurface/count/material/class/notRtCpu/skeleton/teleport/prevBuf=%d/%d/%d/%d/%d/%d/%d/%d/%d temporal topology/lod/transform/deform/material/prevBuf=%d/%d/%d/%d/%d/%d scaffold source/current/prevPos/dispatch/mapped/index/currentJoints/prevJoints=%d/%d/%d/%d/%d/%d/%d/%d compute ready/dispatched/targetDyn/writePrev/verts/max=%d/%d/%d/%d/%d/%d bytes source/current/prevPos/dispatch/index/currentJoints/prevJoints/upload/skip=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu capacity source/current/prevPos/dispatch/index/currentJoints/prevJoints=%llu/%llu/%llu/%llu/%llu/%llu/%llu timing captureClass/append/rtCpuAppend/bucket/bridge/scaffold/dispatchIndex/retainJoints/bufferCreate/upload=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
+            static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
+            sceneSource,
+            r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1 : 0,
+            rrGuideNeedsSkinnedHistory ? 1 : 0,
+            r_pathTracingDLSSRRGuideDebugView.GetInteger() != 0 ? 1 : 0,
+            gpuSkinningMode,
+            skinnedScaffoldMode,
+            buildSkinnedGpuSkinningInputs ? 1 : 0,
+            static_cast<int>(currentSkinnedSurfaceRecords.size()),
+            sceneInputs.geometry.skinnedSurfaceCount,
+            sceneInputs.geometry.skinnedTriangleCount,
+            sceneInputs.geometry.skinnedRtCpuSurfaceCount,
+            sceneInputs.geometry.dynamicTriangleCount,
+            sceneInputs.geometry.dynamicSkinnedCpuCurrentTriangleCount,
+            sceneInputs.geometry.dynamicSkinnedLikelyBasePoseTriangleCount,
+            sceneInputs.geometry.dynamicSkinnedRtCpuTriangleCount,
+            previousSkinnedSurfaceRecordCountBeforeBridge,
+            previousSkinnedVertexDataCountBeforeBridge,
+            previousSkinnedJointMatrixCountBeforeBridge,
+            sceneInputs.geometry.skinnedPreviousMatchedSurfaceCount,
+            sceneInputs.geometry.skinnedPreviousInvalidSurfaceCount,
+            sceneInputs.geometry.skinnedPreviousRetainedVertexCount,
+            sceneInputs.geometry.skinnedPreviousNoFrameCount,
+            sceneInputs.geometry.skinnedPreviousNoSurfaceCount,
+            sceneInputs.geometry.skinnedPreviousCountMismatchCount,
+            sceneInputs.geometry.skinnedPreviousMaterialChangedCount,
+            sceneInputs.geometry.skinnedPreviousSurfaceClassChangedCount,
+            sceneInputs.geometry.skinnedPreviousNotRtCpuSkinnedCount,
+            sceneInputs.geometry.skinnedPreviousSkeletonChangedCount,
+            sceneInputs.geometry.skinnedPreviousTransformDiscontinuityCount,
+            sceneInputs.geometry.skinnedPreviousBufferUnavailableCount,
+            sceneInputs.geometry.skinnedTemporalTopologyStableCount,
+            sceneInputs.geometry.skinnedTemporalLodStableCount,
+            sceneInputs.geometry.skinnedTemporalTransformContinuousCount,
+            sceneInputs.geometry.skinnedTemporalDeformationContinuousCount,
+            sceneInputs.geometry.skinnedTemporalMaterialStableCount,
+            sceneInputs.geometry.skinnedTemporalPreviousBufferValidCount,
+            sceneInputs.geometry.skinnedSourceVertexCount,
+            sceneInputs.geometry.skinnedCurrentOutputVertexCount,
+            sceneInputs.geometry.skinnedPreviousPositionCount,
+            sceneInputs.geometry.skinnedSurfaceDispatchCount,
+            sceneInputs.geometry.skinnedTriangleDispatchMappedCount,
+            sceneInputs.geometry.skinnedTriangleDispatchIndexCount,
+            sceneInputs.geometry.skinnedCurrentJointMatrixCount,
+            sceneInputs.geometry.skinnedPreviousJointMatrixCount,
+            skinnedGpuComputeReady ? 1 : 0,
+            skinnedGpuComputeDispatched ? 1 : 0,
+            skinnedGpuComputeTargetsDynamicVertices ? 1 : 0,
+            skinnedGpuComputeWritesPreviousPositions ? 1 : 0,
+            skinnedGpuComputeVertexCount,
+            skinnedGpuComputeMaxVertexCount,
+            static_cast<unsigned long long>(bufferCreateDesc.skinnedSourceVertexBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.skinnedCurrentOutputVertexBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.skinnedPreviousPositionBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.skinnedSurfaceDispatchBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.skinnedTriangleDispatchIndexBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.skinnedCurrentJointMatrixBytes),
+            static_cast<unsigned long long>(bufferCreateDesc.skinnedPreviousJointMatrixBytes),
+            static_cast<unsigned long long>(skinnedUploadBytes),
+            static_cast<unsigned long long>(skinnedSkippedUploadBytes),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedSourceVertexBuffer, sizeof(PathTraceSkinnedSourceVertex))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedCurrentOutputVertexBuffer, sizeof(PathTraceSmokeVertex))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedPreviousPositionBuffer, sizeof(PathTraceSkinnedPreviousPosition))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedSurfaceDispatchBuffer, sizeof(PathTraceSkinnedSurfaceDispatchRecord))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedTriangleDispatchIndexBuffer, sizeof(uint32_t))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedCurrentJointMatrixBuffer, sizeof(PathTraceSkinnedJointMatrix))),
+            static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeSkinnedPreviousJointMatrixBuffer, sizeof(PathTraceSkinnedJointMatrix))),
+            captureTiming.dynamicPassClassifyMs,
+            captureTiming.dynamicAppendMs,
+            captureTiming.rtCpuSkinningAppendMs,
+            captureTiming.bucketMergeMs,
+            skinnedPreviousBridgeMs,
+            skinnedGpuScaffoldMs,
+            skinnedTriangleDispatchIndexMs,
+            skinnedRetainJointsMs,
+            bufferCreateMs,
+            bufferUploadMs);
+        r_pathTracingSkinnedDump.SetInteger(0);
+    }
     sceneInputs.geometry.capabilityFlags =
         RT_SCENE_INPUT_GEOMETRY_PREVIOUS_TRANSFORM_RESERVED |
         RT_SCENE_INPUT_GEOMETRY_PREVIOUS_VERTEX_RESERVED |

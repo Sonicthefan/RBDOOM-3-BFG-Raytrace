@@ -439,6 +439,7 @@ extern idCVar r_pathTracingNsightGpuMarkers;
 extern idCVar r_pathTracingRestirPTGpuTimingDump;
 extern idCVar r_pathTracingReservoirDump;
 extern idCVar r_pathTracingSceneInputsDump;
+extern idCVar r_pathTracingSkinnedDump;
 extern idCVar r_pathTracingGpuSkinning;
 extern idCVar r_pathTracingMotionVectorExport;
 extern idCVar r_pathTracingMotionVectorDisableRigid;
