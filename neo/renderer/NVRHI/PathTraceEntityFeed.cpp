@@ -377,20 +377,6 @@ int CountEntityFeedResidentRecords(const EntityFeedResidentSurfaceStore& store)
     return count;
 }
 
-int ClearEntityFeedResidentSlot(EntityFeedResidentEntitySlot& entitySlot)
-{
-    int evicted = 0;
-    for (const RtEntityFeedResidentSurface& record : entitySlot.surfaceRecords)
-    {
-        if (EntityFeedResidentRecordValid(record))
-        {
-            ++evicted;
-        }
-    }
-    entitySlot = EntityFeedResidentEntitySlot();
-    return evicted;
-}
-
 int PruneEntityFeedResidentStore(EntityFeedResidentSurfaceStore& store, int currentFrame)
 {
     if (store.lastGcFrame == currentFrame)
@@ -407,12 +393,6 @@ int PruneEntityFeedResidentStore(EntityFeedResidentSurfaceStore& store, int curr
         {
             continue;
         }
-        if (!PtGeometryLifecycle::IsEntityKeyAlive(entitySlot.renderDefKey))
-        {
-            evicted += ClearEntityFeedResidentSlot(entitySlot);
-            continue;
-        }
-
         for (RtEntityFeedResidentSurface& record : entitySlot.surfaceRecords)
         {
             if (!EntityFeedResidentRecordValid(record))
@@ -480,8 +460,7 @@ EntityFeedResidentEntitySlot* FindOrCreateEntityFeedResidentEntitySlot(
 {
     if (!store ||
         key.index < 0 ||
-        key.generation == 0 ||
-        !PtGeometryLifecycle::IsEntityKeyAlive(key))
+        key.generation == 0)
     {
         return nullptr;
     }
