@@ -224,6 +224,7 @@ struct RtPathTraceSceneInputMaterials
     nvrhi::DescriptorTableHandle textureDescriptorTable;
     int materialTableEntryCount = 0;
     int dynamicMaterialRecordCount = 0;
+    bool materialTableGpuStable = false;
     int activeTextureCount = 0;
     const char* materialTablePath = "unknown";
     uint32_t capabilityFlags = 0;

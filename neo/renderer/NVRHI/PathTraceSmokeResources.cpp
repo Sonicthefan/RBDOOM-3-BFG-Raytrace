@@ -173,10 +173,11 @@ static void PrintPathTraceSceneInputsDump(const RtPathTraceSceneInputs& inputs)
         geometry.skinnedSourceGeometryAvailable ? 1 : 0,
         geometry.skinnedGpuSkinningAvailable ? 1 : 0,
         geometry.skinnedPreviousPositionBufferAvailable ? 1 : 0);
-    common->Printf("PathTracePrimaryPass: PT scene inputs material path=%s entries=%d dynamicRecords=%d activeTextures=%d caps=0x%08x light emissive=%d distribution=%d valid=%d zeroPdf=%d fallback=%d weight=%.3f totalPdf=%.6f static=%d dynamic=%d candidates=%d textured=%d doom current/previous=%d/%d doomIds current/previous/remap/invalid=%d/%d/%d/%d previousEmissive=%d unified=%d prevUnified=%d unifiedRemap=%d generation=%llu caps=0x%08x\n",
+    common->Printf("PathTracePrimaryPass: PT scene inputs material path=%s entries=%d dynamicRecords=%d materialGpuStable=%d activeTextures=%d caps=0x%08x light emissive=%d distribution=%d valid=%d zeroPdf=%d fallback=%d weight=%.3f totalPdf=%.6f static=%d dynamic=%d candidates=%d textured=%d doom current/previous=%d/%d doomIds current/previous/remap/invalid=%d/%d/%d/%d previousEmissive=%d unified=%d prevUnified=%d unifiedRemap=%d generation=%llu caps=0x%08x\n",
         materials.materialTablePath ? materials.materialTablePath : "unknown",
         materials.materialTableEntryCount,
         materials.dynamicMaterialRecordCount,
+        materials.materialTableGpuStable ? 1 : 0,
         materials.activeTextureCount,
         materials.capabilityFlags,
         lights.emissiveTriangleCount,
@@ -269,6 +270,7 @@ static uint64_t BuildPathTraceSceneTransitionSignature(const RtPathTraceSceneInp
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(geometry.rigidRouteInstanceCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialTableEntryCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.dynamicMaterialRecordCount));
+    hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.materialTableGpuStable ? 1 : 0));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(materials.activeTextureCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(lights.emissiveTriangleCount));
     hash = HashPathTraceTransitionValue(hash, static_cast<uint64_t>(lights.lightCandidateCount));
@@ -352,7 +354,7 @@ static void PrintPathTracePortalTransitionDump(
         newPortal.rigidResidencySteps,
         oldPortal.lightAreaSteps,
         newPortal.lightAreaSteps);
-    common->Printf("PathTracePrimaryPass: PT portal transition counts staticTri %d->%d dynamicTri %d->%d rigidInst %d->%d materialEntries %d->%d dynamicMaterials %d->%d activeTextures %d->%d emissive %d->%d candidates %d->%d analytic %d->%d uploadBytes old %llu/%llu/%llu new %llu/%llu/%llu\n",
+    common->Printf("PathTracePrimaryPass: PT portal transition counts staticTri %d->%d dynamicTri %d->%d rigidInst %d->%d materialEntries %d->%d dynamicMaterials %d->%d materialGpuStable %d->%d activeTextures %d->%d emissive %d->%d candidates %d->%d analytic %d->%d uploadBytes old %llu/%llu/%llu new %llu/%llu/%llu\n",
         oldGeometry.staticTriangleCount,
         newGeometry.staticTriangleCount,
         oldGeometry.dynamicTriangleCount,
@@ -363,6 +365,8 @@ static void PrintPathTracePortalTransitionDump(
         newMaterials.materialTableEntryCount,
         oldMaterials.dynamicMaterialRecordCount,
         newMaterials.dynamicMaterialRecordCount,
+        oldMaterials.materialTableGpuStable ? 1 : 0,
+        newMaterials.materialTableGpuStable ? 1 : 0,
         oldMaterials.activeTextureCount,
         newMaterials.activeTextureCount,
         oldLights.emissiveTriangleCount,

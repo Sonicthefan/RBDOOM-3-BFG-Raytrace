@@ -96,6 +96,17 @@ struct PathTraceSmokeMaterial
     uint padding2;
 };
 
+struct PathTraceDynamicMaterialRecord
+{
+    float4 color;
+    float4 texMatrix0;
+    float4 texMatrix1;
+    uint materialIndex;
+    uint materialId;
+    uint stageIndex;
+    uint flags;
+};
+
 struct PathTraceSmokeVertex
 {
     float4 position;
@@ -224,6 +235,7 @@ StructuredBuffer<PathTraceEmissiveDistributionEntry> SmokeEmissiveDistribution :
 StructuredBuffer<PathTraceUnifiedLightRecord> CleanRestirGiRluCurrentLights : register(t66);
 StructuredBuffer<PathTraceNeeCacheProviderResult> CleanRestirGiNeeCacheProviderResults : register(t74);
 StructuredBuffer<PathTraceNeeCacheCellRecord> CleanRestirGiNeeCacheCells : register(t75);
+StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t76);
 StructuredBuffer<PathTraceNeeCacheCandidateRecord> CleanRestirGiNeeCacheCandidates : register(t77);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryCurrent : register(u30);
 RWStructuredBuffer<PathTracePrimarySurfaceRecord> PrimarySurfaceHistoryPrevious : register(u31);
@@ -413,6 +425,11 @@ static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE = 0x00000200u;
+static const uint RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK = 0x0000003cu;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_NORMAL_MAPS = 0x00000008u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_SPECULAR_MAPS = 0x00000010u;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
@@ -1104,6 +1121,64 @@ uint CleanGiTriangleTranslucentSubtype(uint triangleClassAndFlags)
     return (triangleClassAndFlags & RT_SMOKE_TRANSLUCENT_SUBTYPE_MASK) >> RT_SMOKE_TRANSLUCENT_SUBTYPE_SHIFT;
 }
 
+uint CleanGiDynamicMaterialRecordCount()
+{
+    return (uint)max(CleanRtxdiDiEmissiveDistributionInfo.w, 0.0);
+}
+
+void CleanGiApplyDynamicMaterialRecord(uint materialIndex, inout PathTraceSmokeMaterial material)
+{
+    const uint recordCount = CleanGiDynamicMaterialRecordCount();
+    if (materialIndex >= recordCount)
+    {
+        return;
+    }
+
+    const PathTraceDynamicMaterialRecord record = SmokeDynamicMaterials[materialIndex];
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        record.materialIndex != materialIndex ||
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) == 0u)
+    {
+        return;
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
+        (material.padding0 & RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK) == 0u)
+    {
+        return;
+    }
+
+    const bool stageEnabled =
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
+        record.texMatrix0.w != 0.0 &&
+        max(max(record.color.r, record.color.g), record.color.b) > 1.0e-5;
+    if (!stageEnabled)
+    {
+        material.emissiveColor = float4(0.0, 0.0, 0.0, 1.0);
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+        return;
+    }
+
+    const float stageAlpha = saturate(record.color.a);
+    const float3 stageScale = max(record.color.rgb, float3(0.0, 0.0, 0.0)) * stageAlpha;
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE) != 0u)
+    {
+        material.emissiveColor.rgb = stageScale;
+    }
+    else
+    {
+        material.emissiveColor.rgb *= stageScale;
+    }
+    material.emissiveColor.a = stageAlpha;
+    if (max(max(material.emissiveColor.r, material.emissiveColor.g), material.emissiveColor.b) <= 1.0e-5)
+    {
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+    else
+    {
+        material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+}
+
 PathTraceSmokeMaterial CleanGiLoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material = (PathTraceSmokeMaterial)0;
@@ -1127,6 +1202,7 @@ PathTraceSmokeMaterial CleanGiLoadSmokeMaterial(uint materialIndex)
     if (materialIndex < materialCount)
     {
         material = SmokeMaterials[materialIndex];
+        CleanGiApplyDynamicMaterialRecord(materialIndex, material);
     }
     return material;
 }

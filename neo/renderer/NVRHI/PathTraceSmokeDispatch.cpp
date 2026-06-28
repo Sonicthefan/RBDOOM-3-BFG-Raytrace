@@ -2614,7 +2614,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             primarySurfaceConstants.decalInfo[1] = Max(0.0f, r_pathTracingDecalOffsetStep.GetFloat());
             primarySurfaceConstants.decalInfo[2] = static_cast<float>(Max(1, r_pathTracingDecalMaxOffsetIndex.GetInteger()));
             primarySurfaceConstants.decalInfo[3] = idMath::ClampFloat(0.0f, 1.0f, r_pathTracingDecalModulateFloor.GetFloat());
-            primarySurfaceConstants.decalInfo2[0] = static_cast<float>(Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount));
+            const int primarySurfaceDynamicRecordCount = Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount);
+            const int primarySurfaceMaterialOverlayRecordCount = m_sceneInputs.materials.materialTableGpuStable ? primarySurfaceDynamicRecordCount : 0;
+            primarySurfaceConstants.decalInfo2[0] = static_cast<float>(primarySurfaceDynamicRecordCount);
+            primarySurfaceConstants.decalInfo2[1] = static_cast<float>(primarySurfaceMaterialOverlayRecordCount);
             {
                 static int lastLoggedDecalStage = -1;
                 const int decalStageNow = static_cast<int>(primarySurfaceConstants.decalInfo[0]);
@@ -3129,6 +3132,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             pdfNeeProducerConstants.emissiveDistributionInfo[0] = static_cast<float>(Max(0, pdfNeeEmissiveDistributionCount));
             pdfNeeProducerConstants.emissiveDistributionInfo[1] = pdfNeeEmissiveDistributionCount > 0 ? 1.0f : 0.0f;
             pdfNeeProducerConstants.emissiveDistributionInfo[2] = static_cast<float>(Max(0, m_sceneInputs.lights.emissiveDistributionFallbackIndex));
+            pdfNeeProducerConstants.emissiveDistributionInfo[3] = static_cast<float>(
+                m_sceneInputs.materials.materialTableGpuStable ? Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount) : 0);
             pdfNeeProducerConstants.doomAnalyticLightInfo[0] = static_cast<float>(pdfNeeDisableAnalyticLightLoop ? 0 : m_smokeDoomAnalyticLightCount);
             pdfNeeProducerConstants.doomAnalyticLightInfo[1] = static_cast<float>(idMath::ClampInt(0, 1024, r_pathTracingAnalyticLightMaxGpu.GetInteger()));
             pdfNeeProducerConstants.doomAnalyticLightInfo[2] = idMath::ClampFloat(0.0f, 16.0f, r_pathTracingAnalyticLightIntensityScale.GetFloat());
@@ -3735,7 +3740,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         cleanConstants.emissiveDistributionInfo[0] = static_cast<float>(Max(0, cleanEmissiveDistributionCount));
         cleanConstants.emissiveDistributionInfo[1] = cleanEmissiveDistributionCount > 0 ? 1.0f : 0.0f;
         cleanConstants.emissiveDistributionInfo[2] = static_cast<float>(Max(0, m_sceneInputs.lights.emissiveDistributionFallbackIndex));
-        cleanConstants.emissiveDistributionInfo[3] = static_cast<float>(Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount));
+        const int cleanMaterialOverlayRecordCount =
+            m_sceneInputs.materials.materialTableGpuStable ? Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount) : 0;
+        cleanConstants.emissiveDistributionInfo[3] = 0.0f;
         const int cleanTextureSampleMethod = r_pathTracingTextureSampleEnable.GetInteger() != 0
             ? idMath::ClampInt(0, 2, r_pathTracingTextureSampleMethod.GetInteger())
             : 0;
@@ -3987,7 +3994,9 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             nvrhi::rt::State cleanSpatialState = cleanState;
             cleanSpatialState.shaderTable = m_smokeCleanRtxdiDiSpatialShaderTable;
             commandList->setRayTracingState(cleanSpatialState);
-            commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanConstants, sizeof(cleanConstants));
+            PathTraceCleanRtxdiDiSentinelConstants cleanSpatialConstants = cleanConstants;
+            cleanSpatialConstants.emissiveDistributionInfo[3] = static_cast<float>(cleanMaterialOverlayRecordCount);
+            commandList->writeBuffer(m_smokeCleanRtxdiDiSentinelConstantsBuffer, &cleanSpatialConstants, sizeof(cleanSpatialConstants));
             {
                 PathTraceGpuMarkerScope nsightMarker(commandList, "CleanDI.2 Spatial DispatchRays", nsightGpuMarkers);
                 commandList->dispatchRays(cleanArgs);
@@ -4034,8 +4043,10 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.isVulkan = deviceManager->GetGraphicsAPI() == nvrhi::GraphicsAPI::VULKAN;
             giInputs.width = m_frameResources.width;
             giInputs.height = m_frameResources.height;
-            giInputs.diConstantsBlob = &cleanConstants;
-            giInputs.diConstantsSize = static_cast<uint32_t>(sizeof(cleanConstants));
+            PathTraceCleanRtxdiDiSentinelConstants cleanGiConstants = cleanConstants;
+            cleanGiConstants.emissiveDistributionInfo[3] = static_cast<float>(cleanMaterialOverlayRecordCount);
+            giInputs.diConstantsBlob = &cleanGiConstants;
+            giInputs.diConstantsSize = static_cast<uint32_t>(sizeof(cleanGiConstants));
             giInputs.doomAnalyticLightCountOverride = static_cast<uint32_t>(Max(0, m_smokeDoomAnalyticLightCount));
             giInputs.tlas = m_smokeTlas;
             giInputs.staticVertexBuffer = m_smokeStaticVertexBuffer;
@@ -4049,6 +4060,7 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             giInputs.staticTriangleMaterialIndexBuffer = m_smokeStaticTriangleMaterialIndexBuffer;
             giInputs.dynamicTriangleMaterialIndexBuffer = m_smokeDynamicTriangleMaterialIndexBuffer;
             giInputs.materialTableBuffer = m_smokeMaterialTableBuffer;
+            giInputs.dynamicMaterialBuffer = m_smokeDynamicMaterialBuffer;
             giInputs.fallbackTexture = cleanFallbackTexture;
             const bool cleanGiNeedsEmissiveTriangles = cleanConstants.currentEmissiveTriangleCount > 0u;
             const bool cleanGiNeedsEmissiveDistribution = cleanEmissiveDistributionCount > 0u;
@@ -5391,7 +5403,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
     constants.emissiveDistributionInfo[0] = static_cast<float>(Max(0, emissiveDistributionCount));
     constants.emissiveDistributionInfo[1] = emissiveDistributionCount > 0 ? 1.0f : 0.0f;
     constants.emissiveDistributionInfo[2] = static_cast<float>(Max(0, m_sceneInputs.lights.emissiveDistributionFallbackIndex));
-    constants.emissiveDistributionInfo[3] = 0.0f;
+    constants.emissiveDistributionInfo[3] = static_cast<float>(
+        m_sceneInputs.materials.materialTableGpuStable ? Max(0, m_sceneInputs.materials.dynamicMaterialRecordCount) : 0);
     const bool enableGpuBoundsOverlay = r_pathTracingSceneBoundsOverlayGpu.GetInteger() != 0;
     const bool enableBoundsBoxDebugMode = debugMode == 21 || debugMode == 22;
     const int gpuBoundsOverlayLineCount = (enableGpuBoundsOverlay || enableBoundsBoxDebugMode) ? idMath::ClampInt(0, RT_PT_BOUNDS_OVERLAY_MAX_LINES, m_smokeBoundsOverlayLineCount) : 0;

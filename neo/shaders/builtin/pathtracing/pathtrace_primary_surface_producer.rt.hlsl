@@ -305,6 +305,8 @@ static const uint RT_SMOKE_MATERIAL_DETAIL_DECAL_DIFFUSE_LIT = 0x00008000u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
 static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE = 0x00000200u;
+static const uint RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK = 0x0000003cu;
 static const uint PT_MOTION_VECTOR_MASK_VALID = 0x00000001u;
 static const uint PT_MOTION_VECTOR_MASK_SOURCE_SHIFT = 1u;
 static const uint PT_MOTION_VECTOR_MASK_INVALID_REASON_SHIFT = 5u;
@@ -766,6 +768,64 @@ float3 SampleSmokeEmissive(PathTraceSmokeMaterial material, float2 texCoord, uin
     return emissive * 1.75;
 }
 
+uint PathTraceDynamicMaterialRecordCount()
+{
+    return (uint)max(DecalInfo2.y, 0.0);
+}
+
+void ApplyPathTraceDynamicMaterialRecord(uint materialIndex, inout PathTraceSmokeMaterial material)
+{
+    const uint recordCount = PathTraceDynamicMaterialRecordCount();
+    if (materialIndex >= recordCount)
+    {
+        return;
+    }
+
+    const PathTraceDynamicMaterialRecord record = SmokeDynamicMaterials[materialIndex];
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        record.materialIndex != materialIndex ||
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) == 0u)
+    {
+        return;
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
+        (material.padding0 & RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK) == 0u)
+    {
+        return;
+    }
+
+    const bool stageEnabled =
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
+        record.texMatrix0.w != 0.0 &&
+        max(max(record.color.r, record.color.g), record.color.b) > 1.0e-5;
+    if (!stageEnabled)
+    {
+        material.emissiveColor = float4(0.0, 0.0, 0.0, 1.0);
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+        return;
+    }
+
+    const float stageAlpha = saturate(record.color.a);
+    const float3 stageScale = max(record.color.rgb, float3(0.0, 0.0, 0.0)) * stageAlpha;
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE) != 0u)
+    {
+        material.emissiveColor.rgb = stageScale;
+    }
+    else
+    {
+        material.emissiveColor.rgb *= stageScale;
+    }
+    material.emissiveColor.a = stageAlpha;
+    if (max(max(material.emissiveColor.r, material.emissiveColor.g), material.emissiveColor.b) <= 1.0e-5)
+    {
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+    else
+    {
+        material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+}
+
 PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
 {
     PathTraceSmokeMaterial material = (PathTraceSmokeMaterial)0;
@@ -789,6 +849,7 @@ PathTraceSmokeMaterial LoadSmokeMaterial(uint materialIndex)
     if (materialIndex < materialCount)
     {
         material = SmokeMaterials[materialIndex];
+        ApplyPathTraceDynamicMaterialRecord(materialIndex, material);
     }
     return material;
 }

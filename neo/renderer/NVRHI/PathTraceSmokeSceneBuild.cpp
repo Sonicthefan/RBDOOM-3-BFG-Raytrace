@@ -477,6 +477,10 @@ std::vector<PathTraceDynamicMaterialRecord> BuildSmokeDynamicMaterialRecords(
         {
             record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE;
         }
+        if (IsSmokeMaterialTextureVariant(record.materialId))
+        {
+            record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE;
+        }
         if (SmokeDynamicMaterialSampleHasTexMatrix(sample))
         {
             record.flags |= RT_SMOKE_DYNAMIC_MATERIAL_RECORD_HAS_TEX_MATRIX;
@@ -1586,6 +1590,98 @@ int SmokeDynamicMaterialDiffSampleRow(const RtSmokeDynamicMaterialUploadDiffSumm
 uint32_t SmokeDynamicMaterialDiffSampleId(const RtSmokeDynamicMaterialUploadDiffSummary& summary, int sampleIndex)
 {
     return sampleIndex < summary.sampleCount ? summary.sampleMaterialIds[sampleIndex] : 0;
+}
+
+void ApplySmokeDynamicMaterialRecordToGpuMaterial(uint32_t materialIndex, const std::vector<PathTraceDynamicMaterialRecord>& records, PathTraceSmokeMaterial& material)
+{
+    if (materialIndex >= records.size())
+    {
+        return;
+    }
+
+    const PathTraceDynamicMaterialRecord& record = records[materialIndex];
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        record.materialIndex != materialIndex ||
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) == 0u)
+    {
+        return;
+    }
+    const uint32_t dynamicFlags = material.padding0 & (
+        RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_RUNTIME_REGS |
+        RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_COLOR |
+        RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_ALPHA |
+        RT_SMOKE_MATERIAL_CLASSIFIER_DYNAMIC_CONDITION);
+    if (dynamicFlags == 0u || (material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u)
+    {
+        return;
+    }
+
+    const bool stageEnabled =
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
+        record.texMatrix0[3] != 0.0f &&
+        Max(Max(record.color[0], record.color[1]), record.color[2]) > 1.0e-5f;
+    if (!stageEnabled)
+    {
+        material.emissiveColor[0] = 0.0f;
+        material.emissiveColor[1] = 0.0f;
+        material.emissiveColor[2] = 0.0f;
+        material.emissiveColor[3] = 1.0f;
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+        return;
+    }
+
+    const float stageAlpha = idMath::ClampFloat(0.0f, 1.0f, record.color[3]);
+    const float stageScale[3] = {
+        Max(0.0f, record.color[0]) * stageAlpha,
+        Max(0.0f, record.color[1]) * stageAlpha,
+        Max(0.0f, record.color[2]) * stageAlpha
+    };
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE) != 0u)
+    {
+        material.emissiveColor[0] = stageScale[0];
+        material.emissiveColor[1] = stageScale[1];
+        material.emissiveColor[2] = stageScale[2];
+    }
+    else
+    {
+        material.emissiveColor[0] *= stageScale[0];
+        material.emissiveColor[1] *= stageScale[1];
+        material.emissiveColor[2] *= stageScale[2];
+    }
+    material.emissiveColor[3] = stageAlpha;
+    if (SmokeRuntimeMaterialLuminance(idVec4(material.emissiveColor[0], material.emissiveColor[1], material.emissiveColor[2], material.emissiveColor[3])) <= 1.0e-5f)
+    {
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+    else
+    {
+        material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+}
+
+bool CanUploadStableSmokeMaterialTableWithDynamicOverrides(
+    const std::vector<PathTraceSmokeMaterial>& stableMaterials,
+    const std::vector<PathTraceSmokeMaterial>& liveMaterials,
+    const std::vector<PathTraceDynamicMaterialRecord>& dynamicRecords)
+{
+    if (stableMaterials.size() != liveMaterials.size())
+    {
+        return false;
+    }
+
+    for (int materialIndex = 0; materialIndex < static_cast<int>(liveMaterials.size()); ++materialIndex)
+    {
+        const PathTraceSmokeMaterial& stable = stableMaterials[materialIndex];
+        const PathTraceSmokeMaterial& live = liveMaterials[materialIndex];
+        PathTraceSmokeMaterial overlaid = stable;
+        ApplySmokeDynamicMaterialRecordToGpuMaterial(static_cast<uint32_t>(materialIndex), dynamicRecords, overlaid);
+        if (std::memcmp(&overlaid, &live, sizeof(PathTraceSmokeMaterial)) != 0)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 uint64_t BuildSmokeRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
@@ -4016,6 +4112,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             material.specularTextureHeight = 1;
         }
     }
+    const std::vector<PathTraceSmokeMaterial> stableGpuMaterialTableMaterials = materialTable.materials;
     {
         OPTICK_EVENT("PT Runtime Material Registers");
         ApplySmokeRuntimeMaterialRegistersToTable(viewDef, materialTable, materialStats, materialTextureTableMinimum);
@@ -4024,6 +4121,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         OPTICK_EVENT("PT Dynamic Material Records");
         return BuildSmokeDynamicMaterialRecords(materialTable, materialStats, viewDef);
     }();
+    const bool stableGpuMaterialTableCovered =
+        r_pathTracingResidency.GetInteger() != 0 &&
+        r_pathTracingResidencyMaterial.GetInteger() != 0 &&
+        CanUploadStableSmokeMaterialTableWithDynamicOverrides(
+            stableGpuMaterialTableMaterials,
+            materialTable.materials,
+            dynamicMaterialRecords);
+    const std::vector<PathTraceSmokeMaterial>& gpuMaterialTableMaterials =
+        stableGpuMaterialTableCovered ? stableGpuMaterialTableMaterials : materialTable.materials;
     LogSmokeMaterialClassifierLiveSummary(materialTable, materialClassifierStats);
     RtSmokeTextureCoverageStats textureCoverageStats;
     const bool needTextureCoverageStats = enableTextureProbe && r_pathTracingSmokeLog.GetInteger() != 0;
@@ -5805,7 +5911,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bufferCreateDesc.dynamicTriangleClassBytes = dynamicTriangleClassData.size() * sizeof(dynamicTriangleClassData[0]);
     bufferCreateDesc.dynamicTriangleMaterialBytes = dynamicTriangleMaterialData.size() * sizeof(dynamicTriangleMaterialData[0]);
     bufferCreateDesc.dynamicTriangleMaterialIndexBytes = materialTable.dynamicMaterialIndexes.size() * sizeof(materialTable.dynamicMaterialIndexes[0]);
-    bufferCreateDesc.materialTableBytes = materialTable.materials.size() * sizeof(materialTable.materials[0]);
+    bufferCreateDesc.materialTableBytes = gpuMaterialTableMaterials.size() * sizeof(gpuMaterialTableMaterials[0]);
     bufferCreateDesc.dynamicMaterialBytes = dynamicMaterialRecords.size() * sizeof(dynamicMaterialRecords[0]);
     bufferCreateDesc.emissiveTriangleBytes = emissiveTriangles.size() * sizeof(emissiveTriangles[0]);
     bufferCreateDesc.previousEmissiveTriangleBytes = previousEmissiveTriangles.size() * sizeof(PathTraceSmokeEmissiveTriangle);
@@ -6345,7 +6451,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             m_smokeStaticTriangleMaterialIndexUploadSignatureValid,
             m_smokeStaticTriangleMaterialIndexUploadSignature,
             staticTriangleMaterialIndexUploadSignature);
-    const uint64 materialTableUploadSignature = BuildSmokeVectorUploadSignature(materialTable.materials);
+    const uint64 materialTableUploadSignature = BuildSmokeVectorUploadSignature(gpuMaterialTableMaterials);
     const uint64 dynamicMaterialUploadSignature = BuildSmokeVectorUploadSignature(dynamicMaterialRecords);
     int materialTableDirtyOffset = -1;
     int materialTableDirtyCount = 0;
@@ -6362,7 +6468,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         materialTableBufferReused &&
         FindSmokeVectorChangedRange(
             m_smokeMaterialTableMaterials,
-            materialTable.materials,
+            gpuMaterialTableMaterials,
             materialTableDirtyOffset,
             materialTableDirtyCount);
     int dynamicMaterialDirtyOffset = -1;
@@ -6464,7 +6570,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeDynamicTriangleClassBuffer, dynamicTriangleClassData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialBuffer, dynamicTriangleMaterialData, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeDynamicTriangleMaterialIndexBuffer, materialTable.dynamicMaterialIndexes, nvrhi::ResourceStates::ShaderResource, false),
-        MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, materialTable.materials, nvrhi::ResourceStates::ShaderResource, skipMaterialTableUpload, materialTableUploadOffset, materialTableUploadCount),
+        MakeSmokeVectorUploadItem(smokeMaterialTableBuffer, gpuMaterialTableMaterials, nvrhi::ResourceStates::ShaderResource, skipMaterialTableUpload, materialTableUploadOffset, materialTableUploadCount),
         MakeSmokeVectorUploadItem(smokeDynamicMaterialBuffer, dynamicMaterialRecords, nvrhi::ResourceStates::ShaderResource, skipDynamicMaterialUpload, dynamicMaterialUploadOffset, dynamicMaterialUploadCount),
         MakeSmokeVectorUploadItem(smokeEmissiveTriangleBuffer, emissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokePreviousEmissiveTriangleBuffer, previousEmissiveTriangles, nvrhi::ResourceStates::ShaderResource, false),
@@ -6766,7 +6872,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         const RtSmokeBufferUploadItem& dynamicMaterialUpload = uploadItems[16];
         const RtSmokeMaterialUploadDiffSummary materialDiffSummary = BuildSmokeMaterialUploadDiffSummary(
             m_smokeMaterialTableMaterials,
-            materialTable.materials,
+            gpuMaterialTableMaterials,
             materialTable.materialIds,
             materialTableUploadOffset,
             materialTableUploadCount);
@@ -6775,13 +6881,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicMaterialRecords,
             dynamicMaterialUploadOffset,
             dynamicMaterialUploadCount);
-        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/debug/emissive/texture/alpha/flags/classifier/other)=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/color/texMatrix/identity/flags/other)=%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
+        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialGpuStable=%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/debug/emissive/texture/alpha/flags/classifier/other)=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/color/texMatrix/identity/flags/other)=%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             r_pathTracingResidency.GetInteger() != 0 ? 1 : 0,
             r_pathTracingResidencyMaterial.GetInteger() != 0 ? 1 : 0,
             materialTableCacheHit ? 1 : 0,
+            stableGpuMaterialTableCovered ? 1 : 0,
             static_cast<int>(m_smokeMaterialTableMaterials.size()),
-            static_cast<int>(materialTable.materials.size()),
+            static_cast<int>(gpuMaterialTableMaterials.size()),
             materialTableBufferReused ? 1 : 0,
             static_cast<unsigned long long>(bufferCreateDesc.materialTableBytes),
             static_cast<unsigned long long>(materialTableUpload.byteSize),
@@ -7158,6 +7265,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.materials.textureDescriptorTable = bindingBuildResult.textureDescriptorTable;
     sceneInputs.materials.materialTableEntryCount = static_cast<int>(materialTable.materials.size());
     sceneInputs.materials.dynamicMaterialRecordCount = static_cast<int>(dynamicMaterialRecords.size());
+    sceneInputs.materials.materialTableGpuStable = stableGpuMaterialTableCovered;
     sceneInputs.materials.activeTextureCount = static_cast<int>(bindingBuildResult.activeTextureTable.size());
     sceneInputs.materials.materialTablePath = materialTablePath;
     sceneInputs.materials.capabilityFlags = RT_SCENE_INPUT_MATERIAL_STOPGAP_CLASSIFIER | RT_SCENE_INPUT_MATERIAL_IDTECH4_SEMANTICS_RESERVED | RT_SCENE_INPUT_MATERIAL_PBR_ROLES_RESERVED;
@@ -7298,7 +7406,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeRigidRouteSideBufferReadSlot = rigidRouteSideBufferWriteSlot;
     }
     m_smokePreviousStaticTriangleMaterialIndexes = materialTable.staticMaterialIndexes;
-    m_smokeMaterialTableMaterials = materialTable.materials;
+    m_smokeMaterialTableMaterials = gpuMaterialTableMaterials;
     m_smokeDynamicMaterialRecords = dynamicMaterialRecords;
     m_smokePreviousEmissiveTriangles = emissiveTriangles;
     m_smokePreviousStaticSnapshotUploadSignature = previousStaticSnapshotUploadSignature;

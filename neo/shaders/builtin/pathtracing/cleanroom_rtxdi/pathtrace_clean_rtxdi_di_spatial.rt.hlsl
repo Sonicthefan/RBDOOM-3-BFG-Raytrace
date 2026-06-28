@@ -67,6 +67,17 @@ struct PathTraceSmokeMaterial
     uint padding2;
 };
 
+struct PathTraceDynamicMaterialRecord
+{
+    float4 color;
+    float4 texMatrix0;
+    float4 texMatrix1;
+    uint materialIndex;
+    uint materialId;
+    uint stageIndex;
+    uint flags;
+};
+
 struct PathTraceSmokeVertex
 {
     float4 position;
@@ -115,6 +126,7 @@ StructuredBuffer<uint> SmokeStaticTriangleMaterialIndexes : register(t11);
 StructuredBuffer<uint> SmokeDynamicTriangleMaterialIndexes : register(t12);
 StructuredBuffer<PathTraceSmokeMaterial> SmokeMaterials : register(t13);
 Texture2D<float4> SmokeFallbackTexture : register(t14);
+StructuredBuffer<PathTraceDynamicMaterialRecord> SmokeDynamicMaterials : register(t15);
 StructuredBuffer<PathTraceSmokeEmissiveTriangle> SmokeEmissiveTriangles : register(t16);
 StructuredBuffer<PathTraceSmokeVertex> SmokeRigidRouteVertices : register(t22);
 StructuredBuffer<uint> SmokeRigidRouteIndices : register(t23);
@@ -202,6 +214,11 @@ static const uint RT_SMOKE_MATERIAL_PORTAL_WINDOW_FALLBACK = 0x00000200u;
 static const uint RT_SMOKE_MATERIAL_OBJECT_GLASS_FALLBACK = 0x00000400u;
 static const uint RT_SMOKE_MATERIAL_ADDITIVE_DECAL_WHITE_KEY = 0x00000800u;
 static const uint RT_SMOKE_MATERIAL_ALPHA_FROM_DIFFUSE_MAGENTA_KEY = 0x00001000u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID = 0x00000001u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED = 0x00000002u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE = 0x00000004u;
+static const uint RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE = 0x00000200u;
+static const uint RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK = 0x0000003cu;
 static const uint RT_SMOKE_TEXTURE_FLAG_USE_EMISSIVE_MAPS = 0x00000020u;
 static const uint RT_SMOKE_TEXTURE_FLAG_RESERVOIR_TWO_SIDED_EMISSIVES = 0x00000040u;
 static const float CLEAN_RTXDI_PI = 3.14159265358979323846;
@@ -227,6 +244,64 @@ static const uint CLEAN_FLAG_RESOLVE_SOLID_ANGLE_PDF = 1u << 18u;
 #define RB_RAB_CLEAN_DIAGNOSTIC_RELAX_BRDF_GATES 1
 // The clean RTXDI target function uses Remix-style material floors before reservoir weighting.
 #include "../RtxdiBridge/RAB_LightTarget.hlsli"
+
+uint CleanRtxdiDiDynamicMaterialRecordCount()
+{
+    return (uint)max(CleanRtxdiDiEmissiveDistributionInfo.w, 0.0);
+}
+
+void CleanRtxdiDiApplyDynamicMaterialRecord(uint materialIndex, inout PathTraceSmokeMaterial material)
+{
+    const uint recordCount = CleanRtxdiDiDynamicMaterialRecordCount();
+    if (materialIndex >= recordCount)
+    {
+        return;
+    }
+
+    const PathTraceDynamicMaterialRecord record = SmokeDynamicMaterials[materialIndex];
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_VALID) == 0u ||
+        record.materialIndex != materialIndex ||
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_SELECTED_EMISSIVE) == 0u)
+    {
+        return;
+    }
+    if ((material.flags & RT_SMOKE_MATERIAL_EMISSIVE) == 0u ||
+        (material.padding0 & RT_SMOKE_MATERIAL_DYNAMIC_EMISSIVE_REGISTER_MASK) == 0u)
+    {
+        return;
+    }
+
+    const bool stageEnabled =
+        (record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_STAGE_ENABLED) != 0u &&
+        record.texMatrix0.w != 0.0 &&
+        max(max(record.color.r, record.color.g), record.color.b) > 1.0e-5;
+    if (!stageEnabled)
+    {
+        material.emissiveColor = float4(0.0, 0.0, 0.0, 1.0);
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+        return;
+    }
+
+    const float stageAlpha = saturate(record.color.a);
+    const float3 stageScale = max(record.color.rgb, float3(0.0, 0.0, 0.0)) * stageAlpha;
+    if ((record.flags & RT_SMOKE_DYNAMIC_MATERIAL_RECORD_REPLACE_EMISSIVE) != 0u)
+    {
+        material.emissiveColor.rgb = stageScale;
+    }
+    else
+    {
+        material.emissiveColor.rgb *= stageScale;
+    }
+    material.emissiveColor.a = stageAlpha;
+    if (max(max(material.emissiveColor.r, material.emissiveColor.g), material.emissiveColor.b) <= 1.0e-5)
+    {
+        material.flags &= ~RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+    else
+    {
+        material.flags |= RT_SMOKE_MATERIAL_EMISSIVE;
+    }
+}
 
 static const float2 CLEAN_RTXDI_DI_SPATIAL_NEIGHBOR_OFFSETS[32] =
 {
@@ -744,6 +819,7 @@ PathTraceSmokeMaterial CleanLoadSmokeMaterial(uint materialIndex)
     if (materialIndex < (uint)CleanRtxdiDiTextureInfo.z)
     {
         material = SmokeMaterials[materialIndex];
+        CleanRtxdiDiApplyDynamicMaterialRecord(materialIndex, material);
     }
     return material;
 }
