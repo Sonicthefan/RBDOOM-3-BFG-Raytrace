@@ -300,6 +300,7 @@ private:
     const void* m_smokeSceneRenderWorld = nullptr;
     idStr m_smokeSceneMapName;
 	ID_TIME_T m_smokeSceneMapTimeStamp = 0;
+	uint64 m_smokeSceneMapLoadSerial = 0;
 	idStr m_pathTracePostLutName;
 	nvrhi::TextureHandle m_pathTracePostLutTexture;
 	int m_pathTracePostLutWidth = 0;

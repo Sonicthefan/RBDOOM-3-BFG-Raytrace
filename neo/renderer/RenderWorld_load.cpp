@@ -734,6 +734,7 @@ bool idRenderWorldLocal::InitFromMap( const char* name )
 	idLexer* 		src;
 	idToken			token;
 	idRenderModel* 	lastModel;
+	++mapLoadSerial;
 
 	// if this is an empty world, initialize manually
 	if( !name || !name[0] )

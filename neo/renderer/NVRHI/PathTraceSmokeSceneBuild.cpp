@@ -3176,13 +3176,16 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     const bool renderWorldChanged = m_smokeSceneRenderWorld != renderWorld;
     const bool mapChanged = m_smokeSceneMapName.Icmp(renderWorld->mapName) != 0 || m_smokeSceneMapTimeStamp != renderWorld->mapTimeStamp;
-    if (renderWorldChanged || mapChanged)
+    const bool mapLoadChanged = m_smokeSceneMapLoadSerial != renderWorld->mapLoadSerial;
+    if (renderWorldChanged || mapChanged || mapLoadChanged)
     {
         if (m_smokeSceneRenderWorld || m_smokeSceneMapName.Length() > 0)
         {
-            common->Printf("PathTracePrimaryPass: PT render world map changed '%s' -> '%s'; clearing scene caches\n",
+            common->Printf("PathTracePrimaryPass: PT render world map changed '%s' -> '%s' serial %llu -> %llu; clearing scene caches\n",
                 m_smokeSceneMapName.c_str(),
-                renderWorld->mapName.c_str());
+                renderWorld->mapName.c_str(),
+                static_cast<unsigned long long>(m_smokeSceneMapLoadSerial),
+                static_cast<unsigned long long>(renderWorld->mapLoadSerial));
         }
         nvrhi::IDevice* resetDevice = deviceManager ? deviceManager->GetDevice() : nullptr;
         if (resetDevice)
@@ -3198,6 +3201,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeSceneRenderWorld = renderWorld;
         m_smokeSceneMapName = renderWorld->mapName;
         m_smokeSceneMapTimeStamp = renderWorld->mapTimeStamp;
+        m_smokeSceneMapLoadSerial = renderWorld->mapLoadSerial;
     }
     if (viewDef && m_smokeLightUniverseRenderWorld != viewDef->renderWorld)
     {
