@@ -16,6 +16,7 @@
 #include "PathTraceSkinning.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
+#include "../Model_local.h"
 #include "../RenderCommon.h"
 
 #include <algorithm>
@@ -38,6 +39,41 @@ void AddSmokeSurfaceSkipStats(RtSmokeSurfaceSkipStats& dst, const RtSmokeSurface
     dst.emptyClassBuffer += src.emptyClassBuffer;
     dst.guiSurface += src.guiSurface;
     dst.callbackEntity += src.callbackEntity;
+}
+
+bool DrawSurfCanUseGpuSkinningVertexOverwrite(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass, bool gpuSkinningOverwriteEnabled)
+{
+    if (!gpuSkinningOverwriteEnabled ||
+        surfaceClass != RtSmokeSurfaceClass::SkinnedDeformed ||
+        !drawSurf ||
+        !tri ||
+        !tri->verts ||
+        !GetSmokeRtCpuSkinningJoints(tri))
+    {
+        return false;
+    }
+
+    const viewEntity_t* space = drawSurf->space;
+    const idRenderEntityLocal* entityDef = space ? space->entityDef : nullptr;
+    const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
+    const int jointCount = tri->staticModelWithJoints ? tri->staticModelWithJoints->numInvertedJoints : (renderEntity ? renderEntity->numJoints : 0);
+    if (jointCount <= 0)
+    {
+        return false;
+    }
+
+    for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
+    {
+        const idDrawVert& drawVert = tri->verts[vertexIndex];
+        for (int component = 0; component < 4; ++component)
+        {
+            if (static_cast<int>(drawVert.color[component]) >= jointCount)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 uint32_t PtDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfTriangles_t* tri, uint32_t materialId, uint32_t localTriangleIndex)
@@ -714,7 +750,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache,
     RtPathTraceInstanceUniverse* instanceUniverse,
     std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines,
-    bool recordAllInstanceClasses)
+    bool recordAllInstanceClasses,
+    bool gpuSkinningOverwriteSkinnedDynamicVertices)
 {
     OPTICK_EVENT("PT Capture Dynamic Frame From DrawSurf Mirror");
 
@@ -1018,6 +1055,8 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
             std::vector<uint32_t>& bucketInstances = bucketTriangleInstanceData[bucketIndex];
             std::vector<uint32_t>& bucketIdentities = bucketTriangleIdentityData[bucketIndex];
             const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
+            const bool bypassRtCpuSkinning =
+                DrawSurfCanUseGpuSkinningVertexOverwrite(drawSurf, tri, surfaceClass, gpuSkinningOverwriteSkinnedDynamicVertices);
             const int bucketVertexStart = static_cast<int>(bucketVertices.size());
             const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
             const int bucketTriangleStart = static_cast<int>(bucketClasses.size());
@@ -1036,11 +1075,18 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 bucketClasses,
                 bucketMaterials,
                 skipStats,
-                attributeStats);
+                attributeStats,
+                bypassRtCpuSkinning);
             const int appendMs = Sys_Milliseconds() - appendStartMs;
             captureTiming.dynamicAppendMs += appendMs;
             captureTiming.appendMs += appendMs;
-            if (usesRtCpuSkinning)
+            if (bypassRtCpuSkinning)
+            {
+                captureTiming.gpuSkinningBypassAppendMs += appendMs;
+                ++captureTiming.gpuSkinningBypassSurfaces;
+                captureTiming.gpuSkinningBypassIndexes += emittedIndexes;
+            }
+            else if (usesRtCpuSkinning)
             {
                 captureTiming.rtCpuSkinningAppendMs += appendMs;
             }

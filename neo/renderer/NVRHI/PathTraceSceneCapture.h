@@ -301,6 +301,9 @@ struct RtSmokeSceneCaptureTiming
     int dynamicPassClassifyMs = 0;
     int dynamicAppendMs = 0;
     int rtCpuSkinningAppendMs = 0;
+    int gpuSkinningBypassAppendMs = 0;
+    int gpuSkinningBypassSurfaces = 0;
+    int gpuSkinningBypassIndexes = 0;
     int appendMs = 0;
     int bucketMergeMs = 0;
     int staticCachedSurfaces = 0;
@@ -421,7 +424,8 @@ int AppendSmokeSurfaceGeometry(
     std::vector<uint32_t>& triangleClasses,
     std::vector<uint32_t>& triangleMaterials,
     RtSmokeSurfaceSkipStats& skipStats,
-    RtSmokeAttributeStats& attributeStats);
+    RtSmokeAttributeStats& attributeStats,
+    bool bypassRtCpuSkinning = false);
 void AddSmokeSkinnedSurfaceRecord(
     std::vector<RtSmokeSkinnedSurfaceRecord>* records,
     const drawSurf_t* drawSurf,
@@ -466,4 +470,5 @@ bool CaptureDoomSurfacesForSmokeTest(
     std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords = nullptr,
     bool skipStaticWorldCapture = false,
     bool skipPromotedStaticSurfaceCapture = false,
-    bool skipDynamicCapture = false);
+    bool skipDynamicCapture = false,
+    bool gpuSkinningOverwriteSkinnedDynamicVertices = false);
