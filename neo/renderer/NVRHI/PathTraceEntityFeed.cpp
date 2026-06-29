@@ -891,6 +891,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     materialCache.materialRecords.reserve(256);
     materialCache.materialEmissive.reserve(256);
     materialCache.activeEmissiveStage.reserve(256);
+    const bool rigidSkinnedFeedEnabled = r_pathTracingEntityFeedRigidSkinned.GetInteger() != 0;
 
     if (!renderWorld)
     {
@@ -990,7 +991,9 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             }
             idRenderModel* sourceModel = model;
             idRenderModel* temporaryModel = nullptr;
-            if (sourceModel->IsDynamicModel() != DM_STATIC && EntityFeedModelHasJointData(entity, sourceModel))
+            if (rigidSkinnedFeedEnabled &&
+                sourceModel->IsDynamicModel() != DM_STATIC &&
+                EntityFeedModelHasJointData(entity, sourceModel))
             {
                 temporaryModel = sourceModel->InstantiateDynamicModel(&entity->parms, viewDef, nullptr);
                 if (temporaryModel)
@@ -1101,6 +1104,14 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     continue;
                 }
                 const bool rigidSkinned = feedClass == RtPtFeedClass::RigidSkinned;
+                if (rigidSkinned && !rigidSkinnedFeedEnabled)
+                {
+                    if (residentBaseHit)
+                    {
+                        ++stats.residencyCacheHits;
+                    }
+                    continue;
+                }
                 if (rigidSkinned && visibleDrawSurf)
                 {
                     if (residentBaseHit)

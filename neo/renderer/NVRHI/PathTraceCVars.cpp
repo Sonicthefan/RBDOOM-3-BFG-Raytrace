@@ -381,6 +381,12 @@ idCVar r_pathTracingEntityFeed(
     CVAR_RENDERER | CVAR_INTEGER,
     "Master gate for the entityDef-feed BVH producer. 0 = legacy fallback behavior." );
 
+idCVar r_pathTracingEntityFeedRigidSkinned(
+    "r_pathTracingEntityFeedRigidSkinned",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Enable EDF-13 single-bone rigid-skinned entity-feed routing. 0 avoids dynamic skinned model instantiation in the producer." );
+
 idCVar r_pathTracingEntityFeedDump(
     "r_pathTracingEntityFeedDump",
     "0",

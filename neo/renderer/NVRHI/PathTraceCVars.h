@@ -70,6 +70,7 @@ extern idCVar r_pathTracingGeometryLifecycleStage;
 extern idCVar r_pathTracingGeometryLifecycleDump;
 extern idCVar r_pathTracingGeometryResidencyV2;
 extern idCVar r_pathTracingEntityFeed;
+extern idCVar r_pathTracingEntityFeedRigidSkinned;
 extern idCVar r_pathTracingEntityFeedDump;
 extern idCVar r_pathTracingEntityFeedMaxDepth;
 extern idCVar r_pathTracingEntityFeedMaxDistance;
