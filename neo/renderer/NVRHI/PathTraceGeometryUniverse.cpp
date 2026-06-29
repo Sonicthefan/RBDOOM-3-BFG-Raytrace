@@ -4749,6 +4749,16 @@ uint64_t BuildRigidRouteGeometryUploadSignature(const RtPathTraceRigidRouteBuild
         static_cast<int>(sizeof(spans) / sizeof(spans[0])));
 }
 
+uint64_t BuildRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
+{
+    const RtSmokePlanDataSpan spans[] = {
+        MakeRigidRoutePlanDataSpan(build.instances)
+    };
+    return BuildSmokePlanDataSpanSignature(
+        spans,
+        static_cast<int>(sizeof(spans) / sizeof(spans[0])));
+}
+
 RtPathTraceRigidRouteBuildTimedResult BuildRigidRouteBuffersTimedResult(
     const RtPathTraceRigidRouteBuildSnapshot& snapshot)
 {
@@ -4756,7 +4766,9 @@ RtPathTraceRigidRouteBuildTimedResult BuildRigidRouteBuffersTimedResult(
     RtPathTraceRigidRouteBuildTimedResult result;
     result.build = BuildRigidRouteBuffersFromSnapshot(snapshot);
     result.geometryUploadSignature = BuildRigidRouteGeometryUploadSignature(result.build);
+    result.instanceUploadSignature = BuildRigidRouteInstanceUploadSignature(result.build);
     result.geometryUploadSignatureValid = true;
+    result.instanceUploadSignatureValid = true;
     const auto end = std::chrono::steady_clock::now();
     result.buildTimeMicros = static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());

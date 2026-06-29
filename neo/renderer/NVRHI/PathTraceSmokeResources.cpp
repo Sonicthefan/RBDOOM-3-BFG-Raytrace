@@ -2164,10 +2164,12 @@ void PathTracePrimaryPass::ResetRayTracingSmokeAsyncCpuWork()
     m_smokeRigidRouteBuildAsyncTiming = RtPathTraceCpuWorkTiming();
     m_smokeRigidRouteBuildAsyncCachedBuild = RtPathTraceRigidRouteBuild();
     m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature = 0;
+    m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature = 0;
     m_smokeRigidRouteBuildAsyncLaunchMs = 0;
     m_smokeRigidRouteBuildAsyncGenerationValid = false;
     m_smokeRigidRouteBuildAsyncCachedBuildValid = false;
     m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = false;
+    m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid = false;
 
     m_smokeBvhFramePlanningAsyncGeneration = RtPathTraceCpuWorkGeneration();
     m_smokeBvhFramePlanningAsyncCachedGeneration = RtPathTraceCpuWorkGeneration();

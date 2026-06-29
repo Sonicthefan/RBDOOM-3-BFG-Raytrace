@@ -1721,16 +1721,6 @@ bool CanUploadStableSmokeMaterialTableWithDynamicOverrides(
     return true;
 }
 
-uint64_t BuildSmokeRigidRouteInstanceUploadSignature(const RtPathTraceRigidRouteBuild& build)
-{
-    const RtSmokePlanDataSpan spans[] = {
-        MakeSmokePlanDataSpan(build.instances)
-    };
-    return BuildSmokePlanDataSpanSignature(
-        spans,
-        static_cast<int>(sizeof(spans) / sizeof(spans[0])));
-}
-
 uint64_t BuildSmokeRigidRouteMaterialIdSignature(const std::vector<uint32_t>& materialTableIds)
 {
     uint64_t hash = 14695981039346656037ull;
@@ -1827,7 +1817,7 @@ void CopySmokeRigidRouteTransformRows(float dst[12], const float objectToWorld[1
     dst[11] = objectToWorld[14];
 }
 
-void RefreshSmokeRigidRouteBuildInstanceTransforms(
+bool RefreshSmokeRigidRouteBuildInstanceTransforms(
     RtPathTraceRigidRouteBuild& build,
     const RtSmokeRigidTlasPlan& plan)
 {
@@ -1835,6 +1825,7 @@ void RefreshSmokeRigidRouteBuildInstanceTransforms(
     build.stats.transformContinuousInstances = 0;
     build.stats.emittedSeenThisFrame = 0;
     build.stats.emittedFromCache = 0;
+    bool instanceRecordsChanged = false;
 
     const int instanceCount = Min(
         static_cast<int>(build.instances.size()),
@@ -1842,6 +1833,7 @@ void RefreshSmokeRigidRouteBuildInstanceTransforms(
     for (int instanceIndex = 0; instanceIndex < instanceCount; ++instanceIndex)
     {
         PathTraceRigidRouteInstance& routeInstance = build.instances[instanceIndex];
+        const PathTraceRigidRouteInstance previousRouteInstance = routeInstance;
         const RtSmokePlanTlasInstance& plannedInstance = plan.instances[instanceIndex];
         routeInstance.instanceIdLo = static_cast<uint32_t>(plannedInstance.sourceInstanceId & 0xffffffffull);
         routeInstance.instanceIdHi = static_cast<uint32_t>((plannedInstance.sourceInstanceId >> 32) & 0xffffffffull);
@@ -1875,6 +1867,10 @@ void RefreshSmokeRigidRouteBuildInstanceTransforms(
             }
         }
 
+        if (std::memcmp(&previousRouteInstance, &routeInstance, sizeof(routeInstance)) != 0)
+        {
+            instanceRecordsChanged = true;
+        }
         if (routeInstance.triangleCount == 0)
         {
             continue;
@@ -1896,6 +1892,8 @@ void RefreshSmokeRigidRouteBuildInstanceTransforms(
             ++build.stats.emittedFromCache;
         }
     }
+
+    return instanceRecordsChanged;
 }
 
 const RtSmokeRigidTlasObservation* FindSmokeRigidTlasObservationForPlanInstance(
@@ -4233,7 +4231,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     bool rigidRouteBuildAsyncCached = false;
     bool rigidRouteBuildAsyncQueued = false;
     uint64_t rigidRouteGeometryUploadSignature = 0;
+    uint64_t rigidRouteInstanceUploadSignature = 0;
     bool rigidRouteGeometryUploadSignatureValid = false;
+    bool rigidRouteInstanceUploadSignatureValid = false;
     if (buildRigidRouteBuffers)
     {
         OPTICK_EVENT("PT Rigid Route Buffers");
@@ -4309,11 +4309,15 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     {
                         rigidRouteBuild = timedResult.build;
                         rigidRouteGeometryUploadSignature = timedResult.geometryUploadSignature;
+                        rigidRouteInstanceUploadSignature = timedResult.instanceUploadSignature;
                         rigidRouteGeometryUploadSignatureValid = timedResult.geometryUploadSignatureValid;
+                        rigidRouteInstanceUploadSignatureValid = timedResult.instanceUploadSignatureValid;
                         rigidRouteBuildMs = 0;
                         m_smokeRigidRouteBuildAsyncCachedBuild = timedResult.build;
                         m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature = timedResult.geometryUploadSignature;
+                        m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature = timedResult.instanceUploadSignature;
                         m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = timedResult.geometryUploadSignatureValid;
+                        m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid = timedResult.instanceUploadSignatureValid;
                         m_smokeRigidRouteBuildAsyncCachedGeneration = m_smokeRigidRouteBuildAsyncGeneration;
                         m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
                         rigidRouteBuildAcceptedFromAsync = true;
@@ -4331,7 +4335,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             {
                 rigidRouteBuild = m_smokeRigidRouteBuildAsyncCachedBuild;
                 rigidRouteGeometryUploadSignature = m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature;
+                rigidRouteInstanceUploadSignature = m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature;
                 rigidRouteGeometryUploadSignatureValid = m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid;
+                rigidRouteInstanceUploadSignatureValid = m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid;
                 rigidRouteBuildMs = 0;
                 rigidRouteBuildAcceptedFromAsync = true;
                 rigidRouteBuildAsyncCached = true;
@@ -4344,7 +4350,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                     OPTICK_EVENT("PT Rigid Route Sync Build");
                     rigidRouteBuild = BuildRigidRouteBuffersFromSnapshot(CaptureRigidRoutePayloadSnapshot());
                     rigidRouteGeometryUploadSignature = BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
+                    rigidRouteInstanceUploadSignature = BuildRigidRouteInstanceUploadSignature(rigidRouteBuild);
                     rigidRouteGeometryUploadSignatureValid = true;
+                    rigidRouteInstanceUploadSignatureValid = true;
                 }
                 rigidRouteBuildMs = Sys_Milliseconds() - rigidRouteBuildStartMs;
                 RtPathTraceCpuWorkResultEnvelope rigidRouteEnvelope;
@@ -4383,13 +4391,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             {
                 m_smokeRigidRouteBuildAsyncCachedBuild = rigidRouteBuild;
                 m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignature = rigidRouteGeometryUploadSignature;
+                m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignature = rigidRouteInstanceUploadSignature;
                 m_smokeRigidRouteBuildAsyncCachedGeometryUploadSignatureValid = rigidRouteGeometryUploadSignatureValid;
+                m_smokeRigidRouteBuildAsyncCachedInstanceUploadSignatureValid = rigidRouteInstanceUploadSignatureValid;
                 m_smokeRigidRouteBuildAsyncCachedGeneration = rigidRouteBuildGeneration;
                 m_smokeRigidRouteBuildAsyncCachedBuildValid = true;
             }
             {
                 OPTICK_EVENT("PT Rigid Route Refresh Transforms");
-                RefreshSmokeRigidRouteBuildInstanceTransforms(rigidRouteBuild, rigidTlasPlan);
+                if (RefreshSmokeRigidRouteBuildInstanceTransforms(rigidRouteBuild, rigidTlasPlan))
+                {
+                    rigidRouteInstanceUploadSignatureValid = false;
+                }
             }
             rigidRouteBuildAsyncQueued = m_smokeRigidRouteBuildFuture.valid();
         }
@@ -4459,12 +4472,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         rigidRouteGeometryUploadSignature = BuildRigidRouteGeometryUploadSignature(rigidRouteBuild);
         rigidRouteGeometryUploadSignatureValid = true;
     }
-    const uint64_t rigidRouteInstanceUploadSignature = buildRigidRouteBuffers
-        ? [&]() {
-            OPTICK_EVENT("PT Rigid Route Instance Upload Signature");
-            return BuildSmokeRigidRouteInstanceUploadSignature(rigidRouteBuild);
-        }()
-        : 0;
+    if (buildRigidRouteBuffers && !rigidRouteInstanceUploadSignatureValid)
+    {
+        OPTICK_EVENT("PT Rigid Route Instance Upload Signature");
+        rigidRouteInstanceUploadSignature = BuildRigidRouteInstanceUploadSignature(rigidRouteBuild);
+        rigidRouteInstanceUploadSignatureValid = true;
+    }
     if (r_pathTracingSmokeLog.GetInteger() != 0 &&
         (dynamicTexMatrixVertices > 0 || rigidRouteTexMatrixVertices > 0) &&
         (m_smokeGeometryFrameIndex % 120ull) == 1ull)
