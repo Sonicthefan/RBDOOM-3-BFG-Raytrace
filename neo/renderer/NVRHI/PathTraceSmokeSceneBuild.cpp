@@ -3493,13 +3493,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         }
         if (useDrawSurfMirrorDynamicFrame)
         {
+            const bool staticAreaPreloadEnabled =
+                r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
+                r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
+            const bool staticResidencyOwnsVisibleStatics =
+                staticAreaPreloadEnabled &&
+                r_pathTracingResidency.GetInteger() != 0 &&
+                r_pathTracingResidencyStatic.GetInteger() != 0;
+            if (!staticResidencyOwnsVisibleStatics)
             {
                 OPTICK_EVENT("PT Capture Visible Doom Surfaces");
                 usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true);
             }
-            const bool staticAreaPreloadEnabled =
-                r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
-                r_pathTracingPortalBruteforceFullMap.GetInteger() != 0;
             if (staticAreaPreloadEnabled)
             {
                 OPTICK_EVENT("PT Static Area Preload");
