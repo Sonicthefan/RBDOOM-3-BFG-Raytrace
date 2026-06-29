@@ -1750,6 +1750,12 @@ void EnsureDoomPersistentStaticLightListEntry(DoomAnalyticLightUniverseState& st
     {
         return;
     }
+    if (entry.staticListIndex >= 0 &&
+        entry.staticListIndex < static_cast<int>(state.persistentStaticUniverseList.size()) &&
+        state.persistentStaticUniverseList[entry.staticListIndex] == entry.universeIndex)
+    {
+        return;
+    }
     const int existingIndex = FindDoomPersistentStaticUniverseIndex(state.persistentStaticUniverseList, entry.universeIndex);
     if (existingIndex >= 0)
     {
@@ -1768,18 +1774,33 @@ void UpdateDoomPersistentAuthoredLightRegistry(
     ++state.frameIndex;
     state.persistentStats = DoomPersistentAuthoredLightStats();
 
-    std::unordered_map<DoomAnalyticLightUniverseKey, int, DoomAnalyticLightUniverseKeyHash> persistentEntryByKey;
-    persistentEntryByKey.reserve(state.persistentAuthoredLights.size() + records.size());
-    for (int entryIndex = 0; entryIndex < static_cast<int>(state.persistentAuthoredLights.size()); ++entryIndex)
+    int maxLightIndex = -1;
+    for (const DoomPersistentAuthoredLightEntry& entry : state.persistentAuthoredLights)
     {
-        persistentEntryByKey.emplace(state.persistentAuthoredLights[entryIndex].key, entryIndex);
+        if (entry.key.renderLightIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX)
+        {
+            maxLightIndex = Max(maxLightIndex, static_cast<int>(entry.key.renderLightIndex));
+        }
     }
-
-    std::unordered_map<DoomAnalyticLightUniverseKey, int, DoomAnalyticLightUniverseKeyHash> rawFrameKeyCounts;
-    rawFrameKeyCounts.reserve(records.size());
     for (const DoomLightRecord& record : records)
     {
-        ++rawFrameKeyCounts[MakeDoomAnalyticLightUniverseKey(record)];
+        maxLightIndex = Max(maxLightIndex, record.index);
+    }
+
+    std::vector<int> persistentEntryByLightIndex;
+    if (maxLightIndex >= 0)
+    {
+        persistentEntryByLightIndex.assign(static_cast<size_t>(maxLightIndex + 1), -1);
+    }
+    for (int entryIndex = 0; entryIndex < static_cast<int>(state.persistentAuthoredLights.size()); ++entryIndex)
+    {
+        const DoomAnalyticLightUniverseKey& key = state.persistentAuthoredLights[entryIndex].key;
+        if (key.renderLightIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX &&
+            key.renderLightIndex < static_cast<uint32_t>(persistentEntryByLightIndex.size()))
+        {
+            // Newer entries are appended later; let them win after render-light slot reuse.
+            persistentEntryByLightIndex[key.renderLightIndex] = entryIndex;
+        }
     }
 
     for (DoomPersistentAuthoredLightEntry& entry : state.persistentAuthoredLights)
@@ -1805,11 +1826,24 @@ void UpdateDoomPersistentAuthoredLightRegistry(
     for (const DoomLightRecord& record : records)
     {
         const DoomAnalyticLightUniverseKey key = MakeDoomAnalyticLightUniverseKey(record);
-        const auto rawCountIt = rawFrameKeyCounts.find(key);
-        const bool duplicateKeyInRawFrame = rawCountIt != rawFrameKeyCounts.end() && rawCountIt->second > 1;
-        const bool staticAuthored = IsDoomPersistentStaticAuthoredLight(record);
-        const auto entryIt = persistentEntryByKey.find(key);
-        int entryIndex = entryIt != persistentEntryByKey.end() ? entryIt->second : -1;
+        const bool duplicateKeyInRawFrame =
+            key.renderLightIndex == RT_PT_DOOM_LIGHT_INVALID_INDEX &&
+            DoomRawFrameKeyIsDuplicate(records, key);
+        const bool continuityProven = DoomLightContinuityProvenForTask01(record);
+        const bool structuralLight = IsDoomAnalyticUniverseStructuralLight(record);
+        const bool staticAuthored = continuityProven && structuralLight;
+        int entryIndex = -1;
+        if (key.renderLightIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX &&
+            key.renderLightIndex < static_cast<uint32_t>(persistentEntryByLightIndex.size()))
+        {
+            const int candidateEntryIndex = persistentEntryByLightIndex[key.renderLightIndex];
+            if (candidateEntryIndex >= 0 &&
+                candidateEntryIndex < static_cast<int>(state.persistentAuthoredLights.size()) &&
+                state.persistentAuthoredLights[candidateEntryIndex].key == key)
+            {
+                entryIndex = candidateEntryIndex;
+            }
+        }
         const bool isNewEntry = entryIndex < 0;
         if (isNewEntry)
         {
@@ -1820,7 +1854,11 @@ void UpdateDoomPersistentAuthoredLightRegistry(
             entry.staticAuthored = staticAuthored;
             state.persistentAuthoredLights.push_back(entry);
             entryIndex = static_cast<int>(state.persistentAuthoredLights.size()) - 1;
-            persistentEntryByKey.emplace(key, entryIndex);
+            if (key.renderLightIndex != RT_PT_DOOM_LIGHT_INVALID_INDEX &&
+                key.renderLightIndex < static_cast<uint32_t>(persistentEntryByLightIndex.size()))
+            {
+                persistentEntryByLightIndex[key.renderLightIndex] = entryIndex;
+            }
         }
 
         DoomPersistentAuthoredLightEntry& entry = state.persistentAuthoredLights[entryIndex];
@@ -1828,11 +1866,11 @@ void UpdateDoomPersistentAuthoredLightRegistry(
         EnsureDoomPersistentStaticLightListEntry(state, entry);
         entry.currentSeen = true;
         entry.currentActive = record.active;
-        entry.currentSampleable = IsDoomAnalyticUniverseSampleableLight(record);
+        entry.currentSampleable = structuralLight && !record.suppressed && record.active;
         entry.currentSelectedArea = record.selectedArea;
         entry.currentConnectedArea = record.connectedArea;
         entry.currentSuppressed = record.suppressed;
-        entry.currentContinuityProven = DoomLightContinuityProvenForTask01(record);
+        entry.currentContinuityProven = continuityProven;
         entry.currentTemporaryOrDynamic = !entry.currentContinuityProven;
         entry.currentDuplicateKey = entry.currentDuplicateKey || duplicateKeyInRawFrame;
         entry.currentPointLight = record.pointLight;
