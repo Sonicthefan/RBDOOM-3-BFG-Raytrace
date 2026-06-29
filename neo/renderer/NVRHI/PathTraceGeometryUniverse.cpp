@@ -1095,11 +1095,7 @@ void RefreshRigidMeshCandidateCpuCache(RtSmokeGeometryUniverse::RigidMeshCandida
         record.cachedLocalIndexes[indexIndex] = static_cast<uint32_t>(sourceIndex);
     }
 
-    record.localBounds.Clear();
-    for (const PathTraceSmokeVertex& vertex : record.cachedLocalVertices)
-    {
-        record.localBounds.AddPoint(SmokeVertexPosition(vertex));
-    }
+    record.localBounds = record.tri->bounds;
     record.localBoundsValid = !record.localBounds.IsCleared();
 }
 

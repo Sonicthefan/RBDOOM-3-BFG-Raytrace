@@ -13,7 +13,6 @@
 #include "PathTraceSceneUniverse.h"
 #include "PathTraceSurfaceClassification.h"
 #include "PathTraceTextureRegistry.h"
-#include "../Model_local.h"
 #include "../RenderCommon.h"
 #include "../RenderWorld_local.h"
 
@@ -220,7 +219,6 @@ struct EntityFeedRigidCandidate
     float distance = 0.0f;
     bool onScreen = false;
     bool emissive = false;
-    bool rigidSkinned = false;
 };
 
 struct EntityFeedCapturedRigidSurface
@@ -237,7 +235,6 @@ struct EntityFeedCapturedRigidSurface
     float projectedSize = 0.0f;
     bool onScreen = false;
     bool emissive = false;
-    bool rigidSkinned = false;
     idStr materialName;
     idStr modelName;
 };
@@ -582,65 +579,6 @@ float EntityFeedProjectedSizeProxy(const idRenderEntityLocal* entity, float dist
     return radius / safeDistance;
 }
 
-bool BuildEntityFeedRigidSkinnedObjectToWorld(
-    const idRenderEntityLocal* entity,
-    const srfTriangles_t* tri,
-    int jointIndex,
-    float objectToWorld[16])
-{
-    if (!entity ||
-        !tri ||
-        !tri->staticModelWithJoints ||
-        !tri->staticModelWithJoints->jointsInverted ||
-        jointIndex < 0 ||
-        jointIndex >= tri->staticModelWithJoints->numInvertedJoints)
-    {
-        return false;
-    }
-
-    const float* entityMatrix = entity->modelMatrix;
-    const float* joint = tri->staticModelWithJoints->jointsInverted[jointIndex].ToFloatPtr();
-
-    objectToWorld[0] = joint[0] * entityMatrix[0] + joint[4] * entityMatrix[4] + joint[8] * entityMatrix[8];
-    objectToWorld[1] = joint[0] * entityMatrix[1] + joint[4] * entityMatrix[5] + joint[8] * entityMatrix[9];
-    objectToWorld[2] = joint[0] * entityMatrix[2] + joint[4] * entityMatrix[6] + joint[8] * entityMatrix[10];
-    objectToWorld[3] = 0.0f;
-
-    objectToWorld[4] = joint[1] * entityMatrix[0] + joint[5] * entityMatrix[4] + joint[9] * entityMatrix[8];
-    objectToWorld[5] = joint[1] * entityMatrix[1] + joint[5] * entityMatrix[5] + joint[9] * entityMatrix[9];
-    objectToWorld[6] = joint[1] * entityMatrix[2] + joint[5] * entityMatrix[6] + joint[9] * entityMatrix[10];
-    objectToWorld[7] = 0.0f;
-
-    objectToWorld[8] = joint[2] * entityMatrix[0] + joint[6] * entityMatrix[4] + joint[10] * entityMatrix[8];
-    objectToWorld[9] = joint[2] * entityMatrix[1] + joint[6] * entityMatrix[5] + joint[10] * entityMatrix[9];
-    objectToWorld[10] = joint[2] * entityMatrix[2] + joint[6] * entityMatrix[6] + joint[10] * entityMatrix[10];
-    objectToWorld[11] = 0.0f;
-
-    objectToWorld[12] = joint[3] * entityMatrix[0] + joint[7] * entityMatrix[4] + joint[11] * entityMatrix[8] + entityMatrix[12];
-    objectToWorld[13] = joint[3] * entityMatrix[1] + joint[7] * entityMatrix[5] + joint[11] * entityMatrix[9] + entityMatrix[13];
-    objectToWorld[14] = joint[3] * entityMatrix[2] + joint[7] * entityMatrix[6] + joint[11] * entityMatrix[10] + entityMatrix[14];
-    objectToWorld[15] = 1.0f;
-    return true;
-}
-
-bool BuildEntityFeedObjectToWorld(
-    const idRenderEntityLocal* entity,
-    const srfTriangles_t* tri,
-    int jointIndex,
-    float objectToWorld[16])
-{
-    if (!entity)
-    {
-        return false;
-    }
-    if (jointIndex >= 0)
-    {
-        return BuildEntityFeedRigidSkinnedObjectToWorld(entity, tri, jointIndex, objectToWorld);
-    }
-    memcpy(objectToWorld, entity->modelMatrix, sizeof(float) * 16);
-    return true;
-}
-
 bool EntityFeedMaterialIsEmissive(uint32_t materialId)
 {
     const RtSmokeMaterialTextureInfo info = ResolveSmokeMaterialTextureInfo(materialId, -1);
@@ -751,7 +689,6 @@ EntityFeedRigidCandidate BuildEntityFeedRigidCandidate(const EntityFeedCapturedR
     candidate.distance = captured.distance;
     candidate.onScreen = captured.onScreen;
     candidate.emissive = captured.emissive;
-    candidate.rigidSkinned = captured.rigidSkinned;
     candidate.priority = EntityFeedCandidatePriority(
         captured.onScreen,
         captured.emissive,
@@ -891,7 +828,6 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     materialCache.materialRecords.reserve(256);
     materialCache.materialEmissive.reserve(256);
     materialCache.activeEmissiveStage.reserve(256);
-    const bool rigidSkinnedFeedEnabled = r_pathTracingEntityFeedRigidSkinned.GetInteger() != 0;
 
     if (!renderWorld)
     {
@@ -989,18 +925,6 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             {
                 continue;
             }
-            idRenderModel* sourceModel = model;
-            idRenderModel* temporaryModel = nullptr;
-            if (rigidSkinnedFeedEnabled &&
-                sourceModel->IsDynamicModel() != DM_STATIC &&
-                EntityFeedModelHasJointData(entity, sourceModel))
-            {
-                temporaryModel = sourceModel->InstantiateDynamicModel(&entity->parms, viewDef, nullptr);
-                if (temporaryModel)
-                {
-                    model = temporaryModel;
-                }
-            }
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
                 AddVisitedSurface();
@@ -1078,7 +1002,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                             material,
                             feedClass,
                             promotedEmissiveCard,
-                            sourceModel);
+                            model);
                     }
                 }
 
@@ -1103,8 +1027,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     }
                     continue;
                 }
-                const bool rigidSkinned = feedClass == RtPtFeedClass::RigidSkinned;
-                if (rigidSkinned && !rigidSkinnedFeedEnabled)
+                if (feedClass != RtPtFeedClass::RigidEntity && !promotedEmissiveCard)
                 {
                     if (residentBaseHit)
                     {
@@ -1112,46 +1035,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     }
                     continue;
                 }
-                if (rigidSkinned && visibleDrawSurf)
-                {
-                    if (residentBaseHit)
-                    {
-                        ++stats.residencyCacheHits;
-                    }
-                    continue;
-                }
-                if (feedClass != RtPtFeedClass::RigidEntity && !rigidSkinned && !promotedEmissiveCard)
-                {
-                    if (residentBaseHit)
-                    {
-                        ++stats.residencyCacheHits;
-                    }
-                    continue;
-                }
-
-                int jointIndex = -1;
-                if (rigidSkinned)
-                {
-                    jointIndex = EntityFeedSingleBoneSurfaceJointIndex(tri);
-                    if (jointIndex < 0 ||
-                        !tri ||
-                        !tri->staticModelWithJoints ||
-                        !tri->staticModelWithJoints->jointsInverted ||
-                        jointIndex >= tri->staticModelWithJoints->numInvertedJoints)
-                    {
-                        ++stats.invalidS2;
-                        if (residentBaseHit)
-                        {
-                            ++stats.residencyCacheHits;
-                        }
-                        continue;
-                    }
-                    ++stats.candidatesS2;
-                }
-                else
-                {
-                    ++stats.candidatesS1;
-                }
+                ++stats.candidatesS1;
 
                 if (!EntityFeedSurfaceUsableForRigidRoute(surface, tri, material))
                 {
@@ -1195,31 +1079,19 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
 
                     {
                         OPTICK_EVENT("PT EntityFeed Capture Surface Snapshot");
-                        RtPathTraceMeshKey meshKey = residentRecord->meshKey;
-                        meshKey.tri = tri;
-                        meshKey.vertexBufferIdentity = rigidSnapshot.jointIndex >= 0 ? 0u : static_cast<uintptr_t>(tri->ambientCache);
-                        meshKey.indexBufferIdentity = rigidSnapshot.jointIndex >= 0 ? 0u : static_cast<uintptr_t>(tri->indexCache);
-                        meshKey.numVerts = tri->numVerts;
-                        meshKey.numIndexes = tri->numIndexes;
-
                         EntityFeedCapturedRigidSurface captured;
-                        captured.meshKey = meshKey;
+                        captured.meshKey = residentRecord->meshKey;
                         captured.rigidSnapshot = rigidSnapshot;
                         captured.entity = entity;
                         captured.baseMaterial = residentRecord->remappedMaterial;
                         captured.surfaceClassId = residentRecord->surfaceClassId;
                         captured.surfaceClassAndFlags = surfaceClassAndFlags;
                         captured.currentArea = areaIndex;
-                        if (!BuildEntityFeedObjectToWorld(entity, tri, rigidSnapshot.jointIndex, captured.objectToWorld))
-                        {
-                            ++stats.invalidS2;
-                            continue;
-                        }
+                        memcpy(captured.objectToWorld, entity->modelMatrix, sizeof(captured.objectToWorld));
                         captured.distance = distance;
                         captured.projectedSize = EntityFeedProjectedSizeProxy(entity, distance);
                         captured.onScreen = entity->viewCount == tr.viewCount;
                         captured.emissive = residentRecord->emissive;
-                        captured.rigidSkinned = rigidSnapshot.jointIndex >= 0;
                         captured.materialName = residentRecord->materialName;
                         captured.modelName = residentRecord->modelName;
                         capturedSurfaces.push_back(captured);
@@ -1264,8 +1136,8 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 const bool activeEmissiveStageDynamic = EntityFeedActiveEmissiveStageIsDynamic(material);
                 RtPathTraceMeshKey meshKey;
                 meshKey.tri = tri;
-                meshKey.vertexBufferIdentity = rigidSkinned ? 0u : static_cast<uintptr_t>(tri->ambientCache);
-                meshKey.indexBufferIdentity = rigidSkinned ? 0u : static_cast<uintptr_t>(tri->indexCache);
+                meshKey.vertexBufferIdentity = static_cast<uintptr_t>(tri->ambientCache);
+                meshKey.indexBufferIdentity = static_cast<uintptr_t>(tri->indexCache);
                 meshKey.numVerts = tri->numVerts;
                 meshKey.numIndexes = tri->numIndexes;
                 meshKey.vertexFormat = static_cast<uint32_t>(RtSmokeGeometryBufferFormat::LegacySmokeVertex);
@@ -1291,15 +1163,14 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     OPTICK_EVENT("PT EntityFeed Capture Rigid Identity");
                     rigidSnapshot = BuildPathTraceRigidInstanceSnapshot(
                         meshKey,
-                        sourceModel,
+                        model,
                         tri,
                         renderDefKey,
                         modelEpoch,
                         entity->index,
                         renderEntity.entityNum,
                         surfaceIndex,
-                        sourceFlags,
-                        jointIndex);
+                        sourceFlags);
                 }
                 if (!candidateInstanceIds.insert(rigidSnapshot.instanceId).second)
                 {
@@ -1327,11 +1198,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                     captured.surfaceClassId = surfaceClassId;
                     captured.surfaceClassAndFlags = surfaceClassAndFlags;
                     captured.currentArea = areaIndex;
-                    if (!BuildEntityFeedObjectToWorld(entity, tri, jointIndex, captured.objectToWorld))
-                    {
-                        ++stats.invalidS2;
-                        continue;
-                    }
+                    memcpy(captured.objectToWorld, entity->modelMatrix, sizeof(captured.objectToWorld));
                     captured.distance = distance;
                     captured.projectedSize = EntityFeedProjectedSizeProxy(entity, distance);
                     captured.onScreen = entity->viewCount == tr.viewCount;
@@ -1339,7 +1206,6 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                         OPTICK_EVENT("PT EntityFeed Capture Material Facts");
                         captured.emissive = EntityFeedMaterialIsEmissiveCached(materialCache, materialId);
                     }
-                    captured.rigidSkinned = rigidSkinned;
                     if (residentRecord)
                     {
                         UpdateEntityFeedResidentSurfaceRoute(
@@ -1356,13 +1222,9 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                             captured.emissive);
                     }
                     captured.materialName = material ? material->GetName() : "<none>";
-                    captured.modelName = sourceModel ? sourceModel->Name() : "<none>";
+                    captured.modelName = model ? model->Name() : "<none>";
                     capturedSurfaces.push_back(captured);
                 }
-            }
-            if (temporaryModel && temporaryModel != sourceModel)
-            {
-                delete temporaryModel;
             }
         }
         const int areaVisitMs = Sys_Milliseconds() - areaVisitStartMs;
@@ -1402,17 +1264,15 @@ void RecordEntityFeedRigidCandidate(
 void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s)
 {
     common->Printf(
-        "PathTracePrimaryPass: PT entityFeed frame=%d reachableAreas=%d candidatesS0=%d candidatesS1=%d candidatesS2=%d invalidS2=%d candidatesS3=%d candidatesS4=%d admitted=%d admittedS2=%d droppedBudget=%d\n",
+        "PathTracePrimaryPass: PT entityFeed frame=%d reachableAreas=%d candidatesS0=%d candidatesS1=%d candidatesS2=%d candidatesS3=%d candidatesS4=%d admitted=%d droppedBudget=%d\n",
         s.frameIndex,
         s.reachableAreas,
         s.candidatesS0,
         s.candidatesS1,
         s.candidatesS2,
-        s.invalidS2,
         s.candidatesS3,
         s.candidatesS4,
         s.admitted,
-        s.admittedS2,
         s.droppedBudget);
 }
 
@@ -1804,10 +1664,6 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
                 static_cast<int>(candidate.meshKey.numIndexes),
                 candidate.candidateObservation.materialId);
             ++stats.admitted;
-            if (candidate.rigidSkinned)
-            {
-                ++stats.admittedS2;
-            }
             if (!candidate.onScreen)
             {
                 --offscreenBudget;
