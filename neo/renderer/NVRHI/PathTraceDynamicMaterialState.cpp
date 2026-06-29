@@ -25,6 +25,8 @@ struct RtSmokeMaterialTableCache
 {
     bool valid = false;
     uint64 signature = 0;
+    bool materialIdSetSignatureValid = false;
+    uint64 materialIdSetSignature = 0;
     uint64 staticMaterialIdSequenceSignature = 0;
     uint64 dynamicMaterialIdSequenceSignature = 0;
     RtSmokeMaterialTableBuild table;
@@ -46,7 +48,7 @@ uint64 HashSmokeMaterialCacheValue(uint64 hash, uint64 value)
     return hash;
 }
 
-uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, bool enableTextureProbe, int minimumTextureTableLimit, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
+uint64 ComputeSmokeMaterialIdSetSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds)
 {
     std::unordered_map<uint32_t, bool> materialSeen;
     const int expectedUniqueMaterials = SmokeMaterialTextureRegistrySize() + 64;
@@ -75,7 +77,12 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     {
         hash = HashSmokeMaterialCacheValue(hash, materialId);
     }
+    return hash;
+}
 
+uint64 ComputeSmokeMaterialTableSignatureFromIdSet(uint64 materialIdSetSignature, bool enableTextureProbe, int minimumTextureTableLimit, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
+{
+    uint64 hash = materialIdSetSignature;
     hash = HashSmokeMaterialCacheValue(hash, enableTextureProbe ? 1u : 0u);
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(GetSmokeTextureTableEffectiveLimitWithMinimum(minimumTextureTableLimit)));
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(Max(0, r_pathTracingTextureTableStart.GetInteger())));
@@ -105,6 +112,16 @@ uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMat
     hash = HashSmokeMaterialCacheValue(hash, static_cast<uint64>(idMath::ClampInt(0, 2, r_pathTracingMatClassNormalDecodeMode.GetInteger())));
     hash = HashSmokeMaterialCacheValue(hash, GetPathTraceMaterialClassifierGeneration());
     return hash;
+}
+
+uint64 ComputeSmokeMaterialTableSignature(const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, bool enableTextureProbe, int minimumTextureTableLimit, uint32_t latchedTextureProbeMaterialId, int latchedTextureProbeRequestedIndex)
+{
+    return ComputeSmokeMaterialTableSignatureFromIdSet(
+        ComputeSmokeMaterialIdSetSignature(staticMaterialIds, dynamicMaterialIds),
+        enableTextureProbe,
+        minimumTextureTableLimit,
+        latchedTextureProbeMaterialId,
+        latchedTextureProbeRequestedIndex);
 }
 
 uint64 ComputeSmokeMaterialIdSequenceSignature(const std::vector<uint32_t>& materialIds)
@@ -1320,7 +1337,9 @@ bool RebuildSmokeMaterialTableCacheRemaps(
         g_smokeMaterialTableCache.dynamicMaterialIdSequenceSignature != dynamicMaterialIdSequenceSignature;
     if (!staticMaterialRemapChanged && !dynamicMaterialRemapChanged)
     {
-        return ValidateSmokeMaterialIndexes(table);
+        return table.materialIds.size() == table.materials.size() &&
+            table.materialInfos.size() == table.materials.size() &&
+            table.materialFacts.size() == table.materials.size();
     }
 
     RebuildSmokeMaterialIndexesFromCachedTable(table, staticMaterialIds, dynamicMaterialIds);
@@ -1436,9 +1455,17 @@ bool BuildSmokeMaterialTableFromStableResidencyCache(
 
 bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table, const std::vector<uint32_t>& staticMaterialIds, const std::vector<uint32_t>& dynamicMaterialIds, uint32_t& latchedTextureProbeMaterialId, int& latchedTextureProbeRequestedIndex, bool enableTextureProbe, int minimumTextureTableLimit, uint64& signature, bool& cacheHit)
 {
-    signature = ComputeSmokeMaterialTableSignature(staticMaterialIds, dynamicMaterialIds, enableTextureProbe, minimumTextureTableLimit, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex);
     const uint64 staticMaterialIdSequenceSignature = ComputeSmokeMaterialIdSequenceSignature(staticMaterialIds);
     const uint64 dynamicMaterialIdSequenceSignature = ComputeSmokeMaterialIdSequenceSignature(dynamicMaterialIds);
+    const bool reuseMaterialIdSetSignature =
+        g_smokeMaterialTableCache.valid &&
+        g_smokeMaterialTableCache.materialIdSetSignatureValid &&
+        g_smokeMaterialTableCache.staticMaterialIdSequenceSignature == staticMaterialIdSequenceSignature &&
+        g_smokeMaterialTableCache.dynamicMaterialIdSequenceSignature == dynamicMaterialIdSequenceSignature;
+    const uint64 materialIdSetSignature = reuseMaterialIdSetSignature
+        ? g_smokeMaterialTableCache.materialIdSetSignature
+        : ComputeSmokeMaterialIdSetSignature(staticMaterialIds, dynamicMaterialIds);
+    signature = ComputeSmokeMaterialTableSignatureFromIdSet(materialIdSetSignature, enableTextureProbe, minimumTextureTableLimit, latchedTextureProbeMaterialId, latchedTextureProbeRequestedIndex);
     cacheHit = false;
     if (r_pathTracingMaterialCache.GetInteger() != 0 && g_smokeMaterialTableCache.valid && g_smokeMaterialTableCache.signature == signature)
     {
@@ -1492,6 +1519,8 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
         if (ValidateSmokeMaterialIndexes(table))
         {
             g_smokeMaterialTableCache.table = table;
+            g_smokeMaterialTableCache.materialIdSetSignatureValid = true;
+            g_smokeMaterialTableCache.materialIdSetSignature = materialIdSetSignature;
             g_smokeMaterialTableCache.staticMaterialIdSequenceSignature = staticMaterialIdSequenceSignature;
             g_smokeMaterialTableCache.dynamicMaterialIdSequenceSignature = dynamicMaterialIdSequenceSignature;
         }
@@ -1507,6 +1536,8 @@ bool BuildSmokeMaterialTableFromUniverseCached(RtSmokeMaterialTableBuild& table,
     {
         g_smokeMaterialTableCache.valid = true;
         g_smokeMaterialTableCache.signature = signature;
+        g_smokeMaterialTableCache.materialIdSetSignatureValid = true;
+        g_smokeMaterialTableCache.materialIdSetSignature = materialIdSetSignature;
         g_smokeMaterialTableCache.staticMaterialIdSequenceSignature = staticMaterialIdSequenceSignature;
         g_smokeMaterialTableCache.dynamicMaterialIdSequenceSignature = dynamicMaterialIdSequenceSignature;
         g_smokeMaterialTableCache.table = table;

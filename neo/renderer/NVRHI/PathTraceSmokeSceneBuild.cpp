@@ -50,6 +50,7 @@
 #include <cstring>
 #include <future>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 extern DeviceManager* deviceManager;
@@ -2879,6 +2880,24 @@ std::vector<uint32_t> BuildSortedUniqueMaterialIds(const std::vector<uint32_t>& 
     return uniqueIds;
 }
 
+std::vector<uint32_t> BuildUniqueMaterialIdsPreservingOrder(const std::vector<uint32_t>& materialIds)
+{
+    std::vector<uint32_t> uniqueIds;
+    uniqueIds.reserve(Min(static_cast<int>(materialIds.size()), 4096));
+
+    std::unordered_set<uint32_t> visited;
+    visited.reserve(uniqueIds.capacity());
+    for (uint32_t materialId : materialIds)
+    {
+        if (materialId == 0u || !visited.insert(materialId).second)
+        {
+            continue;
+        }
+        uniqueIds.push_back(materialId);
+    }
+    return uniqueIds;
+}
+
 struct RtSmokeSourceCompareMaterialDiff
 {
     int oldUnique = 0;
@@ -4031,8 +4050,12 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     }
     {
         OPTICK_EVENT("PT Hydrate Cached Material Metadata");
+        const std::vector<uint32_t> materialHydrationIds = [&]() {
+            OPTICK_EVENT("PT Material Hydration Unique IDs");
+            return BuildUniqueMaterialIdsPreservingOrder(materialTableStaticIds);
+        }();
         const RtSmokeMaterialMetadataRegistrationTiming cachedStaticMetadataTiming =
-            RegisterSmokeMaterialTextureInfoForMaterialIds(materialTableStaticIds, enableTextureProbe);
+            RegisterSmokeMaterialTextureInfoForMaterialIds(materialHydrationIds, enableTextureProbe);
         metadataTiming.metadataMs += cachedStaticMetadataTiming.metadataMs;
         metadataTiming.registrationMs += cachedStaticMetadataTiming.registrationMs;
     }
