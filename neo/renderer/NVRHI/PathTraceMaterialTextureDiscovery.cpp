@@ -45,8 +45,16 @@ struct RtResidentMaterialFacts
     RtSmokeMaterialTextureInfo info;
 };
 
+struct RtSmokeMaterialHydrationSetCache
+{
+    bool valid = false;
+    uint64 signature = 0;
+    int materialCount = 0;
+};
+
 std::unordered_map<uint32_t, RtResidentMaterialFacts> g_residentMaterialFacts;
 uint64 g_residentMaterialFactsGeneration = 1;
+RtSmokeMaterialHydrationSetCache g_smokeMaterialHydrationSetCache;
 
 bool PathTraceMaterialClassifierRequested()
 {
@@ -139,6 +147,28 @@ uint64 HashSmokeResidentMaterialValue(uint64 hash, uint64 value)
 {
     hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
     return hash;
+}
+
+uint64 ComputeSmokeMaterialHydrationSetSignature(const std::vector<uint32_t>& materialIds)
+{
+    uint64 hash = 1469598103934665603ull;
+    const uint64 version = 1;
+    hash = HashSmokeResidentMaterialValue(hash, version);
+    hash = HashSmokeResidentMaterialValue(hash, static_cast<uint64>(materialIds.size()));
+    hash = HashSmokeResidentMaterialValue(hash, g_residentMaterialFactsGeneration);
+    hash = HashSmokeResidentMaterialValue(hash, SmokeMaterialTextureRegistryGeneration());
+    for (uint32_t materialId : materialIds)
+    {
+        hash = HashSmokeResidentMaterialValue(hash, materialId);
+    }
+    return hash;
+}
+
+void UpdateSmokeMaterialHydrationSetCache(const std::vector<uint32_t>& materialIds)
+{
+    g_smokeMaterialHydrationSetCache.valid = true;
+    g_smokeMaterialHydrationSetCache.signature = ComputeSmokeMaterialHydrationSetSignature(materialIds);
+    g_smokeMaterialHydrationSetCache.materialCount = static_cast<int>(materialIds.size());
 }
 
 uint64 HashSmokeResidentMaterialString(uint64 hash, const char* value)
@@ -1296,6 +1326,7 @@ int ClearSmokeResidentMaterialFacts()
 {
     const int removedCount = static_cast<int>(g_residentMaterialFacts.size());
     g_residentMaterialFacts.clear();
+    g_smokeMaterialHydrationSetCache = RtSmokeMaterialHydrationSetCache();
     if (removedCount > 0)
     {
         ++g_residentMaterialFactsGeneration;
@@ -1747,15 +1778,34 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
     const int metadataStartMs = Sys_Milliseconds();
     if (!enabled || !declManager || materialIds.empty())
     {
+        g_smokeMaterialHydrationSetCache = RtSmokeMaterialHydrationSetCache();
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
         DumpSmokeMaterialResidencyStatsIfNeeded();
         return timing;
+    }
+    const bool residencyMaterialEnabled = SmokeMaterialResidencyEnabled();
+    if (!residencyMaterialEnabled)
+    {
+        g_smokeMaterialHydrationSetCache = RtSmokeMaterialHydrationSetCache();
+    }
+    else
+    {
+        const uint64 hydrationSetSignature = ComputeSmokeMaterialHydrationSetSignature(materialIds);
+        if (g_smokeMaterialHydrationSetCache.valid &&
+            g_smokeMaterialHydrationSetCache.materialCount == static_cast<int>(materialIds.size()) &&
+            g_smokeMaterialHydrationSetCache.signature == hydrationSetSignature)
+        {
+            timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+            DumpSmokeMaterialResidencyStatsIfNeeded();
+            return timing;
+        }
     }
 
     std::unordered_set<uint32_t> visitedMaterialIds;
     visitedMaterialIds.reserve(materialIds.size());
     std::unordered_set<uint32_t> missingMaterialIds;
     missingMaterialIds.reserve(materialIds.size());
+    bool allVisitedMaterialsStable = residencyMaterialEnabled;
     for (uint32_t materialId : materialIds)
     {
         if (materialId == 0u || !visitedMaterialIds.insert(materialId).second)
@@ -1769,6 +1819,7 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
             const bool skipRefresh = SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing);
             const bool refreshed = skipRefresh ? false : RefreshSmokeMaterialTextureHandleState(*existing);
+            allVisitedMaterialsStable = allVisitedMaterialsStable && skipRefresh;
             if (refreshed || SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
             {
                 ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshes;
@@ -1779,12 +1830,17 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             }
             continue;
         }
+        allVisitedMaterialsStable = false;
         ++g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
         missingMaterialIds.insert(materialId);
     }
 
     if (missingMaterialIds.empty())
     {
+        if (allVisitedMaterialsStable)
+        {
+            UpdateSmokeMaterialHydrationSetCache(materialIds);
+        }
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
         DumpSmokeMaterialResidencyStatsIfNeeded();
         return timing;

@@ -2898,6 +2898,21 @@ std::vector<uint32_t> BuildUniqueMaterialIdsPreservingOrder(const std::vector<ui
     return uniqueIds;
 }
 
+int CountUniqueMaterialIds(const std::vector<uint32_t>& materialIds)
+{
+    std::unordered_set<uint32_t> visited;
+    visited.reserve(Min(static_cast<int>(materialIds.size()), 4096));
+    for (uint32_t materialId : materialIds)
+    {
+        if (materialId == 0u)
+        {
+            continue;
+        }
+        visited.insert(materialId);
+    }
+    return static_cast<int>(visited.size());
+}
+
 struct RtSmokeSourceCompareMaterialDiff
 {
     int oldUnique = 0;
@@ -4034,6 +4049,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             return BuildSmokeWorldStaticEmissiveMaterialIds(viewDef);
         }();
     }
+    std::vector<uint32_t> rigidRouteMaterialIds;
     std::vector<uint32_t> materialTableStaticIds;
     {
         OPTICK_EVENT("PT Material Static ID List");
@@ -4041,16 +4057,17 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         materialTableStaticIds.insert(materialTableStaticIds.end(), fullLevelStaticEmissiveMaterialIds.begin(), fullLevelStaticEmissiveMaterialIds.end());
         if (rigidTlasPlanValid)
         {
-            const std::vector<uint32_t> rigidRouteMaterialIds = [&]() {
+            rigidRouteMaterialIds = [&]() {
                 OPTICK_EVENT("PT Rigid Route Material IDs");
                 return m_smokeGeometryUniverse.CollectRigidRouteMaterialIds(rigidTlasPlan);
             }();
             materialTableStaticIds.insert(materialTableStaticIds.end(), rigidRouteMaterialIds.begin(), rigidRouteMaterialIds.end());
         }
     }
+    std::vector<uint32_t> materialHydrationIds;
     {
         OPTICK_EVENT("PT Hydrate Cached Material Metadata");
-        const std::vector<uint32_t> materialHydrationIds = [&]() {
+        materialHydrationIds = [&]() {
             OPTICK_EVENT("PT Material Hydration Unique IDs");
             return BuildUniqueMaterialIdsPreservingOrder(materialTableStaticIds);
         }();
@@ -6953,7 +6970,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             dynamicMaterialRecords,
             dynamicMaterialUploadOffset,
             dynamicMaterialUploadCount);
-        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialGpuStable=%d descriptor(active/created/written/slots/overLimit)=%d/%d/%d/%d/%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/debug/emissive/texture/alpha/flags/classifier/other)=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/color/texMatrix/identity/flags/other)=%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
+        common->Printf("PathTracePrimaryPass: PT material upload dump frame=%llu residency=%d materialResidency=%d materialCacheHit=%d materialGpuStable=%d descriptor(active/created/written/slots/overLimit)=%d/%d/%d/%d/%d materialTable entries(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/debug/emissive/texture/alpha/flags/classifier/other)=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u dynamicRecords(prev/current)=%d/%d bufferReused=%d fullBytes=%llu uploadBytes=%llu skip=%d range(valid/offset/count)=%d/%d/%d diff(rows/first/last/color/texMatrix/identity/flags/other)=%d/%d/%d/%d/%d/%d/%d/%d samples=%d:%u,%d:%u,%d:%u,%d:%u materialIds(staticTri/u=%d/%d staticTable/u=%d/%d emissive/u=%d/%d rigid/u=%d/%d dynamic/u=%d/%d hydrate=%d table=%d) totalMaterialUploadBytes=%llu signatures material=%llu dynamic=%llu\n",
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             r_pathTracingResidency.GetInteger() != 0 ? 1 : 0,
             r_pathTracingResidencyMaterial.GetInteger() != 0 ? 1 : 0,
@@ -7016,6 +7033,18 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             SmokeDynamicMaterialDiffSampleId(dynamicDiffSummary, 2),
             SmokeDynamicMaterialDiffSampleRow(dynamicDiffSummary, 3),
             SmokeDynamicMaterialDiffSampleId(dynamicDiffSummary, 3),
+            static_cast<int>(staticTriangleMaterialCache.size()),
+            CountUniqueMaterialIds(staticTriangleMaterialCache),
+            static_cast<int>(materialTableStaticIds.size()),
+            CountUniqueMaterialIds(materialTableStaticIds),
+            static_cast<int>(fullLevelStaticEmissiveMaterialIds.size()),
+            CountUniqueMaterialIds(fullLevelStaticEmissiveMaterialIds),
+            static_cast<int>(rigidRouteMaterialIds.size()),
+            CountUniqueMaterialIds(rigidRouteMaterialIds),
+            static_cast<int>(dynamicTriangleMaterialData.size()),
+            CountUniqueMaterialIds(dynamicTriangleMaterialData),
+            static_cast<int>(materialHydrationIds.size()),
+            static_cast<int>(materialTable.materialIds.size()),
             static_cast<unsigned long long>(materialUploadBytes),
             static_cast<unsigned long long>(materialTableUploadSignature),
             static_cast<unsigned long long>(dynamicMaterialUploadSignature));
