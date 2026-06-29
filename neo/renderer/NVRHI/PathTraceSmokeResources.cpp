@@ -777,10 +777,28 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
             textureDescriptorTableReused &&
             desc.existingActiveTextureTable &&
             !SmokeTextureTableChanged(*desc.existingActiveTextureTable, result.activeTextureTable);
+        if (textureDescriptorTableReused &&
+            !skipTextureDescriptorTableWrite &&
+            !desc.allowExistingTextureDescriptorTableWrites)
+        {
+            OPTICK_EVENT("PT Create Retired-Safe Texture Descriptor Table");
+            result.textureDescriptorTable = desc.device->createDescriptorTable(desc.textureBindlessLayout);
+            result.textureDescriptorTableCreated = result.textureDescriptorTable != nullptr;
+            if (!result.textureDescriptorTable)
+            {
+                result.errorMessage = "failed to create RT smoke texture descriptor table";
+                return result;
+            }
+        }
+        const bool writeTextureDescriptorTableReused =
+            desc.existingTextureDescriptorTable &&
+            result.textureDescriptorTable == desc.existingTextureDescriptorTable &&
+            !result.textureDescriptorTableCreated;
         const int textureDescriptorSlotCapacity = idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, desc.maxActiveTextures);
         const bool sparseTextureDescriptorWrite =
             !skipTextureDescriptorTableWrite &&
-            textureDescriptorTableReused &&
+            writeTextureDescriptorTableReused &&
+            desc.allowExistingTextureDescriptorTableWrites &&
             desc.existingActiveTextureTable;
         std::vector<int> textureDescriptorSlotsToWrite;
         if (sparseTextureDescriptorWrite)

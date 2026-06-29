@@ -167,6 +167,7 @@ struct RtSmokeBindingBuildDesc
     RtRestirPTPrimarySurfaceHistoryBufferHandles primarySurfaceHistoryBuffers;
     bool enableTextureProbe = false;
     bool forceFallbackTexture = false;
+    bool allowExistingTextureDescriptorTableWrites = false;
     int maxActiveTextures = RT_SMOKE_TEXTURE_EXPERIMENTAL_ACTIVE_CAP;
 };
 
