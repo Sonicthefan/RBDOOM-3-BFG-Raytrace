@@ -1438,7 +1438,6 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         {
             entity = surface.entity;
             material = surface.material;
-            tri = surface.tri;
             key = surface.legacyDrawSurfKey;
             surfaceClassId = surface.surfaceClassId;
             materialId = surface.baseMaterialId;
@@ -1446,7 +1445,7 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             numVerts = surface.numVerts;
             numIndexes = surface.numIndexes;
 
-            if (!surface.validStaticBuild || !entity || !material || !tri || key == 0 || numVerts < 3 || numIndexes < 3)
+            if (!surface.validStaticBuild || !entity || !material || key == 0 || numVerts < 3 || numIndexes < 3)
             {
                 ++buildStats.skippedInvalid;
                 return;
@@ -1505,16 +1504,21 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         }
         ++buildStats.residencyVisited;
 
-        const RtSmokePersistentStaticSurfaceRecord* existingRecord = geometryUniverse.FindStaticSurface(key);
-        const bool alreadyCountedThisFrame = existingRecord && existingRecord->seenThisFrame;
-        RtSmokePersistentStaticSurfaceRecord* record = geometryUniverse.TouchStaticSurface(key);
-        if (record)
+        auto touchCachedStaticSurface = [&]() -> bool
         {
+            const RtSmokePersistentStaticSurfaceRecord* existingRecord = geometryUniverse.FindStaticSurface(key);
+            const bool alreadyCountedThisFrame = existingRecord && existingRecord->seenThisFrame;
+            RtSmokePersistentStaticSurfaceRecord* record = geometryUniverse.TouchStaticSurface(key);
+            if (!record)
+            {
+                return false;
+            }
+
             geometryUniverse.RefreshStaticSurfaceMaterial(key, materialId);
             ++buildStats.residencyCacheHits;
             if (alreadyCountedThisFrame)
             {
-                return;
+                return true;
             }
             ++bucketRanges.buckets[0].surfaceCount;
             ++buildStats.surfaces;
@@ -1527,8 +1531,64 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             classStats.staticWorldTriangles += record->currentRange.triangles.count;
             SceneUniverseAddSmokeMaterialStats(materialStats, material, record->currentRange.indexes.count);
             SceneUniverseAddDynamicMaterialEvalStatsForId(materialStats, viewDef, entity, material, record->currentRange.indexes.count, materialId);
+            return true;
+        };
+
+        if (touchCachedStaticSurface())
+        {
             return;
         }
+
+        if (useBakedStaticFacts)
+        {
+            if (surface.entityIndex < 0 || surface.entityIndex >= renderWorld->entityDefs.Num())
+            {
+                ++buildStats.skippedInvalid;
+                return;
+            }
+
+            entity = renderWorld->entityDefs[surface.entityIndex];
+            const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
+            if (!model || !model->IsStaticWorldModel() || surface.surfaceIndex < 0 || surface.surfaceIndex >= model->NumSurfaces())
+            {
+                ++buildStats.skippedInvalid;
+                return;
+            }
+
+            const modelSurface_t* modelSurface = model->Surface(surface.surfaceIndex);
+            material = SceneUniverseResolveEntitySurfaceMaterial(entity, modelSurface);
+            tri = modelSurface ? modelSurface->geometry : nullptr;
+            if (!material || !tri || !tri->verts || !tri->indexes || tri->numVerts < 3 || tri->numIndexes < 3 || !material->IsDrawn())
+            {
+                ++buildStats.skippedInvalid;
+                return;
+            }
+            if ((tri->numIndexes % 3) != 0)
+            {
+                ++skipStats.invalidIndexCount;
+                ++buildStats.skippedInvalid;
+                return;
+            }
+
+            key = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
+            if (key == 0)
+            {
+                ++buildStats.skippedInvalid;
+                return;
+            }
+            surfaceClassId = SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass::StaticWorld, RtSmokeTranslucentSubtype::Unknown);
+            const uint32_t baseMaterialId = SmokeMaterialId(material);
+            materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surface.surfaceIndex, material, baseMaterialId);
+            emissiveCapable = SceneUniverseMaterialCanEmit(material);
+            numVerts = tri->numVerts;
+            numIndexes = tri->numIndexes;
+
+            if (touchCachedStaticSurface())
+            {
+                return;
+            }
+        }
+
         ++buildStats.residencyDerived;
         ++buildStats.residencyCacheMisses;
 
