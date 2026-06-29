@@ -1185,8 +1185,9 @@ void RtSmokeGeometryUniverse::Clear()
     m_staticIndexCache.clear();
     m_staticTriangleClassCache.clear();
     m_staticTriangleMaterialCache.clear();
+    m_staticGeometryGeneration = 1;
     m_staticMaterialGeneration = 1;
-    m_previousStaticSnapshotGeneration = m_generation;
+    m_previousStaticSnapshotGeneration = m_staticGeometryGeneration;
     m_previousStaticSnapshotMaterialGeneration = m_staticMaterialGeneration;
     m_staticMaterialDirtyTriangleOffset = -1;
     m_staticMaterialDirtyTriangleCount = 0;
@@ -1308,7 +1309,7 @@ void RtSmokeGeometryUniverse::BeginFrame(uint64 frameIndex, const idRenderWorldL
     m_previousStaticIndexCache = m_staticIndexCache;
     m_previousStaticTriangleClassCache = m_staticTriangleClassCache;
     m_previousStaticTriangleMaterialCache = m_staticTriangleMaterialCache;
-    m_previousStaticSnapshotGeneration = m_generation;
+    m_previousStaticSnapshotGeneration = m_staticGeometryGeneration;
     m_previousStaticSnapshotMaterialGeneration = m_staticMaterialGeneration;
     m_currentFrameIndex = frameIndex;
     m_staticMaterialDirtyTriangleOffset = -1;
@@ -1547,12 +1548,14 @@ bool RtSmokeGeometryUniverse::PruneMissingStaticSurfaces()
     m_staticIndexCache.swap(keptIndexes);
     m_staticTriangleClassCache.swap(keptTriangleClasses);
     m_staticTriangleMaterialCache.swap(keptTriangleMaterials);
+    ++m_staticGeometryGeneration;
     ++m_generation;
     return true;
 }
 
 void RtSmokeGeometryUniverse::NotifyStaticCacheChanged()
 {
+    ++m_staticGeometryGeneration;
     ++m_generation;
 }
 
@@ -1589,6 +1592,7 @@ bool RtSmokeGeometryUniverse::RefreshStaticSurfaceMaterial(uint64 key, uint32_t 
     }
 
     record->materialId = materialId;
+    ++m_staticGeometryGeneration;
     record->materialGeneration = ++m_staticMaterialGeneration;
     AccumulateSmokeGeometryElementRange(record->currentRange.triangles, m_staticMaterialDirtyTriangleOffset, m_staticMaterialDirtyTriangleCount);
     return true;
@@ -1684,6 +1688,7 @@ void RtSmokeGeometryUniverse::CompleteStaticSurfaceAppend(const RtSmokeStaticSur
     m_staticSurfaceRecords.push_back(record);
     m_staticSurfaceLookup[append.key] = recordIndex;
     m_staticSurfaceKeys.push_back(append.key);
+    ++m_staticGeometryGeneration;
     ++m_generation;
 }
 

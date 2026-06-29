@@ -798,6 +798,7 @@ private:
     uint64 m_currentFrameIndex = 0;
     bool m_frameActive = false;
     uint64 m_generation = 1;
+    uint64 m_staticGeometryGeneration = 1;
     uint64 m_staticMaterialGeneration = 1;
     uint64 m_previousStaticSnapshotGeneration = 1;
     uint64 m_previousStaticSnapshotMaterialGeneration = 1;
