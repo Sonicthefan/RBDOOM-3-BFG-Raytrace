@@ -174,6 +174,13 @@ bool SmokeMaterialTextureInfoNeedsHydrationRefresh(const RtSmokeMaterialTextureI
         (info.hasEmissiveImage && !info.hasEmissiveTextureHandle);
 }
 
+bool SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(const RtSmokeMaterialTextureInfo& info)
+{
+    return SmokeMaterialResidencyEnabled() &&
+        !info.isDynamic &&
+        !SmokeMaterialTextureInfoNeedsHydrationRefresh(info);
+}
+
 bool SmokeResidentMaterialRegisterDependsOnRuntime(const idMaterial* material, int registerIndex)
 {
     if (registerIndex < 0)
@@ -1760,7 +1767,8 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         if (existing)
         {
             ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
-            const bool refreshed = RefreshSmokeMaterialTextureHandleState(*existing);
+            const bool skipRefresh = SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing);
+            const bool refreshed = skipRefresh ? false : RefreshSmokeMaterialTextureHandleState(*existing);
             if (refreshed || SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
             {
                 ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshes;
