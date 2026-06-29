@@ -1548,10 +1548,14 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
     if (useBakedStaticFacts)
     {
         OPTICK_EVENT("PT Static Area Resident Walk");
+        const bool collectSelectionStats = dumpRequested;
         std::unordered_map<uint32_t, bool> selectedMaterials;
         std::unordered_map<uint32_t, bool> selectedEmissiveMaterials;
-        selectedMaterials.reserve(128);
-        selectedEmissiveMaterials.reserve(32);
+        if (collectSelectionStats)
+        {
+            selectedMaterials.reserve(128);
+            selectedEmissiveMaterials.reserve(32);
+        }
 
         if (m_surfaceSelectionStamps.size() != m_surfaces.size())
         {
@@ -1566,6 +1570,10 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
 
         auto accumulateSelectedSurfaceStats = [&](const RtPathTraceSceneUniverseSurface& surface, const RtSmokePersistentStaticSurfaceRecord* existingRecord) -> void
         {
+            if (!collectSelectionStats)
+            {
+                return;
+            }
             ++selection.selectedSurfaces;
             selection.selectedTriangles += surface.triangles;
             selectedMaterials.emplace(surface.materialId, true);
@@ -1633,17 +1641,20 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
             }
         }
 
-        selection.selectedMaterials = static_cast<int>(selectedMaterials.size());
-        selection.selectedEmissiveCapableMaterials = static_cast<int>(selectedEmissiveMaterials.size());
-        std::sort(selection.selectedEmissiveMaterials.begin(), selection.selectedEmissiveMaterials.end(),
-            [](const RtPathTraceSceneUniverseMaterialStats& lhs, const RtPathTraceSceneUniverseMaterialStats& rhs)
-            {
-                if (lhs.triangles != rhs.triangles)
+        if (collectSelectionStats)
+        {
+            selection.selectedMaterials = static_cast<int>(selectedMaterials.size());
+            selection.selectedEmissiveCapableMaterials = static_cast<int>(selectedEmissiveMaterials.size());
+            std::sort(selection.selectedEmissiveMaterials.begin(), selection.selectedEmissiveMaterials.end(),
+                [](const RtPathTraceSceneUniverseMaterialStats& lhs, const RtPathTraceSceneUniverseMaterialStats& rhs)
                 {
-                    return lhs.triangles > rhs.triangles;
-                }
-                return lhs.materialName.Icmp(rhs.materialName) < 0;
-            });
+                    if (lhs.triangles != rhs.triangles)
+                    {
+                        return lhs.triangles > rhs.triangles;
+                    }
+                    return lhs.materialName.Icmp(rhs.materialName) < 0;
+                });
+        }
     }
     else
     {
