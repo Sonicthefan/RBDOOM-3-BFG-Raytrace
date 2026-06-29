@@ -50,6 +50,7 @@ struct RtSmokeMaterialHydrationSetCache
     bool valid = false;
     uint64 signature = 0;
     int materialCount = 0;
+    std::vector<uint32_t> refreshMaterialIds;
 };
 
 std::unordered_map<uint32_t, RtResidentMaterialFacts> g_residentMaterialFacts;
@@ -164,11 +165,14 @@ uint64 ComputeSmokeMaterialHydrationSetSignature(const std::vector<uint32_t>& ma
     return hash;
 }
 
-void UpdateSmokeMaterialHydrationSetCache(const std::vector<uint32_t>& materialIds)
+void UpdateSmokeMaterialHydrationSetCache(
+    const std::vector<uint32_t>& materialIds,
+    const std::vector<uint32_t>& refreshMaterialIds)
 {
     g_smokeMaterialHydrationSetCache.valid = true;
     g_smokeMaterialHydrationSetCache.signature = ComputeSmokeMaterialHydrationSetSignature(materialIds);
     g_smokeMaterialHydrationSetCache.materialCount = static_cast<int>(materialIds.size());
+    g_smokeMaterialHydrationSetCache.refreshMaterialIds = refreshMaterialIds;
 }
 
 uint64 HashSmokeResidentMaterialString(uint64 hash, const char* value)
@@ -1795,9 +1799,40 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             g_smokeMaterialHydrationSetCache.materialCount == static_cast<int>(materialIds.size()) &&
             g_smokeMaterialHydrationSetCache.signature == hydrationSetSignature)
         {
-            timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
-            DumpSmokeMaterialResidencyStatsIfNeeded();
-            return timing;
+            OPTICK_EVENT("PT Material Metadata Cached Refresh Subset");
+            bool refreshSubsetValid = true;
+            for (uint32_t materialId : g_smokeMaterialHydrationSetCache.refreshMaterialIds)
+            {
+                if (materialId == 0u)
+                {
+                    continue;
+                }
+                ++g_smokeMaterialMetadataFrameStats.idHydrationVisited;
+                RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(materialId);
+                if (!existing)
+                {
+                    refreshSubsetValid = false;
+                    break;
+                }
+                ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
+                const bool refreshed = RefreshSmokeMaterialTextureHandleState(*existing);
+                if (refreshed || SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
+                {
+                    ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshes;
+                }
+                else
+                {
+                    ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshSkips;
+                }
+            }
+            if (refreshSubsetValid)
+            {
+                g_smokeMaterialHydrationSetCache.signature = ComputeSmokeMaterialHydrationSetSignature(materialIds);
+                timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
+                DumpSmokeMaterialResidencyStatsIfNeeded();
+                return timing;
+            }
+            g_smokeMaterialHydrationSetCache = RtSmokeMaterialHydrationSetCache();
         }
     }
 
@@ -1805,7 +1840,7 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
     visitedMaterialIds.reserve(materialIds.size());
     std::unordered_set<uint32_t> missingMaterialIds;
     missingMaterialIds.reserve(materialIds.size());
-    bool allVisitedMaterialsStable = residencyMaterialEnabled;
+    std::vector<uint32_t> refreshMaterialIds;
     for (uint32_t materialId : materialIds)
     {
         if (materialId == 0u || !visitedMaterialIds.insert(materialId).second)
@@ -1819,7 +1854,10 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
             const bool skipRefresh = SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing);
             const bool refreshed = skipRefresh ? false : RefreshSmokeMaterialTextureHandleState(*existing);
-            allVisitedMaterialsStable = allVisitedMaterialsStable && skipRefresh;
+            if (!skipRefresh)
+            {
+                refreshMaterialIds.push_back(materialId);
+            }
             if (refreshed || SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
             {
                 ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshes;
@@ -1830,16 +1868,15 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             }
             continue;
         }
-        allVisitedMaterialsStable = false;
         ++g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
         missingMaterialIds.insert(materialId);
     }
 
     if (missingMaterialIds.empty())
     {
-        if (allVisitedMaterialsStable)
+        if (residencyMaterialEnabled)
         {
-            UpdateSmokeMaterialHydrationSetCache(materialIds);
+            UpdateSmokeMaterialHydrationSetCache(materialIds, refreshMaterialIds);
         }
         timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
         DumpSmokeMaterialResidencyStatsIfNeeded();
@@ -1876,9 +1913,19 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             {
                 --g_smokeMaterialMetadataFrameStats.idHydrationCacheMisses;
             }
+            RtSmokeMaterialTextureInfo* existing = FindSmokeMaterialTextureInfo(materialId);
+            if (existing && !SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing))
+            {
+                refreshMaterialIds.push_back(materialId);
+            }
         }
         timing.registrationMs += Sys_Milliseconds() - registrationStartMs;
         missingMaterialIds.erase(missing);
+    }
+
+    if (residencyMaterialEnabled && missingMaterialIds.empty())
+    {
+        UpdateSmokeMaterialHydrationSetCache(materialIds, refreshMaterialIds);
     }
 
     timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
