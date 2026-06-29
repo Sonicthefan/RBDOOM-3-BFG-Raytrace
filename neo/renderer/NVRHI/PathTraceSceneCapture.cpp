@@ -747,15 +747,14 @@ int AppendSmokeSurfaceGeometry(
     std::vector<uint32_t>& triangleClasses,
     std::vector<uint32_t>& triangleMaterials,
     RtSmokeSurfaceSkipStats& skipStats,
-    RtSmokeAttributeStats& attributeStats,
-    bool bypassRtCpuSkinning)
+    RtSmokeAttributeStats& attributeStats)
 {
     const size_t vertexStart = vertices.size();
     const size_t indexStart = indexes.size();
     const size_t classStart = triangleClasses.size();
     const size_t materialStart = triangleMaterials.size();
     const uint32_t indexBase = static_cast<uint32_t>(vertices.size());
-    const idJointMat* rtCpuSkinningJoints = bypassRtCpuSkinning ? nullptr : GetSmokeRtCpuSkinningJoints(tri);
+    const idJointMat* rtCpuSkinningJoints = GetSmokeRtCpuSkinningJoints(tri);
     const int classIndex = idMath::ClampInt(0, classCount - 1, static_cast<int>(surfaceClassId & triangleClassMask));
     const bool activeEmissiveStage = SmokeDrawSurfaceHasActiveEmissiveStage(drawSurf);
     const uint32_t perSurfaceTriangleFlags = activeEmissiveStage ? 0u : RT_SMOKE_TRIANGLE_EMISSIVE_STAGE_OFF;
@@ -1137,41 +1136,6 @@ uint32_t SmokeDynamicTriangleIdentitySeed(const drawSurf_t* drawSurf, const srfT
     hash = SmokeRuntimeMaterialVariantHashValue(hash, static_cast<uint32_t>(triPtr >> 32));
     hash = SmokeRuntimeMaterialVariantHashValue(hash, localTriangleIndex);
     return hash != 0u ? hash : 1u;
-}
-
-bool SmokeSurfaceCanUseGpuSkinningVertexOverwrite(const drawSurf_t* drawSurf, const srfTriangles_t* tri, RtSmokeSurfaceClass surfaceClass, bool gpuSkinningOverwriteEnabled)
-{
-    if (!gpuSkinningOverwriteEnabled ||
-        surfaceClass != RtSmokeSurfaceClass::SkinnedDeformed ||
-        !drawSurf ||
-        !tri ||
-        !tri->verts ||
-        !GetSmokeRtCpuSkinningJoints(tri))
-    {
-        return false;
-    }
-
-    const viewEntity_t* space = drawSurf->space;
-    const idRenderEntityLocal* entityDef = space ? space->entityDef : nullptr;
-    const renderEntity_t* renderEntity = entityDef ? &entityDef->parms : nullptr;
-    const int jointCount = tri->staticModelWithJoints ? tri->staticModelWithJoints->numInvertedJoints : (renderEntity ? renderEntity->numJoints : 0);
-    if (jointCount <= 0)
-    {
-        return false;
-    }
-
-    for (int vertexIndex = 0; vertexIndex < tri->numVerts; ++vertexIndex)
-    {
-        const idDrawVert& drawVert = tri->verts[vertexIndex];
-        for (int component = 0; component < 4; ++component)
-        {
-            if (static_cast<int>(drawVert.color[component]) >= jointCount)
-            {
-                return false;
-            }
-        }
-    }
-    return true;
 }
 
 static uint32_t SmokeRuntimeMaterialVariantIdForEntitySurfaceKey(const idRenderEntityLocal* entity, int modelSurfaceIndex, uint32_t baseMaterialId)
@@ -1855,7 +1819,7 @@ uint32_t SmokeRuntimeMaterialTableIdForEntitySurface(const idRenderEntityLocal* 
     return baseMaterialId;
 }
 
-bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture, bool gpuSkinningOverwriteSkinnedDynamicVertices)
+bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathTraceSmokeVertex>& vertexData, std::vector<uint32_t>& indexData, std::vector<uint32_t>& triangleClassData, std::vector<uint32_t>& triangleMaterialData, std::vector<uint32_t>* triangleInstanceData, std::vector<uint32_t>* triangleIdentityData, RtSmokeGeometryUniverse& geometryUniverse, bool& staticCacheChanged, idVec3& sceneOrigin, int& sourceSurfaces, int& sourceVerts, int& sourceIndexes, int& anchorTriangle, RtSmokeSurfaceClassStats& classStats, RtSmokeSurfaceSkipStats& skipStats, RtSmokeDynamicGeometryStats& dynamicStats, RtSmokeAttributeStats& attributeStats, RtSmokeMaterialStats& materialStats, RtSmokeBucketRanges& bucketRanges, RtSmokeSceneCaptureTiming& captureTiming, RtSmokeSurfaceClassReasonSamples* reasonSamples, std::vector<RtSmokeSkinnedSurfaceRecord>* skinnedSurfaceRecords, bool skipStaticWorldCapture, bool skipPromotedStaticSurfaceCapture, bool skipDynamicCapture)
 {
     OPTICK_EVENT("PT Capture Doom Surfaces Detail");
 
@@ -2098,8 +2062,6 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
             std::vector<uint32_t>& bucketInstances = bucketTriangleInstanceData[bucketIndex];
             std::vector<uint32_t>& bucketIdentities = bucketTriangleIdentityData[bucketIndex];
             const bool usesRtCpuSkinning = GetSmokeRtCpuSkinningJoints(tri) != nullptr;
-            const bool bypassRtCpuSkinning =
-                SmokeSurfaceCanUseGpuSkinningVertexOverwrite(drawSurf, tri, surfaceClass, gpuSkinningOverwriteSkinnedDynamicVertices);
             const int bucketVertexStart = static_cast<int>(bucketVertices.size());
             const int bucketIndexStart = static_cast<int>(bucketIndexes.size());
             const int bucketTriangleStart = static_cast<int>(bucketClasses.size());
@@ -2118,18 +2080,11 @@ bool CaptureDoomSurfacesForSmokeTest(const viewDef_t* viewDef, std::vector<PathT
                 bucketClasses,
                 bucketMaterials,
                 skipStats,
-                attributeStats,
-                bypassRtCpuSkinning);
+                attributeStats);
             const int appendMs = Sys_Milliseconds() - appendStartMs;
             captureTiming.dynamicAppendMs += appendMs;
             captureTiming.appendMs += appendMs;
-            if (bypassRtCpuSkinning)
-            {
-                captureTiming.gpuSkinningBypassAppendMs += appendMs;
-                ++captureTiming.gpuSkinningBypassSurfaces;
-                captureTiming.gpuSkinningBypassIndexes += emittedIndexes;
-            }
-            else if (usesRtCpuSkinning)
+            if (usesRtCpuSkinning)
             {
                 captureTiming.rtCpuSkinningAppendMs += appendMs;
             }

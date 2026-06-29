@@ -3473,11 +3473,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         m_smokeStaticBlasSignature = 0;
         m_smokeSceneUniverseStaticBuildGeneration = 0;
     }
-    const int gpuSkinningMode = idMath::ClampInt(0, 2, r_pathTracingGpuSkinning.GetInteger());
-    const bool gpuSkinningCanOverwriteSkinnedDynamicVertices =
-        gpuSkinningMode >= 2 &&
-        m_smokeSkinnedGpuSkinningPipeline != nullptr &&
-        m_smokeSkinnedGpuSkinningBindingLayout != nullptr;
     RtPathTraceSceneUniverseBuildStats sceneUniverseStaticBuildStats;
     bool drawSurfMirrorFrameProducedFromDynamicCapture = false;
     {
@@ -3500,7 +3495,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             {
                 OPTICK_EVENT("PT Capture Visible Doom Surfaces");
-                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true, gpuSkinningCanOverwriteSkinnedDynamicVertices);
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, false, false, true);
             }
             const bool staticAreaPreloadEnabled =
                 r_pathTracingStaticAreaPreload.GetInteger() != 0 ||
@@ -3564,7 +3559,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 r_pathTracingSmokeLog.GetInteger() != 0 ||
                 r_pathTracingSceneBoundsOverlay.GetInteger() != 0 ||
                 rigidResidencyBoundsDebug;
-            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, dumpClassReasons ? &mirrorReasonSamples : nullptr, &currentSkinnedSurfaceRecords, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics, gpuSkinningCanOverwriteSkinnedDynamicVertices);
+            const bool usingMirrorDynamicFrame = CapturePathTraceDynamicFrameFromDrawSurfMirror(viewDef, nullptr, &m_smokeGeometryUniverse, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, mirrorSourceSurfaces, mirrorSourceVerts, mirrorSourceIndexes, mirrorClassStats, mirrorSkipStats, mirrorDynamicStats, mirrorAttributeStats, mirrorMaterialStats, mirrorBucketRanges, mirrorCaptureTiming, dumpClassReasons ? &mirrorReasonSamples : nullptr, &currentSkinnedSurfaceRecords, nullptr, &m_instanceUniverse, &m_smokeBoundsOverlayLines, drawSurfMirrorFullDiagnostics);
 
             {
                 OPTICK_EVENT("PT Merge Mirror Capture Stats");
@@ -3598,9 +3593,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
                 captureTiming.dynamicPassClassifyMs += mirrorCaptureTiming.dynamicPassClassifyMs;
                 captureTiming.dynamicAppendMs += mirrorCaptureTiming.dynamicAppendMs;
                 captureTiming.rtCpuSkinningAppendMs += mirrorCaptureTiming.rtCpuSkinningAppendMs;
-                captureTiming.gpuSkinningBypassAppendMs += mirrorCaptureTiming.gpuSkinningBypassAppendMs;
-                captureTiming.gpuSkinningBypassSurfaces += mirrorCaptureTiming.gpuSkinningBypassSurfaces;
-                captureTiming.gpuSkinningBypassIndexes += mirrorCaptureTiming.gpuSkinningBypassIndexes;
                 captureTiming.bucketMergeMs += mirrorCaptureTiming.bucketMergeMs;
                 captureTiming.appendMs += mirrorCaptureTiming.appendMs;
                 captureTiming.validationMs += mirrorCaptureTiming.validationMs;
@@ -3614,7 +3606,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         {
             {
                 OPTICK_EVENT("PT Capture Legacy Doom Surfaces");
-                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0, false, gpuSkinningCanOverwriteSkinnedDynamicVertices);
+                usingDoomSurfaces = CaptureDoomSurfacesForSmokeTest(viewDef, dynamicVertexData, dynamicIndexData, dynamicTriangleClassData, dynamicTriangleMaterialData, &dynamicTriangleInstanceData, &dynamicTriangleIdentityData, m_smokeGeometryUniverse, staticCacheChanged, m_smokeSceneOrigin, sourceSurfaces, sourceVerts, sourceIndexes, anchorTriangle, classStats, skipStats, dynamicStats, attributeStats, materialStats, bucketRanges, captureTiming, dumpClassReasons ? &reasonSamples : nullptr, &currentSkinnedSurfaceRecords, useSceneUniverseStaticGeometry, source2RigidEntities != 0);
             }
         }
         {
@@ -3701,6 +3693,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             nextPreviousSkinnedVertexData);
         skinnedPreviousBridgeMs = Sys_Milliseconds() - skinnedPreviousBridgeStartMs;
     }
+    const int gpuSkinningMode = idMath::ClampInt(0, 2, r_pathTracingGpuSkinning.GetInteger());
     const bool rrGuideNeedsSkinnedHistory =
         requestedDebugMode == 56 &&
         r_pathTracingRestirPTPrimarySurfacePrepass.GetInteger() != 0;
@@ -7555,7 +7548,7 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     sceneInputs.geometry.skinnedGpuSkinningAvailable = skinnedGpuComputeDispatched;
     if (r_pathTracingSkinnedDump.GetInteger() != 0)
     {
-        common->Printf("PathTracePrimaryPass: PT skinned dump frame=%llu source=%d motionExport=%d rrGuideHistory=%d rrDebug=%d gpuSkinning=%d scaffoldMode=%d computeInputs=%d current records=%d surfaces/tris=%d/%d rtCpu=%d dynamicTris total/skinnedCpu/basePose/rtCpu=%d/%d/%d/%d previousBefore records/verts/joints=%d/%d/%d bridge matched/invalid/retainedVerts=%d/%d/%d invalid noFrame/noSurface/count/material/class/notRtCpu/skeleton/teleport/prevBuf=%d/%d/%d/%d/%d/%d/%d/%d/%d temporal topology/lod/transform/deform/material/prevBuf=%d/%d/%d/%d/%d/%d scaffold source/current/prevPos/dispatch/mapped/index/currentJoints/prevJoints=%d/%d/%d/%d/%d/%d/%d/%d compute ready/dispatched/targetDyn/writePrev/verts/max=%d/%d/%d/%d/%d/%d bytes source/current/prevPos/dispatch/index/currentJoints/prevJoints/upload/skip=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu capacity source/current/prevPos/dispatch/index/currentJoints/prevJoints=%llu/%llu/%llu/%llu/%llu/%llu/%llu dynamicCapacity v/i/class/mat/matIndex=%llu/%llu/%llu/%llu/%llu gpuBypass surf/index/ms=%d/%d/%d timing captureClass/append/rtCpuAppend/bucket/bridge/scaffold/dispatchIndex/retainJoints/bufferCreate/upload=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
+        common->Printf("PathTracePrimaryPass: PT skinned dump frame=%llu source=%d motionExport=%d rrGuideHistory=%d rrDebug=%d gpuSkinning=%d scaffoldMode=%d computeInputs=%d current records=%d surfaces/tris=%d/%d rtCpu=%d dynamicTris total/skinnedCpu/basePose/rtCpu=%d/%d/%d/%d previousBefore records/verts/joints=%d/%d/%d bridge matched/invalid/retainedVerts=%d/%d/%d invalid noFrame/noSurface/count/material/class/notRtCpu/skeleton/teleport/prevBuf=%d/%d/%d/%d/%d/%d/%d/%d/%d temporal topology/lod/transform/deform/material/prevBuf=%d/%d/%d/%d/%d/%d scaffold source/current/prevPos/dispatch/mapped/index/currentJoints/prevJoints=%d/%d/%d/%d/%d/%d/%d/%d compute ready/dispatched/targetDyn/writePrev/verts/max=%d/%d/%d/%d/%d/%d bytes source/current/prevPos/dispatch/index/currentJoints/prevJoints/upload/skip=%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu/%llu capacity source/current/prevPos/dispatch/index/currentJoints/prevJoints=%llu/%llu/%llu/%llu/%llu/%llu/%llu dynamicCapacity v/i/class/mat/matIndex=%llu/%llu/%llu/%llu/%llu timing captureClass/append/rtCpuAppend/bucket/bridge/scaffold/dispatchIndex/retainJoints/bufferCreate/upload=%d/%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
             static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
             sceneSource,
             r_pathTracingMotionVectorExport.GetInteger() != 0 ? 1 : 0,
@@ -7628,9 +7621,6 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
             static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleClassBuffer, sizeof(uint32_t))),
             static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleMaterialBuffer, sizeof(uint32_t))),
             static_cast<unsigned long long>(SmokeBufferCapacityElements(smokeDynamicTriangleMaterialIndexBuffer, sizeof(uint32_t))),
-            captureTiming.gpuSkinningBypassSurfaces,
-            captureTiming.gpuSkinningBypassIndexes,
-            captureTiming.gpuSkinningBypassAppendMs,
             captureTiming.dynamicPassClassifyMs,
             captureTiming.dynamicAppendMs,
             captureTiming.rtCpuSkinningAppendMs,

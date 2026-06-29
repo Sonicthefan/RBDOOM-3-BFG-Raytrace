@@ -77,5 +77,4 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
     std::vector<RtPathTraceDrawSurfMirrorSurfaceCache>* surfaceCache = nullptr,
     RtPathTraceInstanceUniverse* instanceUniverse = nullptr,
     std::vector<RtPathTraceBoundsOverlayLine>* boundsOverlayLines = nullptr,
-    bool recordAllInstanceClasses = false,
-    bool gpuSkinningOverwriteSkinnedDynamicVertices = false);
+    bool recordAllInstanceClasses = false);
