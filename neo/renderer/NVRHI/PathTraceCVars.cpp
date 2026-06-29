@@ -401,25 +401,25 @@ idCVar r_pathTracingEntityFeedMaxDistance(
 
 idCVar r_pathTracingResidency(
     "r_pathTracingResidency",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Master gate for path-trace render-thread residency caches. 0 = legacy per-frame derive. Subsystem residency paths require this and their subsystem gate." );
 
 idCVar r_pathTracingResidencyEntityFeed(
     "r_pathTracingResidencyEntityFeed",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Gate for entity-feed residency caches. Active only when r_pathTracingResidency is also non-zero." );
 
 idCVar r_pathTracingResidencyStatic(
     "r_pathTracingResidencyStatic",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Gate for static-area residency caches. Active only when r_pathTracingResidency is also non-zero." );
 
 idCVar r_pathTracingResidencyMaterial(
     "r_pathTracingResidencyMaterial",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Gate for material residency caches. Active only when r_pathTracingResidency is also non-zero." );
 
@@ -431,7 +431,7 @@ idCVar r_pathTracingResidencyDrawSurf(
 
 idCVar r_pathTracingResidencyLights(
     "r_pathTracingResidencyLights",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Gate for light residency caches. Active only when r_pathTracingResidency is also non-zero." );
 
