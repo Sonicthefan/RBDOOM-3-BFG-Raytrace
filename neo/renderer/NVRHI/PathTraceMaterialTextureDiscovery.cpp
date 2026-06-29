@@ -208,13 +208,6 @@ bool SmokeMaterialTextureInfoNeedsHydrationRefresh(const RtSmokeMaterialTextureI
         (info.hasEmissiveImage && !info.hasEmissiveTextureHandle);
 }
 
-bool SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(const RtSmokeMaterialTextureInfo& info)
-{
-    return SmokeMaterialResidencyEnabled() &&
-        !info.isDynamic &&
-        !SmokeMaterialTextureInfoNeedsHydrationRefresh(info);
-}
-
 bool SmokeResidentMaterialRegisterDependsOnRuntime(const idMaterial* material, int registerIndex)
 {
     if (registerIndex < 0)
@@ -239,6 +232,22 @@ bool SmokeResidentMaterialImageIsDynamic(idImage* image)
         opts.isUAV ||
         IsSmokeImageNameGuiLike(image->GetName()) ||
         !IsSmokeImageNameSafeForRayTracing(image->GetName());
+}
+
+bool SmokeMaterialTextureInfoHasDynamicHydrationSource(const RtSmokeMaterialTextureInfo& info)
+{
+    return SmokeResidentMaterialImageIsDynamic(info.diffuseImage) ||
+        SmokeResidentMaterialImageIsDynamic(info.alphaImage) ||
+        SmokeResidentMaterialImageIsDynamic(info.normalImage) ||
+        SmokeResidentMaterialImageIsDynamic(info.specularImage) ||
+        SmokeResidentMaterialImageIsDynamic(info.emissiveImage);
+}
+
+bool SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(const RtSmokeMaterialTextureInfo& info)
+{
+    return SmokeMaterialResidencyEnabled() &&
+        !SmokeMaterialTextureInfoNeedsHydrationRefresh(info) &&
+        !SmokeMaterialTextureInfoHasDynamicHydrationSource(info);
 }
 
 bool SmokeResidentMaterialStageHasDynamicFacts(const idMaterial* material, const shaderStage_t* stage)
