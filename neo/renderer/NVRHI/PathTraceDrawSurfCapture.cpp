@@ -826,12 +826,6 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
         r_pathTracingRigidTlasRoute.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuScaffold.GetInteger() != 0 &&
         r_pathTracingRigidBlasGpuBuild.GetInteger() != 0;
-    const bool skipResidentStaticDrawSurfs =
-        surfaceCache == nullptr &&
-        geometryUniverse != nullptr &&
-        r_pathTracingResidency.GetInteger() != 0 &&
-        r_pathTracingResidencyStatic.GetInteger() != 0 &&
-        r_pathTracingResidencyDrawSurf.GetInteger() != 0;
 
     {
         OPTICK_EVENT("PT Capture Dynamic Surface Loop");
@@ -866,11 +860,6 @@ bool CapturePathTraceDynamicFrameFromDrawSurfMirror(
                 continue;
             }
             captureTiming.validationMs += Sys_Milliseconds() - validationStartMs;
-
-            if (skipResidentStaticDrawSurfs && geometryUniverse->HasStaticSurface(BuildSmokeStaticSurfaceKeyForDiagnostics(drawSurf, tri)))
-            {
-                continue;
-            }
 
             const int classifyStartMs = Sys_Milliseconds();
             const RtSmokeSurfaceClass classifiedSurfaceClass = ClassifySmokeSurface(viewDef, drawSurf, tri);
