@@ -2890,7 +2890,21 @@ std::vector<uint32_t> BuildSortedUniqueMaterialIds(const std::vector<uint32_t>& 
     std::vector<uint32_t> uniqueIds = materialIds;
     std::sort(uniqueIds.begin(), uniqueIds.end());
     uniqueIds.erase(std::unique(uniqueIds.begin(), uniqueIds.end()), uniqueIds.end());
+    if (!uniqueIds.empty() && uniqueIds[0] == 0u)
+    {
+        uniqueIds.erase(uniqueIds.begin());
+    }
     return uniqueIds;
+}
+
+uint64 BuildSortedUniqueMaterialIdSignature(const std::vector<uint32_t>& materialIds)
+{
+    if (materialIds.empty())
+    {
+        return 0ull;
+    }
+    const std::vector<uint32_t> uniqueIds = BuildSortedUniqueMaterialIds(materialIds);
+    return uniqueIds.empty() ? 0ull : BuildSmokeVectorUploadSignature(uniqueIds);
 }
 
 std::vector<uint32_t> BuildUniqueMaterialIdsPreservingOrder(const std::vector<uint32_t>& materialIds)
@@ -4083,18 +4097,14 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
     const std::vector<uint32_t>* materialHydrationIds = nullptr;
     {
         OPTICK_EVENT("PT Hydrate Cached Material Metadata");
-        const uint64 materialHydrationGeometryGeneration = m_smokeGeometryUniverse.Generation();
         const uint64 materialHydrationStaticGeneration = m_smokeGeometryUniverse.StaticMaterialGeneration();
         const size_t materialHydrationStaticTriangleMaterialCount = staticTriangleMaterialCache.size();
-        const uint64 materialHydrationEmissiveSignature = fullLevelStaticEmissiveMaterialIds.empty()
-            ? 0ull
-            : BuildSmokeVectorUploadSignature(fullLevelStaticEmissiveMaterialIds);
-        const uint64 materialHydrationRigidSignature = rigidRouteMaterialIds.empty()
-            ? 0ull
-            : BuildSmokeVectorUploadSignature(rigidRouteMaterialIds);
+        const uint64 materialHydrationEmissiveSignature =
+            BuildSortedUniqueMaterialIdSignature(fullLevelStaticEmissiveMaterialIds);
+        const uint64 materialHydrationRigidSignature =
+            BuildSortedUniqueMaterialIdSignature(rigidRouteMaterialIds);
         const bool materialHydrationIdsCacheHit =
             m_smokeMaterialHydrationIdsValid &&
-            m_smokeMaterialHydrationGeometryGeneration == materialHydrationGeometryGeneration &&
             m_smokeMaterialHydrationStaticGeneration == materialHydrationStaticGeneration &&
             m_smokeMaterialHydrationStaticTriangleMaterialCount == materialHydrationStaticTriangleMaterialCount &&
             m_smokeMaterialHydrationEmissiveSignature == materialHydrationEmissiveSignature &&
@@ -4102,9 +4112,8 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         if (!materialHydrationIdsCacheHit)
         {
             OPTICK_EVENT("PT Material Hydration Unique IDs");
-            m_smokeMaterialHydrationIds = BuildUniqueMaterialIdsPreservingOrder(materialTableStaticIds);
+            m_smokeMaterialHydrationIds = BuildSortedUniqueMaterialIds(materialTableStaticIds);
             m_smokeMaterialHydrationIdsValid = true;
-            m_smokeMaterialHydrationGeometryGeneration = materialHydrationGeometryGeneration;
             m_smokeMaterialHydrationStaticGeneration = materialHydrationStaticGeneration;
             m_smokeMaterialHydrationStaticTriangleMaterialCount = materialHydrationStaticTriangleMaterialCount;
             m_smokeMaterialHydrationEmissiveSignature = materialHydrationEmissiveSignature;
