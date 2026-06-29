@@ -177,6 +177,7 @@ struct RtSmokeBindingBuildResult
     std::vector<nvrhi::TextureHandle> activeTextureTable;
     bool textureDescriptorTableCreated = false;
     bool textureDescriptorTableWritten = false;
+    int textureDescriptorSlotsWritten = 0;
     const char* errorMessage = nullptr;
     int failedTextureSlot = -1;
 

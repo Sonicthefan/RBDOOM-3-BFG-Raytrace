@@ -459,6 +459,22 @@ static bool SmokeTextureTableChanged(const std::vector<nvrhi::TextureHandle>& ol
     return false;
 }
 
+static nvrhi::TextureHandle SmokeTextureDescriptorSlotHandle(const std::vector<nvrhi::TextureHandle>& activeTextureTable, int textureSlot, nvrhi::TextureHandle fallbackTexture)
+{
+    const int textureTableIndex = textureSlot + 1; // activeTextureTable[0] is the descriptor fallback sentinel.
+    if (textureTableIndex >= 0 && textureTableIndex < static_cast<int>(activeTextureTable.size()))
+    {
+        return activeTextureTable[textureTableIndex] ? activeTextureTable[textureTableIndex] : fallbackTexture;
+    }
+    return fallbackTexture;
+}
+
+static bool SmokeTextureDescriptorSlotChanged(const std::vector<nvrhi::TextureHandle>& oldTable, const std::vector<nvrhi::TextureHandle>& newTable, int textureSlot, nvrhi::TextureHandle fallbackTexture)
+{
+    return SmokeTextureDescriptorSlotHandle(oldTable, textureSlot, fallbackTexture) !=
+        SmokeTextureDescriptorSlotHandle(newTable, textureSlot, fallbackTexture);
+}
+
 static bool SmokeSceneBuffersChanged(const RtSmokeSceneBufferHandles& oldBuffers, const RtSmokeSceneBufferHandles& newBuffers)
 {
     return
@@ -761,24 +777,55 @@ RtSmokeBindingBuildResult CreateSmokeBindingResources(const RtSmokeBindingBuildD
             textureDescriptorTableReused &&
             desc.existingActiveTextureTable &&
             !SmokeTextureTableChanged(*desc.existingActiveTextureTable, result.activeTextureTable);
+        const int textureDescriptorSlotCapacity = idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, desc.maxActiveTextures);
+        const bool sparseTextureDescriptorWrite =
+            !skipTextureDescriptorTableWrite &&
+            textureDescriptorTableReused &&
+            desc.existingActiveTextureTable;
+        std::vector<int> textureDescriptorSlotsToWrite;
+        if (sparseTextureDescriptorWrite)
+        {
+            OPTICK_EVENT("PT Diff Texture Descriptor Table");
+            for (int textureSlot = 0; textureSlot < textureDescriptorSlotCapacity; ++textureSlot)
+            {
+                if (SmokeTextureDescriptorSlotChanged(*desc.existingActiveTextureTable, result.activeTextureTable, textureSlot, desc.fallbackTexture))
+                {
+                    textureDescriptorSlotsToWrite.push_back(textureSlot);
+                }
+            }
+        }
         const int textureDescriptorSlotWriteCount =
             skipTextureDescriptorTableWrite
                 ? 0
-                : idMath::ClampInt(0, RT_SMOKE_TEXTURE_DESCRIPTOR_CAPACITY, desc.maxActiveTextures);
+                : (sparseTextureDescriptorWrite ? static_cast<int>(textureDescriptorSlotsToWrite.size()) : textureDescriptorSlotCapacity);
         {
             OPTICK_EVENT("PT Write Texture Descriptor Table");
             result.textureDescriptorTableWritten = textureDescriptorSlotWriteCount > 0;
-            for (int textureSlot = 0; textureSlot < textureDescriptorSlotWriteCount; ++textureSlot)
+            result.textureDescriptorSlotsWritten = textureDescriptorSlotWriteCount;
+            if (sparseTextureDescriptorWrite)
             {
-                nvrhi::TextureHandle texture =
-                    textureSlot < textureSlotCount
-                        ? result.activeTextureTable[textureSlot + 1]
-                        : desc.fallbackTexture;
-                if (!desc.device->writeDescriptorTable(result.textureDescriptorTable, nvrhi::BindingSetItem::Texture_SRV(textureSlot, texture)))
+                for (int textureSlot : textureDescriptorSlotsToWrite)
                 {
-                    result.errorMessage = "failed to write RT smoke bindless texture descriptor slot";
-                    result.failedTextureSlot = textureSlot;
-                    return result;
+                    const nvrhi::TextureHandle texture = SmokeTextureDescriptorSlotHandle(result.activeTextureTable, textureSlot, desc.fallbackTexture);
+                    if (!desc.device->writeDescriptorTable(result.textureDescriptorTable, nvrhi::BindingSetItem::Texture_SRV(textureSlot, texture)))
+                    {
+                        result.errorMessage = "failed to write RT smoke bindless texture descriptor slot";
+                        result.failedTextureSlot = textureSlot;
+                        return result;
+                    }
+                }
+            }
+            else
+            {
+                for (int textureSlot = 0; textureSlot < textureDescriptorSlotWriteCount; ++textureSlot)
+                {
+                    const nvrhi::TextureHandle texture = SmokeTextureDescriptorSlotHandle(result.activeTextureTable, textureSlot, desc.fallbackTexture);
+                    if (!desc.device->writeDescriptorTable(result.textureDescriptorTable, nvrhi::BindingSetItem::Texture_SRV(textureSlot, texture)))
+                    {
+                        result.errorMessage = "failed to write RT smoke bindless texture descriptor slot";
+                        result.failedTextureSlot = textureSlot;
+                        return result;
+                    }
                 }
             }
         }
