@@ -1434,42 +1434,70 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
         int numVerts = 0;
         int numIndexes = 0;
 
-        if (surface.entityIndex < 0 || surface.entityIndex >= renderWorld->entityDefs.Num())
+        if (useBakedStaticFacts)
         {
-            ++buildStats.skippedInvalid;
-            return;
-        }
+            entity = surface.entity;
+            material = surface.material;
+            tri = surface.tri;
+            key = surface.legacyDrawSurfKey;
+            surfaceClassId = surface.surfaceClassId;
+            materialId = surface.baseMaterialId;
+            emissiveCapable = surface.emissiveCapable;
+            numVerts = surface.numVerts;
+            numIndexes = surface.numIndexes;
 
-        entity = renderWorld->entityDefs[surface.entityIndex];
-        const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
-        if (!model || !model->IsStaticWorldModel() || surface.surfaceIndex < 0 || surface.surfaceIndex >= model->NumSurfaces())
-        {
-            ++buildStats.skippedInvalid;
-            return;
+            if (!surface.validStaticBuild || !entity || !material || !tri || key == 0 || numVerts < 3 || numIndexes < 3)
+            {
+                ++buildStats.skippedInvalid;
+                return;
+            }
+            if ((numIndexes % 3) != 0)
+            {
+                ++skipStats.invalidIndexCount;
+                ++buildStats.skippedInvalid;
+                return;
+            }
+            materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surface.surfaceIndex, material, surface.baseMaterialId);
         }
+        else
+        {
+            if (surface.entityIndex < 0 || surface.entityIndex >= renderWorld->entityDefs.Num())
+            {
+                ++buildStats.skippedInvalid;
+                return;
+            }
 
-        const modelSurface_t* modelSurface = model->Surface(surface.surfaceIndex);
-        material = SceneUniverseResolveEntitySurfaceMaterial(entity, modelSurface);
-        tri = modelSurface ? modelSurface->geometry : nullptr;
-        if (!material || !tri || !tri->verts || !tri->indexes || tri->numVerts < 3 || tri->numIndexes < 3 || !material->IsDrawn())
-        {
-            ++buildStats.skippedInvalid;
-            return;
-        }
-        if ((tri->numIndexes % 3) != 0)
-        {
-            ++skipStats.invalidIndexCount;
-            ++buildStats.skippedInvalid;
-            return;
-        }
+            entity = renderWorld->entityDefs[surface.entityIndex];
+            const idRenderModel* model = entity ? entity->parms.hModel : nullptr;
+            if (!model || !model->IsStaticWorldModel() || surface.surfaceIndex < 0 || surface.surfaceIndex >= model->NumSurfaces())
+            {
+                ++buildStats.skippedInvalid;
+                return;
+            }
 
-        key = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
-        surfaceClassId = SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass::StaticWorld, RtSmokeTranslucentSubtype::Unknown);
-        const uint32_t baseMaterialId = SmokeMaterialId(material);
-        materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surface.surfaceIndex, material, baseMaterialId);
-        emissiveCapable = SceneUniverseMaterialCanEmit(material);
-        numVerts = tri->numVerts;
-        numIndexes = tri->numIndexes;
+            const modelSurface_t* modelSurface = model->Surface(surface.surfaceIndex);
+            material = SceneUniverseResolveEntitySurfaceMaterial(entity, modelSurface);
+            tri = modelSurface ? modelSurface->geometry : nullptr;
+            if (!material || !tri || !tri->verts || !tri->indexes || tri->numVerts < 3 || tri->numIndexes < 3 || !material->IsDrawn())
+            {
+                ++buildStats.skippedInvalid;
+                return;
+            }
+            if ((tri->numIndexes % 3) != 0)
+            {
+                ++skipStats.invalidIndexCount;
+                ++buildStats.skippedInvalid;
+                return;
+            }
+
+            key = BuildSceneUniverseLegacyDrawSurfKey(entity, material, tri);
+            surfaceClassId = SmokeSurfaceClassAndSubtypeId(RtSmokeSurfaceClass::StaticWorld, RtSmokeTranslucentSubtype::Unknown);
+            const uint32_t baseMaterialId = SmokeMaterialId(material);
+            materialId = SmokeRuntimeMaterialTableIdForEntitySurface(entity, surface.surfaceIndex, material, baseMaterialId);
+            emissiveCapable = SceneUniverseMaterialCanEmit(material);
+            numVerts = tri->numVerts;
+            numIndexes = tri->numIndexes;
+        }
 
         if (emissiveCapable)
         {
