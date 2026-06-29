@@ -430,6 +430,7 @@ extern idCVar r_pathTracingAnchorRaycast;
 extern idCVar r_pathTracingMaterialMetadataCache;
 extern idCVar r_pathTracingSmokeLog;
 extern idCVar r_pathTracingMaterialUploadDump;
+extern idCVar r_pathTracingBufferUploadDump;
 extern idCVar r_pathTracingTimingLog;
 extern idCVar r_pathTracingTimingThreshold;
 extern idCVar r_pathTracingTimingLogInterval;

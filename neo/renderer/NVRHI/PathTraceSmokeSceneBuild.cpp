@@ -2072,6 +2072,25 @@ uint64_t SumSmokeSkippedUploadBytes(const RtSmokeBufferUploadItem* items, int fi
     return bytes;
 }
 
+uint64_t SmokeUploadItemWriteBytes(const RtSmokeBufferUploadItem& item)
+{
+    return (!item.skip && item.buffer && item.data && item.byteSize > 0)
+        ? static_cast<uint64_t>(item.byteSize)
+        : 0ull;
+}
+
+uint64_t SmokeUploadItemSkippedBytes(const RtSmokeBufferUploadItem& item)
+{
+    return (item.skip && item.buffer && item.data && item.byteSize > 0)
+        ? static_cast<uint64_t>(item.byteSize)
+        : 0ull;
+}
+
+uint64_t SmokeUploadItemBufferCapacity(const RtSmokeBufferUploadItem& item)
+{
+    return item.buffer ? static_cast<uint64_t>(item.buffer->getDesc().byteSize) : 0ull;
+}
+
 uint64_t SmokeEmissiveIdentityKey(const PathTraceSmokeEmissiveTriangle& triangle)
 {
     return (static_cast<uint64_t>(triangle.identityHashHi) << 32ull) | static_cast<uint64_t>(triangle.identityHashLo);
@@ -6666,6 +6685,56 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         !skinnedGpuScaffold.previousJointMatrices.empty();
     bool skinnedGpuComputeDispatched = false;
 
+    const char* uploadItemNames[] = {
+        "staticVertex",
+        "staticIndex",
+        "staticTriangleClass",
+        "staticTriangleMaterial",
+        "staticTriangleMaterialIndex",
+        "previousStaticVertex",
+        "previousStaticIndex",
+        "previousStaticTriangleClass",
+        "previousStaticTriangleMaterial",
+        "previousStaticTriangleMaterialIndex",
+        "dynamicVertex",
+        "dynamicIndex",
+        "dynamicTriangleClass",
+        "dynamicTriangleMaterial",
+        "dynamicTriangleMaterialIndex",
+        "materialTable",
+        "dynamicMaterial",
+        "emissiveTriangle",
+        "previousEmissiveTriangle",
+        "emissiveRemap",
+        "emissiveDistribution",
+        "lightCandidate",
+        "doomAnalyticLight",
+        "doomAnalyticPreviousLight",
+        "doomAnalyticCurrentIdentity",
+        "doomAnalyticPreviousIdentity",
+        "doomAnalyticRemap",
+        "unifiedLight",
+        "unifiedPreviousLight",
+        "unifiedLightRemap",
+        "restirLightManagerCurrent",
+        "restirLightManagerPrevious",
+        "restirLightManagerCurrentToPrevious",
+        "restirLightManagerPreviousToCurrent",
+        "restirLightManagerCurrentPayload",
+        "restirLightManagerPreviousPayload",
+        "rigidRouteVertex",
+        "rigidRouteIndex",
+        "rigidRouteTriangleMaterial",
+        "rigidRouteTriangleMaterialIndex",
+        "rigidRouteInstance",
+        "skinnedSourceVertex",
+        "skinnedCurrentOutputVertex",
+        "skinnedPreviousPosition",
+        "skinnedSurfaceDispatch",
+        "skinnedTriangleDispatchIndex",
+        "skinnedCurrentJointMatrix",
+        "skinnedPreviousJointMatrix"
+    };
     const RtSmokeBufferUploadItem uploadItems[] = {
         MakeSmokeVectorUploadItem(smokeStaticVertexBuffer, staticVertexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyVertexOffset : -1, geometryUniverseStats.staticDirtyVertexCount),
         MakeSmokeVectorUploadItem(smokeStaticIndexBuffer, staticIndexCache, nvrhi::ResourceStates::AccelStructBuildInput, staticBlasCacheHit, useStaticDirtyRangeUploads ? geometryUniverseStats.staticDirtyIndexOffset : -1, geometryUniverseStats.staticDirtyIndexCount),
@@ -6720,6 +6789,9 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         MakeSmokeVectorUploadItem(smokeSkinnedCurrentJointMatrixBuffer, skinnedGpuScaffold.currentJointMatrices, nvrhi::ResourceStates::ShaderResource, false),
         MakeSmokeVectorUploadItem(smokeSkinnedPreviousJointMatrixBuffer, skinnedGpuScaffold.previousJointMatrices, nvrhi::ResourceStates::ShaderResource, false)
     };
+    static_assert(
+        sizeof(uploadItemNames) / sizeof(uploadItemNames[0]) == sizeof(uploadItems) / sizeof(uploadItems[0]),
+        "RT smoke upload item names must match upload item order");
     RtSmokeBufferUploadBatchDesc uploadBatchDesc;
     uploadBatchDesc.commandList = commandList;
     uploadBatchDesc.items = uploadItems;
@@ -6992,6 +7064,54 @@ void PathTracePrimaryPass::BuildRayTracingSmokeTestScene(const viewDef_t* viewDe
         (skipRigidRouteInstanceBufferUpload ? rigidRouteInstanceBytes : 0ull);
     const uint64_t skinnedUploadBytes = SumSmokeUploadBytes(uploadItems, 41, 7);
     const uint64_t skinnedSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 41, 7);
+    if (r_pathTracingBufferUploadDump.GetInteger() != 0)
+    {
+        const uint64_t staticSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 0, 5);
+        const uint64_t dynamicSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 10, 5);
+        const uint64_t materialSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 15, 2);
+        const uint64_t bufferDumpLightUploadBytes = SumSmokeUploadBytes(uploadItems, 17, 19);
+        const uint64_t lightSkippedUploadBytes = SumSmokeSkippedUploadBytes(uploadItems, 17, 19);
+        common->Printf(
+            "PathTracePrimaryPass: PT buffer upload dump frame=%llu residency=%d staticBlasCacheHit=%d dirtyRange=%d bufferUploadMs=%d totals write(static/prevStatic/dynamic/material/light/rigid/skinned)=%llu/%llu/%llu/%llu/%llu/%llu/%llu skip(static/prevStatic/dynamic/material/light/rigid/skinned)=%llu/%llu/%llu/%llu/%llu/%llu/%llu\n",
+            static_cast<unsigned long long>(m_smokeGeometryFrameIndex),
+            r_pathTracingResidency.GetInteger() != 0 ? 1 : 0,
+            staticBlasCacheHit ? 1 : 0,
+            useStaticDirtyRangeUploads ? 1 : 0,
+            bufferUploadMs,
+            static_cast<unsigned long long>(staticUploadBytes),
+            static_cast<unsigned long long>(previousStaticUploadBytes),
+            static_cast<unsigned long long>(dynamicUploadBytes),
+            static_cast<unsigned long long>(materialUploadBytes),
+            static_cast<unsigned long long>(bufferDumpLightUploadBytes),
+            static_cast<unsigned long long>(rigidRouteUploadBytes),
+            static_cast<unsigned long long>(skinnedUploadBytes),
+            static_cast<unsigned long long>(staticSkippedUploadBytes),
+            static_cast<unsigned long long>(previousStaticUploadSkippedBytes),
+            static_cast<unsigned long long>(dynamicSkippedUploadBytes),
+            static_cast<unsigned long long>(materialSkippedUploadBytes),
+            static_cast<unsigned long long>(lightSkippedUploadBytes),
+            static_cast<unsigned long long>(rigidRouteSkippedUploadBytes),
+            static_cast<unsigned long long>(skinnedSkippedUploadBytes));
+        const int uploadItemCount = static_cast<int>(sizeof(uploadItems) / sizeof(uploadItems[0]));
+        for (int uploadItemIndex = 0; uploadItemIndex < uploadItemCount; ++uploadItemIndex)
+        {
+            const RtSmokeBufferUploadItem& item = uploadItems[uploadItemIndex];
+            common->Printf(
+                "PathTracePrimaryPass: PT buffer upload item %02d name=%s buffer=%d data=%d skip=%d writeBytes=%llu skippedBytes=%llu plannedBytes=%llu srcOffset=%llu dstOffset=%llu capacity=%llu\n",
+                uploadItemIndex,
+                uploadItemNames[uploadItemIndex],
+                item.buffer ? 1 : 0,
+                item.data ? 1 : 0,
+                item.skip ? 1 : 0,
+                static_cast<unsigned long long>(SmokeUploadItemWriteBytes(item)),
+                static_cast<unsigned long long>(SmokeUploadItemSkippedBytes(item)),
+                static_cast<unsigned long long>(item.byteSize),
+                static_cast<unsigned long long>(item.sourceOffsetBytes),
+                static_cast<unsigned long long>(item.destOffsetBytes),
+                static_cast<unsigned long long>(SmokeUploadItemBufferCapacity(item)));
+        }
+        r_pathTracingBufferUploadDump.SetInteger(0);
+    }
     if (r_pathTracingMaterialUploadDump.GetInteger() != 0)
     {
         const RtSmokeBufferUploadItem& materialTableUpload = uploadItems[15];

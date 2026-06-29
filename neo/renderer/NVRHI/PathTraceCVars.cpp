@@ -2391,6 +2391,12 @@ idCVar r_pathTracingMaterialUploadDump(
     CVAR_RENDERER | CVAR_INTEGER,
     "Set to 1 to dump current material table and dynamic-material upload/dirty-range stats once" );
 
+idCVar r_pathTracingBufferUploadDump(
+    "r_pathTracingBufferUploadDump",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "Set to 1 to dump current RT smoke scene-buffer upload bytes and per-buffer skip/range state once" );
+
 idCVar r_pathTracingTimingLog(
     "r_pathTracingTimingLog",
     "1",
