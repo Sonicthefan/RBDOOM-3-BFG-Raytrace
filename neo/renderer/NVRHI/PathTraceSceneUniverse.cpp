@@ -1663,8 +1663,11 @@ RtPathTraceSceneUniverseBuildStats RtPathTraceSceneUniverse::BuildSelectedStatic
                 m_surfaceSelectionStamps[surfaceIndex] = m_surfaceSelectionStamp;
 
                 const RtPathTraceSceneUniverseSurface& surface = m_surfaces[surfaceIndex];
-                const RtSmokePersistentStaticSurfaceRecord* existingRecord = geometryUniverse.FindStaticSurface(surface.legacyDrawSurfKey);
-                accumulateSelectedSurfaceStats(surface, existingRecord);
+                if (collectSelectionStats)
+                {
+                    const RtSmokePersistentStaticSurfaceRecord* existingRecord = geometryUniverse.FindStaticSurface(surface.legacyDrawSurfKey);
+                    accumulateSelectedSurfaceStats(surface, existingRecord);
+                }
                 processSelectedSurface(surface);
             }
         }
