@@ -425,7 +425,7 @@ idCVar r_pathTracingResidencyMaterial(
 
 idCVar r_pathTracingResidencyDrawSurf(
     "r_pathTracingResidencyDrawSurf",
-    "0",
+    "1",
     CVAR_RENDERER | CVAR_INTEGER,
     "Gate for drawSurf mirror residency caches. Active only when r_pathTracingResidency is also non-zero." );
 
