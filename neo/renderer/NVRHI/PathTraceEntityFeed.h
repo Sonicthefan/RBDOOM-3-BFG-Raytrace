@@ -14,6 +14,8 @@ struct RtPathTraceEntityFeedStats
     int candidatesS0 = 0;
     int candidatesS1 = 0;
     int candidatesS2 = 0;
+    int invalidS2 = 0;
+    int admittedS2 = 0;
     int candidatesS3 = 0;
     int candidatesS4 = 0;
     int admitted = 0;

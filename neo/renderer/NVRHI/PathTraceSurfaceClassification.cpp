@@ -296,11 +296,11 @@ RtSmokeSurfaceClass ClassifySmokeSurface(const viewDef_t* viewDef, const drawSur
     return RtSmokeSurfaceClass::Unknown;
 }
 
-bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
+int EntityFeedSingleBoneSurfaceJointIndex(const srfTriangles_t* tri)
 {
     if (!tri || !tri->verts || tri->numVerts <= 0)
     {
-        return false;
+        return -1;
     }
 
     int surfaceJoint = -1;
@@ -316,14 +316,14 @@ bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
             }
             if (vert.color2[component] != 255 || weightedComponent >= 0)
             {
-                return false;
+                return -1;
             }
             weightedComponent = component;
         }
 
         if (weightedComponent < 0)
         {
-            return false;
+            return -1;
         }
 
         const int jointIndex = vert.color[weightedComponent];
@@ -333,11 +333,16 @@ bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
         }
         else if (surfaceJoint != jointIndex)
         {
-            return false;
+            return -1;
         }
     }
 
-    return true;
+    return surfaceJoint;
+}
+
+bool IsEntityFeedSingleBoneSurface(const srfTriangles_t* tri)
+{
+    return EntityFeedSingleBoneSurfaceJointIndex(tri) >= 0;
 }
 
 RtPtFeedClass ClassifyEntityFeedSurface(const idRenderEntityLocal* entity, const idRenderModel* model, const modelSurface_t* surface)
