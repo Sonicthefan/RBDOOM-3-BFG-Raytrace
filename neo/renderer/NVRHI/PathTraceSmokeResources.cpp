@@ -1893,21 +1893,21 @@ bool PathTracePrimaryPass::InitRayTracingSmokeRestirPipeline(int restirLibraryKi
     }
 }
 
-bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height)
+bool PathTracePrimaryPass::ResizeRayTracingSmokeOutput(int width, int height, int outputWidth, int outputHeight)
 {
     if (!m_smokeTestInitialized || !m_smokeShaderTable)
     {
         return false;
     }
 
-    const bool alreadyValid = m_frameResources.IsValidFor(width, height, RtRestirPTCheckerboardMode::Off);
+    const bool alreadyValid = m_frameResources.IsValidFor(width, height, outputWidth, outputHeight, RtRestirPTCheckerboardMode::Off);
     if (alreadyValid)
     {
         return true;
     }
 
     nvrhi::IDevice* device = deviceManager ? deviceManager->GetDevice() : nullptr;
-    if (!m_frameResources.ResizeOutputSizedResources(device, width, height, RtRestirPTCheckerboardMode::Off))
+    if (!m_frameResources.ResizeOutputSizedResources(device, width, height, outputWidth, outputHeight, RtRestirPTCheckerboardMode::Off))
     {
         return false;
     }

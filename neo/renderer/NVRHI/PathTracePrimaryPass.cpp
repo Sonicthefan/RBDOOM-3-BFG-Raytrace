@@ -8,6 +8,7 @@
 // owner of state rather than the place where every RT detail accumulates.
 
 #include "PathTraceCVars.h"
+#include "PathTraceDLSSRRBridge.h"
 #include "PathTracePrimaryPass.h"
 #include "../RenderCommon.h"
 #include "../RenderBackend.h"
@@ -360,19 +361,30 @@ void PathTracePrimaryPass::Execute(const viewDef_t* viewDef)
     int outputHeight = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_HEIGHT, RT_SMOKE_MAX_OUTPUT_HEIGHT, r_pathTracingDebugHeight.GetInteger());
     const int debugMode = idMath::ClampInt(0, 57, r_pathTracingDebugMode.GetInteger());
     ApplyRestirPTPreviewResolutionCap(debugMode, outputWidth, outputHeight);
+    int renderWidth = outputWidth;
+    int renderHeight = outputHeight;
+    PathTraceDLSSRRBridge_QueryOptimalRenderSize(outputWidth, outputHeight, renderWidth, renderHeight);
+    renderWidth = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_WIDTH, RT_SMOKE_MAX_OUTPUT_WIDTH, renderWidth);
+    renderHeight = idMath::ClampInt(RT_SMOKE_MIN_OUTPUT_HEIGHT, RT_SMOKE_MAX_OUTPUT_HEIGHT, renderHeight);
     m_frameResources.ClearResetReasons();
     m_frameResources.settings.debugMode = debugMode;
     m_frameResources.settings.checkerboardMode = RtRestirPTCheckerboardMode::Off;
     m_frameResources.settings.frameIndex = m_frameResources.restirPTFrameIndex;
-    if (!ResizeRayTracingSmokeOutput(outputWidth, outputHeight))
+    m_frameResources.settings.width = renderWidth;
+    m_frameResources.settings.height = renderHeight;
+    m_frameResources.settings.outputWidth = outputWidth;
+    m_frameResources.settings.outputHeight = outputHeight;
+    if (!ResizeRayTracingSmokeOutput(renderWidth, renderHeight, outputWidth, outputHeight))
     {
         if (r_pathTracingRestirPdfNeeVerifierDump.GetInteger() != 0)
         {
             common->Printf(
-                "PathTracePrimaryPass: PDFNEE verifier execute earlyReturn=resize-output enable=%d view=%d r_pathTracing=%d requestedOutput=%dx%d output=none temporal=0 spatial=0 mode56=0 task=PDFNEE-01\n",
+                "PathTracePrimaryPass: PDFNEE verifier execute earlyReturn=resize-output enable=%d view=%d r_pathTracing=%d requestedRender=%dx%d requestedOutput=%dx%d output=none temporal=0 spatial=0 mode56=0 task=PDFNEE-01\n",
                 r_pathTracingRestirPdfNeeVerifierEnable.GetInteger() != 0 ? 1 : 0,
                 idMath::ClampInt(0, 8, r_pathTracingRestirPdfNeeVerifierView.GetInteger()),
                 r_pathTracing.GetInteger(),
+                renderWidth,
+                renderHeight,
                 outputWidth,
                 outputHeight);
             r_pathTracingRestirPdfNeeVerifierDump.SetInteger(0);

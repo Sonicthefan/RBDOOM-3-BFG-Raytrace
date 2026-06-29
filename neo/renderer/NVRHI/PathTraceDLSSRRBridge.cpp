@@ -423,6 +423,38 @@ sl::DLSSDPreset PathTraceDLSSRRDenoiserPreset()
 	}
 }
 
+sl::DLSSMode PathTraceDLSSRRMode()
+{
+	switch( idMath::ClampInt( 0, 5, r_pathTracingDLSSRRMode.GetInteger() ) )
+	{
+		case 1: return sl::DLSSMode::eMaxQuality;
+		case 2: return sl::DLSSMode::eBalanced;
+		case 3: return sl::DLSSMode::eMaxPerformance;
+		case 4: return sl::DLSSMode::eUltraPerformance;
+		case 5: return sl::DLSSMode::eUltraQuality;
+		default: return sl::DLSSMode::eDLAA;
+	}
+}
+
+const char* PathTraceDLSSRRModeName( sl::DLSSMode mode )
+{
+	switch( mode )
+	{
+		case sl::DLSSMode::eDLAA: return "DLAA";
+		case sl::DLSSMode::eMaxQuality: return "Quality";
+		case sl::DLSSMode::eBalanced: return "Balanced";
+		case sl::DLSSMode::eMaxPerformance: return "Performance";
+		case sl::DLSSMode::eUltraPerformance: return "UltraPerformance";
+		case sl::DLSSMode::eUltraQuality: return "UltraQuality";
+		default: return "Off";
+	}
+}
+
+bool PathTraceDLSSRRModeUpscales( sl::DLSSMode mode )
+{
+	return mode != sl::DLSSMode::eOff && mode != sl::DLSSMode::eDLAA;
+}
+
 const char* PathTraceDLSSRRDenoiserPresetName( sl::DLSSDPreset preset )
 {
 	switch( preset )
@@ -606,6 +638,98 @@ void PathTraceDLSSRRBridge_SetDevice( DeviceManager* deviceManager )
 #endif
 }
 
+bool PathTraceDLSSRRBridge_QueryOptimalRenderSize(
+	int outputWidth,
+	int outputHeight,
+	int& renderWidth,
+	int& renderHeight )
+{
+	renderWidth = outputWidth;
+	renderHeight = outputHeight;
+
+	if( outputWidth <= 0 || outputHeight <= 0 || r_pathTracingDLSSRR.GetInteger() == 0 )
+	{
+		return false;
+	}
+
+#if RB_PT_STREAMLINE_DLSS_RR
+	if( !g_streamlineDeviceSet )
+	{
+		return false;
+	}
+
+	const sl::DLSSMode mode = PathTraceDLSSRRMode();
+	if( !PathTraceDLSSRRModeUpscales( mode ) )
+	{
+		return false;
+	}
+
+	sl::DLSSDOptions options{};
+	options.mode = mode;
+	options.outputWidth = static_cast<uint32_t>( outputWidth );
+	options.outputHeight = static_cast<uint32_t>( outputHeight );
+	options.sharpness = idMath::ClampFloat( 0.0f, 1.0f, r_pathTracingDLSSRRSharpness.GetFloat() );
+	options.preExposure = idMath::ClampFloat( 0.0001f, 1024.0f, r_pathTracingDLSSRRPreExposure.GetFloat() );
+	options.exposureScale = idMath::ClampFloat( 0.0001f, 1024.0f, r_pathTracingDLSSRRExposureScale.GetFloat() );
+	options.colorBuffersHDR = r_pathTracingDLSSRRColorBuffersHDR.GetInteger() != 0 ? sl::Boolean::eTrue : sl::Boolean::eFalse;
+	options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked;
+	options.alphaUpscalingEnabled = sl::Boolean::eFalse;
+
+	sl::DLSSDOptimalSettings settings{};
+	const sl::Result result = slDLSSDGetOptimalSettings( options, settings );
+	if( result != sl::Result::eOk || settings.optimalRenderWidth == 0 || settings.optimalRenderHeight == 0 )
+	{
+		if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 )
+		{
+			common->Printf(
+				"PathTraceDLSSRR: slDLSSDGetOptimalSettings failed mode=%s output=%dx%d result=%s; using native render size\n",
+				PathTraceDLSSRRModeName( mode ),
+				outputWidth,
+				outputHeight,
+				sl::getResultAsStr( result ) );
+		}
+		return false;
+	}
+
+	renderWidth = static_cast<int>( settings.optimalRenderWidth );
+	renderHeight = static_cast<int>( settings.optimalRenderHeight );
+
+	static int s_lastOutputWidth = 0;
+	static int s_lastOutputHeight = 0;
+	static int s_lastRenderWidth = 0;
+	static int s_lastRenderHeight = 0;
+	static sl::DLSSMode s_lastMode = sl::DLSSMode::eOff;
+	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 &&
+		( s_lastOutputWidth != outputWidth ||
+			s_lastOutputHeight != outputHeight ||
+			s_lastRenderWidth != renderWidth ||
+			s_lastRenderHeight != renderHeight ||
+			s_lastMode != mode ) )
+	{
+		common->Printf(
+			"PathTraceDLSSRR: optimal settings mode=%s render=%dx%d output=%dx%d min=%ux%u max=%ux%u sharpness=%.3f\n",
+			PathTraceDLSSRRModeName( mode ),
+			renderWidth,
+			renderHeight,
+			outputWidth,
+			outputHeight,
+			static_cast<unsigned int>( settings.renderWidthMin ),
+			static_cast<unsigned int>( settings.renderHeightMin ),
+			static_cast<unsigned int>( settings.renderWidthMax ),
+			static_cast<unsigned int>( settings.renderHeightMax ),
+			settings.optimalSharpness );
+		s_lastOutputWidth = outputWidth;
+		s_lastOutputHeight = outputHeight;
+		s_lastRenderWidth = renderWidth;
+		s_lastRenderHeight = renderHeight;
+		s_lastMode = mode;
+	}
+	return true;
+#else
+	return false;
+#endif
+}
+
 bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ICommandList* commandList,
 	nvrhi::ITexture* inputColor,
@@ -620,8 +744,10 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ITexture* disocclusionMask,
 	const viewDef_t* viewDef,
 	uint32_t frameIndex,
-	int width,
-	int height,
+	int renderWidth,
+	int renderHeight,
+	int outputWidth,
+	int outputHeight,
 	float jitterOffsetX,
 	float jitterOffsetY,
 	const RtPathTraceFrameCameraState* previousCamera,
@@ -632,7 +758,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 		return false;
 	}
 
-	if( !commandList || !inputColor || !outputColor || !albedo || !specularAlbedo || !normalRoughness || !linearDepth || !motionVectors || !viewDef || width <= 0 || height <= 0 )
+	if( !commandList || !inputColor || !outputColor || !albedo || !specularAlbedo || !normalRoughness || !linearDepth || !motionVectors || !viewDef || renderWidth <= 0 || renderHeight <= 0 || outputWidth <= 0 || outputHeight <= 0 )
 	{
 		if( !g_streamlineEvaluateWarned )
 		{
@@ -718,8 +844,8 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	const float motionVectorScaleX = idMath::ClampFloat( -16.0f, 16.0f, r_pathTracingDLSSRRMotionVectorScaleX.GetFloat() );
 	const float motionVectorScaleY = idMath::ClampFloat( -16.0f, 16.0f, r_pathTracingDLSSRRMotionVectorScaleY.GetFloat() );
 	constants.mvecScale = sl::float2(
-		motionVectorScaleX / static_cast<float>( width ),
-		motionVectorScaleY / static_cast<float>( height ) );
+		motionVectorScaleX / static_cast<float>( renderWidth ),
+		motionVectorScaleY / static_cast<float>( renderHeight ) );
 	constants.cameraPinholeOffset = sl::float2( 0.0f, 0.0f );
 	constants.cameraPos = sl::float3( viewDef->renderView.vieworg.x, viewDef->renderView.vieworg.y, viewDef->renderView.vieworg.z );
 	constants.cameraFwd = sl::float3( viewDef->renderView.viewaxis[0].x, viewDef->renderView.viewaxis[0].y, viewDef->renderView.viewaxis[0].z );
@@ -728,7 +854,7 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	constants.cameraNear = rrCameraNear;
 	constants.cameraFar = rrCameraFar;
 	constants.cameraFOV = DEG2RAD( viewDef->renderView.fov_y );
-	constants.cameraAspectRatio = static_cast<float>( width ) / static_cast<float>( height );
+	constants.cameraAspectRatio = static_cast<float>( renderWidth ) / static_cast<float>( renderHeight );
 	constants.motionVectorsInvalidValue = 0.0f;
 	constants.depthInverted = rrReverseZ ? sl::Boolean::eTrue : sl::Boolean::eFalse;
 	constants.cameraMotionIncluded = sl::Boolean::eTrue;
@@ -778,9 +904,9 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	}
 
 	sl::DLSSDOptions options{};
-	options.mode = sl::DLSSMode::eDLAA;
-	options.outputWidth = static_cast<uint32_t>( width );
-	options.outputHeight = static_cast<uint32_t>( height );
+	options.mode = PathTraceDLSSRRMode();
+	options.outputWidth = static_cast<uint32_t>( outputWidth );
+	options.outputHeight = static_cast<uint32_t>( outputHeight );
 	options.sharpness = idMath::ClampFloat( 0.0f, 1.0f, r_pathTracingDLSSRRSharpness.GetFloat() );
 	options.preExposure = idMath::ClampFloat( 0.0001f, 1024.0f, r_pathTracingDLSSRRPreExposure.GetFloat() );
 	options.exposureScale = idMath::ClampFloat( 0.0001f, 1024.0f, r_pathTracingDLSSRRExposureScale.GetFloat() );
@@ -842,41 +968,51 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	{
 		disocclusionMaskResource = BuildStreamlineTextureResource( disocclusionMask, shaderResourceState );
 	}
-	sl::Extent extent{};
-	extent.width = static_cast<uint32_t>( width );
-	extent.height = static_cast<uint32_t>( height );
+	sl::Extent inputExtent{};
+	inputExtent.width = static_cast<uint32_t>( renderWidth );
+	inputExtent.height = static_cast<uint32_t>( renderHeight );
+	sl::Extent outputExtent{};
+	outputExtent.width = static_cast<uint32_t>( outputWidth );
+	outputExtent.height = static_cast<uint32_t>( outputHeight );
 
-	sl::ResourceTag tags[10];
+	sl::ResourceTag tags[12];
 	uint32_t tagCount = 0;
-	tags[tagCount++] = sl::ResourceTag( &inputColorResource, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
-	tags[tagCount++] = sl::ResourceTag( &outputColorResource, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
-	tags[tagCount++] = sl::ResourceTag( &albedoResource, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
-	tags[tagCount++] = sl::ResourceTag( &specularAlbedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
-	tags[tagCount++] = sl::ResourceTag( &normalRoughnessResource, sl::kBufferTypeNormalRoughness, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	tags[tagCount++] = sl::ResourceTag( &inputColorResource, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
+	tags[tagCount++] = sl::ResourceTag( &outputColorResource, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilEvaluate, &outputExtent );
+	tags[tagCount++] = sl::ResourceTag( &albedoResource, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
+	tags[tagCount++] = sl::ResourceTag( &specularAlbedoResource, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
+	tags[tagCount++] = sl::ResourceTag( &normalRoughnessResource, sl::kBufferTypeNormalRoughness, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
 	if( position )
 	{
-		tags[tagCount++] = sl::ResourceTag( &positionResource, sl::kBufferTypePosition, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+		tags[tagCount++] = sl::ResourceTag( &positionResource, sl::kBufferTypePosition, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
 	}
-	tags[tagCount++] = sl::ResourceTag( &linearDepthResource, rrHardwareDepth ? sl::kBufferTypeDepth : sl::kBufferTypeLinearDepth, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
-	tags[tagCount++] = sl::ResourceTag( &motionVectorResource, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+	tags[tagCount++] = sl::ResourceTag( &linearDepthResource, rrHardwareDepth ? sl::kBufferTypeDepth : sl::kBufferTypeLinearDepth, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
+	tags[tagCount++] = sl::ResourceTag( &motionVectorResource, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
 	if( specularHitDistance )
 	{
-		tags[tagCount++] = sl::ResourceTag( &specularHitDistanceResource, sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+		tags[tagCount++] = sl::ResourceTag( &specularHitDistanceResource, sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
 	}
 	if( disocclusionMask )
 	{
-		tags[tagCount++] = sl::ResourceTag( &disocclusionMaskResource, sl::kBufferTypeDisocclusionMask, sl::ResourceLifecycle::eValidUntilEvaluate, &extent );
+		tags[tagCount++] = sl::ResourceTag( &disocclusionMaskResource, sl::kBufferTypeDisocclusionMask, sl::ResourceLifecycle::eValidUntilEvaluate, &inputExtent );
 	}
 
 	if( r_pathTracingDLSSRRVerbose.GetInteger() != 0 && !g_streamlineResourceTagDumped )
 	{
 		common->Printf(
 			"PathTraceDLSSRR: tag extent left=%u top=%u width=%u height=%u count=%u\n",
-			static_cast<unsigned int>( extent.left ),
-			static_cast<unsigned int>( extent.top ),
-			static_cast<unsigned int>( extent.width ),
-			static_cast<unsigned int>( extent.height ),
+			static_cast<unsigned int>( inputExtent.left ),
+			static_cast<unsigned int>( inputExtent.top ),
+			static_cast<unsigned int>( inputExtent.width ),
+			static_cast<unsigned int>( inputExtent.height ),
 			static_cast<unsigned int>( tagCount ) );
+		common->Printf(
+			"PathTraceDLSSRR: output extent left=%u top=%u width=%u height=%u mode=%s\n",
+			static_cast<unsigned int>( outputExtent.left ),
+			static_cast<unsigned int>( outputExtent.top ),
+			static_cast<unsigned int>( outputExtent.width ),
+			static_cast<unsigned int>( outputExtent.height ),
+			PathTraceDLSSRRModeName( options.mode ) );
 		DumpStreamlineTextureResource( "inputColor", inputColorResource );
 		DumpStreamlineTextureResource( "outputColor", outputColorResource );
 		DumpStreamlineTextureResource( "albedo", albedoResource );
@@ -919,10 +1055,13 @@ bool PathTraceDLSSRRBridge_Evaluate(
 
 	if( r_pathTracingDLSSRRVerbose.GetInteger() >= 2 )
 	{
-		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u output=%dx%d reset=%d hdr=%d preExposure=%.4f exposureScale=%.4f sharpness=%.3f jitter=%.4f,%.4f rawJitter=%.4f,%.4f mvecScale=%.4f,%.4f clipHistory=%d specHit=%d disocclusion=%d\n",
+		common->Printf( "PathTraceDLSSRR: evaluated DLSS_RR frame=%u mode=%s render=%dx%d output=%dx%d reset=%d hdr=%d preExposure=%.4f exposureScale=%.4f sharpness=%.3f jitter=%.4f,%.4f rawJitter=%.4f,%.4f mvecScale=%.4f,%.4f clipHistory=%d specHit=%d disocclusion=%d\n",
 			frameIndex,
-			width,
-			height,
+			PathTraceDLSSRRModeName( options.mode ),
+			renderWidth,
+			renderHeight,
+			outputWidth,
+			outputHeight,
 			resetHistory ? 1 : 0,
 			options.colorBuffersHDR == sl::Boolean::eTrue ? 1 : 0,
 			options.preExposure,

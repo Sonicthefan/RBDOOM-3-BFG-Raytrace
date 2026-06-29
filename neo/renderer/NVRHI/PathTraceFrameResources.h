@@ -46,6 +46,8 @@ struct RtPathTraceFrameSettings
 {
     int width = 0;
     int height = 0;
+    int outputWidth = 0;
+    int outputHeight = 0;
     int debugMode = 0;
     RtRestirPTCheckerboardMode checkerboardMode = RtRestirPTCheckerboardMode::Off;
     uint32_t frameIndex = 0;
@@ -109,6 +111,8 @@ struct RtPathTraceFrameResources
     nvrhi::StagingTextureHandle rrInputColorDumpReadbackTexture;
     int width = 0;
     int height = 0;
+    int outputWidth = 0;
+    int outputHeight = 0;
 
     RtSmokeReservoirBufferHandles smokeReservoirBuffers;
     RtRestirPTReservoirBufferHandles restirPTReservoirBuffers;
@@ -149,9 +153,9 @@ struct RtPathTraceFrameResources
     RtPathTraceFrameSettings settings;
     RtPathTraceFrameResourceDiagnostics diagnostics;
 
-    bool IsValidFor(int requestedWidth, int requestedHeight, RtRestirPTCheckerboardMode checkerboardMode) const;
+    bool IsValidFor(int requestedWidth, int requestedHeight, int requestedOutputWidth, int requestedOutputHeight, RtRestirPTCheckerboardMode checkerboardMode) const;
     bool HasAnyOutputSizedResource() const;
-    bool ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, RtRestirPTCheckerboardMode checkerboardMode);
+    bool ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, int requestedOutputWidth, int requestedOutputHeight, RtRestirPTCheckerboardMode checkerboardMode);
     void ResetOutputSizedResources(uint32_t reasonFlags);
     void ResetSceneDependentState();
     void ResetReadbackQueue();

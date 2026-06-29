@@ -378,6 +378,7 @@ extern idCVar r_pathTracingRestirPTMode56AccumulationMaxFrames;
 extern idCVar r_pathTracingDLSSRRGuideDebugView;
 extern idCVar r_pathTracingDLSSRRProbe;
 extern idCVar r_pathTracingDLSSRR;
+extern idCVar r_pathTracingDLSSRRMode;
 extern idCVar r_pathTracingDLSSRRInputDump;
 extern idCVar r_pathTracingDLSSRRColorBuffersHDR;
 extern idCVar r_pathTracingDLSSRRPreExposure;

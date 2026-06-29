@@ -226,7 +226,7 @@ public:
 private:
     void InitRayTracingSmokeTest();
     bool InitRayTracingSmokeRestirPipeline(int restirLibraryKind);
-    bool ResizeRayTracingSmokeOutput(int width, int height);
+    bool ResizeRayTracingSmokeOutput(int width, int height, int outputWidth, int outputHeight);
     void ResetRayTracingSmokeAsyncCpuWork();
     void ResetRayTracingSmokeSceneResources();
     void CommitRayTracingSmokeSceneResources(const RtSmokeSceneResourceCommitDesc& desc);

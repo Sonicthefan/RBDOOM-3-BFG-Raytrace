@@ -59,6 +59,17 @@ void AppendReason(idStr& out, const char* text)
     out.Append(text);
 }
 
+bool TextureSizeMatches(const nvrhi::TextureHandle& texture, int width, int height)
+{
+    if (!texture || width <= 0 || height <= 0)
+    {
+        return false;
+    }
+    const nvrhi::TextureDesc& desc = texture->getDesc();
+    return desc.width == static_cast<uint32_t>(width) &&
+        desc.height == static_cast<uint32_t>(height);
+}
+
 }
 
 void RtPathTraceFrameCameraState::Reset()
@@ -100,24 +111,24 @@ void RtPathTraceFrameResourceDiagnostics::ResetResizeStats()
     rrGuideBytes = 0;
 }
 
-bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeight, RtRestirPTCheckerboardMode checkerboardMode) const
+bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeight, int requestedOutputWidth, int requestedOutputHeight, RtRestirPTCheckerboardMode checkerboardMode) const
 {
     return
-        outputTexture &&
-        accumulationTexture &&
-        restirPTReflectionTexture &&
-        rrInputColorTexture &&
-        cleanRtxdiDiBoilingFilterTexture &&
-        motionVectorTexture &&
-        rrMotionVectorTexture &&
-        motionVectorMaskTexture &&
-        rrGuideAlbedoTexture &&
-        rrGuideSpecularAlbedoTexture &&
-        rrGuideNormalRoughnessTexture &&
-        rrGuideDepthTexture &&
-        rrGuideHitDistanceTexture &&
-        rrGuideResetMaskTexture &&
-        rrGuidePositionTexture &&
+        TextureSizeMatches(outputTexture, requestedOutputWidth, requestedOutputHeight) &&
+        TextureSizeMatches(accumulationTexture, requestedOutputWidth, requestedOutputHeight) &&
+        TextureSizeMatches(restirPTReflectionTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrInputColorTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(cleanRtxdiDiBoilingFilterTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(motionVectorTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrMotionVectorTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(motionVectorMaskTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrGuideAlbedoTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrGuideSpecularAlbedoTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrGuideNormalRoughnessTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrGuideDepthTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrGuideHitDistanceTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrGuideResetMaskTexture, requestedWidth, requestedHeight) &&
+        TextureSizeMatches(rrGuidePositionTexture, requestedWidth, requestedHeight) &&
         readbackTexture &&
         rrInputColorDumpReadbackTexture &&
         smokeReservoirBuffers.IsValidFor(requestedWidth, requestedHeight) &&
@@ -126,7 +137,9 @@ bool RtPathTraceFrameResources::IsValidFor(int requestedWidth, int requestedHeig
         restirPTGiReservoirBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight), checkerboardMode) &&
         primarySurfaceHistoryBuffers.IsValidFor(static_cast<uint32_t>(requestedWidth), static_cast<uint32_t>(requestedHeight)) &&
         width == requestedWidth &&
-        height == requestedHeight;
+        height == requestedHeight &&
+        outputWidth == requestedOutputWidth &&
+        outputHeight == requestedOutputHeight;
 }
 
 bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
@@ -159,7 +172,7 @@ bool RtPathTraceFrameResources::HasAnyOutputSizedResource() const
         primarySurfaceHistoryBuffers.previous;
 }
 
-bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, RtRestirPTCheckerboardMode checkerboardMode)
+bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* device, int requestedWidth, int requestedHeight, int requestedOutputWidth, int requestedOutputHeight, RtRestirPTCheckerboardMode checkerboardMode)
 {
     if (!device)
     {
@@ -168,12 +181,14 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
 
     settings.width = requestedWidth;
     settings.height = requestedHeight;
+    settings.outputWidth = requestedOutputWidth;
+    settings.outputHeight = requestedOutputHeight;
     settings.checkerboardMode = checkerboardMode;
     settings.frameIndex = restirPTFrameIndex;
     settings.resetReasonFlags = RT_FRAME_RESET_NONE;
     diagnostics.ResetResizeStats();
 
-    if (IsValidFor(requestedWidth, requestedHeight, checkerboardMode))
+    if (IsValidFor(requestedWidth, requestedHeight, requestedOutputWidth, requestedOutputHeight, checkerboardMode))
     {
         return true;
     }
@@ -181,8 +196,8 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     const bool replacingExistingOutput = HasAnyOutputSizedResource();
     if (replacingExistingOutput)
     {
-        common->Printf("PathTraceFrameResources: resizing PT output old=%dx%d new=%dx%d; waitForIdle reason=output-sized-resource-replacement\n",
-            width, height, requestedWidth, requestedHeight);
+        common->Printf("PathTraceFrameResources: resizing PT frame oldRender=%dx%d oldOutput=%dx%d newRender=%dx%d newOutput=%dx%d; waitForIdle reason=output-sized-resource-replacement\n",
+            width, height, outputWidth, outputHeight, requestedWidth, requestedHeight, requestedOutputWidth, requestedOutputHeight);
         device->waitForIdle();
         device->runGarbageCollection();
         diagnostics.waitForIdleCalls++;
@@ -191,8 +206,8 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     }
 
     nvrhi::TextureDesc outputDesc;
-    outputDesc.width = requestedWidth;
-    outputDesc.height = requestedHeight;
+    outputDesc.width = requestedOutputWidth;
+    outputDesc.height = requestedOutputHeight;
     outputDesc.mipLevels = 1;
     outputDesc.arraySize = 1;
     outputDesc.format = nvrhi::Format::RGBA32_FLOAT;
@@ -205,7 +220,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
 
     if (!newOutputTexture)
     {
-        common->Printf("PathTraceFrameResources: failed to create PT output UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        common->Printf("PathTraceFrameResources: failed to create PT output UAV (%dx%d)\n", requestedOutputWidth, requestedOutputHeight);
         return false;
     }
 
@@ -213,27 +228,31 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     nvrhi::TextureHandle newAccumulationTexture = device->createTexture(outputDesc);
     if (!newAccumulationTexture)
     {
-        common->Printf("PathTraceFrameResources: failed to create PT accumulation UAV (%dx%d)\n", requestedWidth, requestedHeight);
+        common->Printf("PathTraceFrameResources: failed to create PT accumulation UAV (%dx%d)\n", requestedOutputWidth, requestedOutputHeight);
         return false;
     }
 
-    outputDesc.debugName = "PathTraceRestirPTReflection";
-    nvrhi::TextureHandle newRestirPTReflectionTexture = device->createTexture(outputDesc);
+    nvrhi::TextureDesc renderDesc = outputDesc;
+    renderDesc.width = requestedWidth;
+    renderDesc.height = requestedHeight;
+
+    renderDesc.debugName = "PathTraceRestirPTReflection";
+    nvrhi::TextureHandle newRestirPTReflectionTexture = device->createTexture(renderDesc);
     if (!newRestirPTReflectionTexture)
     {
         common->Printf("PathTraceFrameResources: failed to create PT ReSTIR reflection UAV (%dx%d)\n", requestedWidth, requestedHeight);
         return false;
     }
 
-    outputDesc.debugName = "PathTraceRRInputColor";
-    nvrhi::TextureHandle newRrInputColorTexture = device->createTexture(outputDesc);
+    renderDesc.debugName = "PathTraceRRInputColor";
+    nvrhi::TextureHandle newRrInputColorTexture = device->createTexture(renderDesc);
     if (!newRrInputColorTexture)
     {
         common->Printf("PathTraceFrameResources: failed to create PT RR input-color UAV (%dx%d)\n", requestedWidth, requestedHeight);
         return false;
     }
 
-    nvrhi::TextureDesc motionVectorDesc = outputDesc;
+    nvrhi::TextureDesc motionVectorDesc = renderDesc;
     motionVectorDesc.format = nvrhi::Format::RGBA16_FLOAT;
     motionVectorDesc.debugName = "PathTraceSmokeMotionVectors";
     nvrhi::TextureHandle newMotionVectorTexture = device->createTexture(motionVectorDesc);
@@ -243,15 +262,15 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    outputDesc.debugName = "PathTraceCleanRtxdiDiBoilingFilter";
-    nvrhi::TextureHandle newCleanRtxdiDiBoilingFilterTexture = device->createTexture(outputDesc);
+    renderDesc.debugName = "PathTraceCleanRtxdiDiBoilingFilter";
+    nvrhi::TextureHandle newCleanRtxdiDiBoilingFilterTexture = device->createTexture(renderDesc);
     if (!newCleanRtxdiDiBoilingFilterTexture)
     {
         common->Printf("PathTraceFrameResources: failed to create clean RTXDI DI boiling-filter scratch UAV (%dx%d)\n", requestedWidth, requestedHeight);
         return false;
     }
 
-    nvrhi::TextureDesc rrMotionVectorDesc = outputDesc;
+    nvrhi::TextureDesc rrMotionVectorDesc = renderDesc;
     rrMotionVectorDesc.format = nvrhi::Format::RG16_FLOAT;
     rrMotionVectorDesc.debugName = "PathTraceRRMotionVectors";
     nvrhi::TextureHandle newRrMotionVectorTexture = device->createTexture(rrMotionVectorDesc);
@@ -261,7 +280,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    nvrhi::TextureDesc motionVectorMaskDesc = outputDesc;
+    nvrhi::TextureDesc motionVectorMaskDesc = renderDesc;
     motionVectorMaskDesc.format = nvrhi::Format::R32_UINT;
     motionVectorMaskDesc.debugName = "PathTraceSmokeMotionVectorMask";
     nvrhi::TextureHandle newMotionVectorMaskTexture = device->createTexture(motionVectorMaskDesc);
@@ -271,7 +290,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    nvrhi::TextureDesc rrGuideRgba16Desc = outputDesc;
+    nvrhi::TextureDesc rrGuideRgba16Desc = renderDesc;
     rrGuideRgba16Desc.format = nvrhi::Format::RGBA16_FLOAT;
     rrGuideRgba16Desc.debugName = "PathTraceRRGuideAlbedo";
     nvrhi::TextureHandle newRrGuideAlbedoTexture = device->createTexture(rrGuideRgba16Desc);
@@ -297,7 +316,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    nvrhi::TextureDesc rrGuidePositionDesc = outputDesc;
+    nvrhi::TextureDesc rrGuidePositionDesc = renderDesc;
     rrGuidePositionDesc.format = nvrhi::Format::RGBA32_FLOAT;
     rrGuidePositionDesc.debugName = "PathTraceRRGuidePosition";
     nvrhi::TextureHandle newRrGuidePositionTexture = device->createTexture(rrGuidePositionDesc);
@@ -307,7 +326,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    nvrhi::TextureDesc rrGuideR32Desc = outputDesc;
+    nvrhi::TextureDesc rrGuideR32Desc = renderDesc;
     rrGuideR32Desc.format = nvrhi::Format::R32_FLOAT;
     rrGuideR32Desc.debugName = "PathTraceRRGuideDepth";
     nvrhi::TextureHandle newRrGuideDepthTexture = device->createTexture(rrGuideR32Desc);
@@ -325,7 +344,7 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    nvrhi::TextureDesc rrGuideResetMaskDesc = outputDesc;
+    nvrhi::TextureDesc rrGuideResetMaskDesc = renderDesc;
     rrGuideResetMaskDesc.format = nvrhi::Format::R32_UINT;
     rrGuideResetMaskDesc.debugName = "PathTraceRRGuideResetMask";
     nvrhi::TextureHandle newRrGuideResetMaskTexture = device->createTexture(rrGuideResetMaskDesc);
@@ -345,12 +364,18 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
 
     if (!newReadbackTexture)
     {
-        common->Printf("PathTraceFrameResources: failed to create PT readback texture (%dx%d)\n", requestedWidth, requestedHeight);
+        common->Printf("PathTraceFrameResources: failed to create PT readback texture (%dx%d)\n", requestedOutputWidth, requestedOutputHeight);
         return false;
     }
 
-    readbackDesc.debugName = "PathTraceRRInputColorDumpReadback";
-    nvrhi::StagingTextureHandle newRrInputColorDumpReadbackTexture = device->createStagingTexture(readbackDesc, nvrhi::CpuAccessMode::Read);
+    nvrhi::TextureDesc rrInputReadbackDesc = renderDesc;
+    rrInputReadbackDesc.isShaderResource = false;
+    rrInputReadbackDesc.isUAV = false;
+    rrInputReadbackDesc.initialState = nvrhi::ResourceStates::Unknown;
+    rrInputReadbackDesc.keepInitialState = false;
+    rrInputReadbackDesc.debugName = "PathTraceRRInputColorDumpReadback";
+
+    nvrhi::StagingTextureHandle newRrInputColorDumpReadbackTexture = device->createStagingTexture(rrInputReadbackDesc, nvrhi::CpuAccessMode::Read);
     if (!newRrInputColorDumpReadbackTexture)
     {
         common->Printf("PathTraceFrameResources: failed to create PT RR input-color dump readback texture (%dx%d)\n", requestedWidth, requestedHeight);
@@ -382,12 +407,16 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
     rrInputColorDumpReadbackTexture = newRrInputColorDumpReadbackTexture;
     width = requestedWidth;
     height = requestedHeight;
+    outputWidth = requestedOutputWidth;
+    outputHeight = requestedOutputHeight;
     diagnostics.outputTexturesCreated += 5;
     diagnostics.motionVectorTexturesCreated += 2;
     diagnostics.motionVectorMaskTexturesCreated++;
     diagnostics.rrGuideTexturesCreated += 7;
     diagnostics.diagnosticReadbackResourcesCreated += 2;
-    diagnostics.outputTextureBytes = EstimateRgba32FloatTextureBytes(width, height) * 5ull;
+    diagnostics.outputTextureBytes =
+        EstimateRgba32FloatTextureBytes(outputWidth, outputHeight) * 2ull +
+        EstimateRgba32FloatTextureBytes(width, height) * 3ull;
     diagnostics.motionVectorBytes = EstimateRgba16FloatTextureBytes(width, height) + EstimateRg16FloatTextureBytes(width, height);
     diagnostics.motionVectorMaskBytes = EstimateR32UintTextureBytes(width, height);
     diagnostics.rrGuideBytes =
@@ -529,27 +558,33 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         return false;
     }
 
-    common->Printf("PathTraceFrameResources: RT ReSTIR PT packed reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u\n",
+    common->Printf("PathTraceFrameResources: RT ReSTIR PT packed reservoirs render=%dx%d output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u\n",
         requestedWidth,
         requestedHeight,
+        requestedOutputWidth,
+        requestedOutputHeight,
         restirPTReservoirBuffers.reservoirElementCount,
         static_cast<unsigned long long>(restirPTReservoirBuffers.reservoirBytes),
         restirPTReservoirBuffers.reservoirParams.reservoirArrayPitch,
         restirPTReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
         rbdoom::restir_pt::kNumReservoirBuffers,
         static_cast<uint32_t>(sizeof(RtRestirPTPackedReservoir)));
-    common->Printf("PathTraceFrameResources: RT ReSTIR PT DI temporal reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u uav=u56\n",
+    common->Printf("PathTraceFrameResources: RT ReSTIR PT DI temporal reservoirs render=%dx%d output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u uav=u56\n",
         requestedWidth,
         requestedHeight,
+        requestedOutputWidth,
+        requestedOutputHeight,
         restirPTDiReservoirBuffers.reservoirElementCount,
         static_cast<unsigned long long>(restirPTDiReservoirBuffers.reservoirBytes),
         restirPTDiReservoirBuffers.reservoirParams.reservoirArrayPitch,
         restirPTDiReservoirBuffers.reservoirParams.reservoirBlockRowPitch,
         rbdoom::restir_pt::kNumReservoirBuffers,
         static_cast<uint32_t>(sizeof(RtRestirPTPackedReservoir)));
-    common->Printf("PathTraceFrameResources: RT ReSTIR PT GI temporal reservoirs output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u uav=u55\n",
+    common->Printf("PathTraceFrameResources: RT ReSTIR PT GI temporal reservoirs render=%dx%d output=%dx%d elements=%u bytes=%llu arrayPitch=%u blockRowPitch=%u slices=%u stride=%u uav=u55\n",
         requestedWidth,
         requestedHeight,
+        requestedOutputWidth,
+        requestedOutputHeight,
         restirPTGiReservoirBuffers.reservoirElementCount,
         static_cast<unsigned long long>(restirPTGiReservoirBuffers.reservoirBytes),
         restirPTGiReservoirBuffers.reservoirParams.reservoirArrayPitch,
@@ -557,25 +592,31 @@ bool RtPathTraceFrameResources::ResizeOutputSizedResources(nvrhi::IDevice* devic
         rbdoom::restir_pt::kNumReservoirBuffers,
         static_cast<uint32_t>(sizeof(RtRestirPTPackedReservoir)));
 
-    common->Printf("PathTraceFrameResources: RT ReSTIR PT primary-surface history output=%dx%d records=%u bytes=%llu stride=%u\n",
+    common->Printf("PathTraceFrameResources: RT ReSTIR PT primary-surface history render=%dx%d output=%dx%d records=%u bytes=%llu stride=%u\n",
         requestedWidth,
         requestedHeight,
+        requestedOutputWidth,
+        requestedOutputHeight,
         primarySurfaceHistoryBuffers.surfaceCount,
         static_cast<unsigned long long>(primarySurfaceHistoryBuffers.surfaceBytes),
         RT_PATH_TRACE_PRIMARY_SURFACE_RECORD_STRIDE);
 
-    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold output=%dx%d vectorFormat=RGBA16_FLOAT/u39 rrVectorFormat=RG16_FLOAT/u78 vectorBytes=%llu maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=debug-and-rr\n",
+    common->Printf("PathTraceFrameResources: RT motion-vector export scaffold render=%dx%d output=%dx%d vectorFormat=RGBA16_FLOAT/u39 rrVectorFormat=RG16_FLOAT/u78 vectorBytes=%llu maskFormat=R32_UINT maskBytes=%llu maskUav=u40 consumer=debug-and-rr\n",
         requestedWidth,
         requestedHeight,
+        requestedOutputWidth,
+        requestedOutputHeight,
         static_cast<unsigned long long>(diagnostics.motionVectorBytes),
         static_cast<unsigned long long>(diagnostics.motionVectorMaskBytes));
 
-    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 resetMask=R32_UINT/u52 specularAlbedo=RGBA16_FLOAT/u53 rrInputColor=RGBA32_FLOAT/u54 position=RGBA32_FLOAT/u79 guideBytes=%llu producer=primary-surface-prepass\n",
+    common->Printf("PathTraceFrameResources: RT DLSS RR guide scaffold render=%dx%d output=%dx%d albedo=RGBA16_FLOAT/u48 normalRoughness=RGBA16_FLOAT/u49 depth=R32_FLOAT/u50 hitDistance=R32_FLOAT/u51 resetMask=R32_UINT/u52 specularAlbedo=RGBA16_FLOAT/u53 rrInputColor=RGBA32_FLOAT/u54 position=RGBA32_FLOAT/u79 guideBytes=%llu producer=primary-surface-prepass\n",
         requestedWidth,
         requestedHeight,
+        requestedOutputWidth,
+        requestedOutputHeight,
         static_cast<unsigned long long>(diagnostics.rrGuideBytes));
 
-    common->Printf("PathTraceFrameResources: RT smoke output UAV initialized (%dx%d) reflectionUav=u47 rrInputColorUav=u54 cleanDiBoilingScratch=RGBA32_FLOAT\n", requestedWidth, requestedHeight);
+    common->Printf("PathTraceFrameResources: RT smoke output UAV initialized render=%dx%d output=%dx%d reflectionUav=u47 rrInputColorUav=u54 cleanDiBoilingScratch=RGBA32_FLOAT\n", requestedWidth, requestedHeight, requestedOutputWidth, requestedOutputHeight);
     return true;
 }
 
@@ -600,6 +641,8 @@ void RtPathTraceFrameResources::ResetOutputSizedResources(uint32_t reasonFlags)
     rrInputColorDumpReadbackTexture = nullptr;
     width = 0;
     height = 0;
+    outputWidth = 0;
+    outputHeight = 0;
     smokeReservoirBuffers.Reset();
     restirPTReservoirBuffers.Reset();
     restirPTDiReservoirBuffers.Reset();
@@ -764,10 +807,12 @@ void RtPathTraceFrameResources::PrintDiagnostics(const char* prefix) const
     idStr resetReasons;
     DescribeResetReasons(resetReasons);
 
-    common->Printf("%s: PT frame resources output=%dx%d debugMode=%d checkerboard=%d frame=%u resetReasons=%s valid output/accum/rrInput/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d/%d/%d smokeReservoir=%d restirReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu rrGuides=%llu smokeReservoir=%llu restirReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d buffers smoke(reuse/recreate)=%d/%d restir(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
+    common->Printf("%s: PT frame resources render=%dx%d output=%dx%d debugMode=%d checkerboard=%d frame=%u resetReasons=%s valid output/accum/rrInput/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d/%d/%d smokeReservoir=%d restirReservoir=%d primaryHistory=%d primaryState current/previous/samePixel/reproject/objectMotion=%d/%d/%d/%d/%d bytes output=%llu motion=%llu motionMask=%llu rrGuides=%llu smokeReservoir=%llu restirReservoir=%llu primaryHistory=%llu sceneUpload=%llu recreate output/motion/motionMask/rrGuides/readback=%d/%d/%d/%d/%d buffers smoke(reuse/recreate)=%d/%d restir(reuse/recreate)=%d/%d primaryHistory(reuse/recreate)=%d/%d descriptors=%d blasTlas=%d readback queued/mapped/unmapped=%d/%d/%d waitForIdle=%d reason=%s\n",
         prefix ? prefix : "PathTraceFrameResources",
         width,
         height,
+        outputWidth,
+        outputHeight,
         settings.debugMode,
         static_cast<int>(settings.checkerboardMode),
         settings.frameIndex,

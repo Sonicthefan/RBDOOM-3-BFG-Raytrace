@@ -10,6 +10,11 @@ struct viewDef_t;
 void PathTraceDLSSRRBridge_Init( nvrhi::GraphicsAPI api );
 void PathTraceDLSSRRBridge_AppendVulkanRequirements( DeviceCreationParameters& deviceParams );
 void PathTraceDLSSRRBridge_SetDevice( DeviceManager* deviceManager );
+bool PathTraceDLSSRRBridge_QueryOptimalRenderSize(
+	int outputWidth,
+	int outputHeight,
+	int& renderWidth,
+	int& renderHeight );
 bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ICommandList* commandList,
 	nvrhi::ITexture* inputColor,
@@ -24,8 +29,10 @@ bool PathTraceDLSSRRBridge_Evaluate(
 	nvrhi::ITexture* disocclusionMask,
 	const viewDef_t* viewDef,
 	uint32_t frameIndex,
-	int width,
-	int height,
+	int renderWidth,
+	int renderHeight,
+	int outputWidth,
+	int outputHeight,
 	float jitterOffsetX,
 	float jitterOffsetY,
 	const RtPathTraceFrameCameraState* previousCamera,

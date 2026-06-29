@@ -2523,6 +2523,12 @@ idCVar r_pathTracingDLSSRR(
     CVAR_RENDERER | CVAR_INTEGER,
     "Experimental DLSS Ray Reconstruction evaluation gate for mode 56 primary-prepass output" );
 
+idCVar r_pathTracingDLSSRRMode(
+    "r_pathTracingDLSSRRMode",
+    "0",
+    CVAR_RENDERER | CVAR_INTEGER,
+    "DLSS RR quality mode: 0 = DLAA/native, 1 = Quality, 2 = Balanced, 3 = Performance, 4 = Ultra Performance, 5 = Ultra Quality" );
+
 idCVar r_pathTracingDLSSRRInputDump(
     "r_pathTracingDLSSRRInputDump",
     "0",

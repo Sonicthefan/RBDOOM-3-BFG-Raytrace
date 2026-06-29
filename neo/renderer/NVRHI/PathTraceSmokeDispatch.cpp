@@ -4261,6 +4261,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
                 cleanConstants.frameIndex,
                 m_frameResources.width,
                 m_frameResources.height,
+                m_frameResources.outputWidth,
+                m_frameResources.outputHeight,
                 cleanDlssRrJitterPixels.x,
                 cleanDlssRrJitterPixels.y,
                 cleanRrHistoryReset ? nullptr : &m_frameResources.primarySurfaceHistoryView,
@@ -6798,6 +6800,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
             static_cast<uint32_t>(restirPTFrameIndex),
             m_frameResources.width,
             m_frameResources.height,
+            m_frameResources.outputWidth,
+            m_frameResources.outputHeight,
             dlssRrJitterPixels.x,
             dlssRrJitterPixels.y,
             historyReset ? nullptr : &m_frameResources.primarySurfaceHistoryView,
@@ -6918,8 +6922,8 @@ void PathTracePrimaryPass::ExecuteRayTracingSmokeTest(const viewDef_t* viewDef)
         timingDesc.dispatchSubmitMs = PathTraceMicrosecondsToMilliseconds(dispatchRaysCompleteUs - dispatchRaysStartUs);
         timingDesc.historyCopyMs = PathTraceMicrosecondsToMilliseconds(historyCopyCompleteUs - historyCopyStartUs);
         timingDesc.readbackCopyMs = PathTraceMicrosecondsToMilliseconds(readbackCopyCompleteUs - readbackCopyStartUs);
-        timingDesc.outputWidth = m_frameResources.width;
-        timingDesc.outputHeight = m_frameResources.height;
+        timingDesc.outputWidth = m_frameResources.outputWidth;
+        timingDesc.outputHeight = m_frameResources.outputHeight;
         timingDesc.dispatchWidth = timingDispatchWidth;
         timingDesc.dispatchHeight = timingDispatchHeight;
         timingDesc.debugMode = debugMode;
