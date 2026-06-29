@@ -440,6 +440,13 @@ private:
     std::vector<PathTraceSmokeMaterial> m_smokeMaterialTableMaterials;
     std::vector<PathTraceDynamicMaterialRecord> m_smokeDynamicMaterialRecords;
     std::vector<PathTraceSmokeEmissiveTriangle> m_smokePreviousEmissiveTriangles;
+    std::vector<uint32_t> m_smokeMaterialHydrationIds;
+    bool m_smokeMaterialHydrationIdsValid = false;
+    uint64 m_smokeMaterialHydrationGeometryGeneration = 0;
+    uint64 m_smokeMaterialHydrationStaticGeneration = 0;
+    size_t m_smokeMaterialHydrationStaticTriangleMaterialCount = 0;
+    uint64 m_smokeMaterialHydrationEmissiveSignature = 0;
+    uint64 m_smokeMaterialHydrationRigidSignature = 0;
     uint64 m_smokePreviousStaticSnapshotUploadSignature = 0;
     uint64 m_smokeStaticTriangleMaterialUploadSignature = 0;
     uint64 m_smokeStaticTriangleMaterialIndexUploadSignature = 0;

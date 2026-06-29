@@ -1828,6 +1828,16 @@ const std::vector<uint32_t>& RtSmokeGeometryUniverse::PreviousStaticTriangleMate
     return m_previousStaticTriangleMaterialCache;
 }
 
+uint64 RtSmokeGeometryUniverse::Generation() const
+{
+    return m_generation;
+}
+
+uint64 RtSmokeGeometryUniverse::StaticMaterialGeneration() const
+{
+    return m_staticMaterialGeneration;
+}
+
 RtSmokeGeometryUniverseStats RtSmokeGeometryUniverse::GetStats(bool validateRecords) const
 {
     RtSmokeGeometryUniverseStats stats;

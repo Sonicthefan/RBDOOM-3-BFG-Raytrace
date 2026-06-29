@@ -650,6 +650,8 @@ public:
     const std::vector<uint32_t>& PreviousStaticTriangleClasses() const;
     const std::vector<uint32_t>& PreviousStaticTriangleMaterials() const;
 
+    uint64 Generation() const;
+    uint64 StaticMaterialGeneration() const;
     RtSmokeGeometryUniverseStats GetStats(bool validateRecords) const;
     void LogStaticValidationFailures(int maxRecords) const;
     void LogStaticRangeHistory(int maxRecords) const;
