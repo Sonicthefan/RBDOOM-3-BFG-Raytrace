@@ -1801,6 +1801,8 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
         {
             OPTICK_EVENT("PT Material Metadata Cached Refresh Subset");
             bool refreshSubsetValid = true;
+            std::vector<uint32_t> nextRefreshMaterialIds;
+            nextRefreshMaterialIds.reserve(g_smokeMaterialHydrationSetCache.refreshMaterialIds.size());
             for (uint32_t materialId : g_smokeMaterialHydrationSetCache.refreshMaterialIds)
             {
                 if (materialId == 0u)
@@ -1824,10 +1826,15 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
                 {
                     ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshSkips;
                 }
+                if (!SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing))
+                {
+                    nextRefreshMaterialIds.push_back(materialId);
+                }
             }
             if (refreshSubsetValid)
             {
                 g_smokeMaterialHydrationSetCache.signature = ComputeSmokeMaterialHydrationSetSignature(materialIds);
+                g_smokeMaterialHydrationSetCache.refreshMaterialIds = nextRefreshMaterialIds;
                 timing.metadataMs = Sys_Milliseconds() - metadataStartMs;
                 DumpSmokeMaterialResidencyStatsIfNeeded();
                 return timing;
@@ -1854,10 +1861,6 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             ++g_smokeMaterialMetadataFrameStats.idHydrationCacheHits;
             const bool skipRefresh = SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing);
             const bool refreshed = skipRefresh ? false : RefreshSmokeMaterialTextureHandleState(*existing);
-            if (!skipRefresh)
-            {
-                refreshMaterialIds.push_back(materialId);
-            }
             if (refreshed || SmokeMaterialTextureInfoNeedsHydrationRefresh(*existing))
             {
                 ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshes;
@@ -1865,6 +1868,10 @@ RtSmokeMaterialMetadataRegistrationTiming RegisterSmokeMaterialTextureInfoForMat
             else
             {
                 ++g_smokeMaterialMetadataFrameStats.idHydrationRefreshSkips;
+            }
+            if (!SmokeMaterialTextureInfoCanSkipStaticHydrationRefresh(*existing))
+            {
+                refreshMaterialIds.push_back(materialId);
             }
             continue;
         }
