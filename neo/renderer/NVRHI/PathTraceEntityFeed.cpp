@@ -786,10 +786,26 @@ std::vector<EntityFeedRigidCandidate> ProcessEntityFeedCapturedRigidSurfaces(
     return candidates;
 }
 
+struct EntityFeedReachableAreaSet
+{
+    std::vector<bool> reachableAreas;
+    std::vector<int> areaDepth;
+};
+
+int EntityFeedAreaDepth(const std::vector<int>& areaDepth, int areaIndex)
+{
+    if (areaIndex < 0 || areaIndex >= static_cast<int>(areaDepth.size()))
+    {
+        return -1;
+    }
+    return areaDepth[areaIndex];
+}
+
 std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
     const viewDef_t* viewDef,
     idRenderWorldLocal* renderWorld,
     const std::vector<bool>& reachableAreas,
+    const std::vector<int>& areaDepth,
     const EntityFeedVisibleDrawSurfMap& visibleDrawSurfs,
     const idVec3& viewOrigin,
     int rigidRouteMaxInstances,
@@ -835,9 +851,50 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             continue;
         }
 
+        const bool beyondViewArea = EntityFeedAreaDepth(areaDepth, areaIndex) > 0;
+        if (beyondViewArea)
+        {
+            ++stats.residencyBeyondViewAreas;
+        }
+        else
+        {
+            ++stats.residencyPlayerAreaAreas;
+        }
+        const auto AddVisitedSurface = [&]() {
+            ++stats.residencyVisited;
+            if (beyondViewArea)
+            {
+                ++stats.residencyBeyondViewVisited;
+            }
+            else
+            {
+                ++stats.residencyPlayerAreaVisited;
+            }
+        };
+        const auto AddDerivedSurface = [&]() {
+            ++stats.residencyDerived;
+            if (beyondViewArea)
+            {
+                ++stats.residencyBeyondViewDerived;
+            }
+            else
+            {
+                ++stats.residencyPlayerAreaDerived;
+            }
+        };
+        const int areaVisitStartMs = Sys_Milliseconds();
+        OPTICK_EVENT_DYNAMIC(beyondViewArea ? "PT EntityFeed Visit BeyondView" : "PT EntityFeed Visit PlayerArea");
         portalArea_t* area = &renderWorld->portalAreas[areaIndex];
         for (areaReference_t* ref = area->entityRefs.areaNext; ref != &area->entityRefs; ref = ref->areaNext)
         {
+            if (beyondViewArea)
+            {
+                ++stats.residencyBeyondViewRefs;
+            }
+            else
+            {
+                ++stats.residencyPlayerAreaRefs;
+            }
             idRenderEntityLocal* entity = ref ? ref->entity : nullptr;
             idRenderModel* model = entity ? entity->parms.hModel : nullptr;
             if (!entity || !model)
@@ -870,7 +927,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
             }
             for (int surfaceIndex = 0; surfaceIndex < model->NumSurfaces(); ++surfaceIndex)
             {
-                ++stats.residencyVisited;
+                AddVisitedSurface();
                 EntityFeedResidentSurfaceKey residentKey;
                 RtEntityFeedResidentSurface* residentRecord = nullptr;
                 if (residentEntitySlot)
@@ -902,7 +959,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 else
                 {
                     ++stats.residencyCacheMisses;
-                    ++stats.residencyDerived;
+                    AddDerivedSurface();
                     {
                         OPTICK_EVENT("PT EntityFeed Capture Material Remap");
                         material = R_RemapShaderBySkin(surfaceMaterial, renderEntity.customSkin, renderEntity.customShader);
@@ -1045,7 +1102,7 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 if (residentBaseHit)
                 {
                     ++stats.residencyCacheMisses;
-                    ++stats.residencyDerived;
+                    AddDerivedSurface();
                 }
 
                 uint32_t baseMaterialId = 0;
@@ -1170,6 +1227,15 @@ std::vector<EntityFeedCapturedRigidSurface> CaptureEntityFeedRigidSurfaces(
                 }
             }
         }
+        const int areaVisitMs = Sys_Milliseconds() - areaVisitStartMs;
+        if (beyondViewArea)
+        {
+            stats.residencyBeyondViewVisitMs += areaVisitMs;
+        }
+        else
+        {
+            stats.residencyPlayerAreaVisitMs += areaVisitMs;
+        }
     }
 
     if (residentStore && r_pathTracingResidencyDump.GetInteger() != 0)
@@ -1224,28 +1290,40 @@ void DumpEntityFeedResidencyStatsIfNeeded(const RtPathTraceEntityFeedStats& s)
     }
     lastDumpFrame = s.frameIndex;
     common->Printf(
-        "PathTracePrimaryPass: RES entityFeed visited=%d derived=%d hits=%d misses=%d residents=%d evicted=%d\n",
+        "PathTracePrimaryPass: RES entityFeed visited=%d derived=%d hits=%d misses=%d residents=%d evicted=%d player(areas/refs/visited/derived/ms)=%d/%d/%d/%d/%d beyond(areas/refs/visited/derived/ms)=%d/%d/%d/%d/%d\n",
         s.residencyVisited,
         s.residencyDerived,
         s.residencyCacheHits,
         s.residencyCacheMisses,
         s.residencyResidentRecords,
-        s.residencyEvictedRecords);
+        s.residencyEvictedRecords,
+        s.residencyPlayerAreaAreas,
+        s.residencyPlayerAreaRefs,
+        s.residencyPlayerAreaVisited,
+        s.residencyPlayerAreaDerived,
+        s.residencyPlayerAreaVisitMs,
+        s.residencyBeyondViewAreas,
+        s.residencyBeyondViewRefs,
+        s.residencyBeyondViewVisited,
+        s.residencyBeyondViewDerived,
+        s.residencyBeyondViewVisitMs);
 }
 
-std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int maxDepth, float maxDistance)
+namespace {
+
+EntityFeedReachableAreaSet BuildEntityFeedReachableAreaSet(const viewDef_t* viewDef, int maxDepth, float maxDistance)
 {
-    std::vector<bool> reachableAreas;
+    EntityFeedReachableAreaSet result;
     idRenderWorldLocal* renderWorld = viewDef ? viewDef->renderWorld : nullptr;
     if (!renderWorld)
     {
-        return reachableAreas;
+        return result;
     }
 
     const int areaCount = renderWorld->NumAreas();
     if (areaCount <= 0)
     {
-        return reachableAreas;
+        return result;
     }
 
     int seedArea = renderWorld->PointInArea(viewDef->renderView.vieworg);
@@ -1255,24 +1333,24 @@ std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int ma
     }
     if (seedArea < 0 || seedArea >= areaCount)
     {
-        return reachableAreas;
+        return result;
     }
 
     maxDepth = idMath::ClampInt(0, 128, maxDepth);
-    reachableAreas.assign(areaCount, false);
-    std::vector<int> areaDepth(areaCount, -1);
+    result.reachableAreas.assign(areaCount, false);
+    result.areaDepth.assign(areaCount, -1);
     std::vector<int> queue;
     queue.reserve(areaCount);
 
-    reachableAreas[seedArea] = true;
-    areaDepth[seedArea] = 0;
+    result.reachableAreas[seedArea] = true;
+    result.areaDepth[seedArea] = 0;
     queue.push_back(seedArea);
 
     const idVec3& viewOrigin = viewDef->renderView.vieworg;
     for (size_t queueIndex = 0; queueIndex < queue.size(); ++queueIndex)
     {
         const int area = queue[queueIndex];
-        const int depth = areaDepth[area];
+        const int depth = result.areaDepth[area];
         if (depth >= maxDepth)
         {
             continue;
@@ -1291,7 +1369,7 @@ std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int ma
             {
                 nextArea = portal.areas[0];
             }
-            if (nextArea < 0 || nextArea >= areaCount || reachableAreas[nextArea])
+            if (nextArea < 0 || nextArea >= areaCount || result.reachableAreas[nextArea])
             {
                 continue;
             }
@@ -1310,13 +1388,20 @@ std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int ma
                 }
             }
 
-            reachableAreas[nextArea] = true;
-            areaDepth[nextArea] = depth + 1;
+            result.reachableAreas[nextArea] = true;
+            result.areaDepth[nextArea] = depth + 1;
             queue.push_back(nextArea);
         }
     }
 
-    return reachableAreas;
+    return result;
+}
+
+}
+
+std::vector<bool> BuildEntityFeedReachableAreas(const viewDef_t* viewDef, int maxDepth, float maxDistance)
+{
+    return BuildEntityFeedReachableAreaSet(viewDef, maxDepth, maxDistance).reachableAreas;
 }
 
 void DumpEntityFeedSingleBoneDiagnostics(const viewDef_t* viewDef)
@@ -1519,15 +1604,15 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
         return;
     }
 
-    std::vector<bool> reachableAreas;
+    EntityFeedReachableAreaSet reachableAreaSet;
     {
         OPTICK_EVENT("PT EntityFeed Reachable Areas");
-        reachableAreas = BuildEntityFeedReachableAreas(
+        reachableAreaSet = BuildEntityFeedReachableAreaSet(
             viewDef,
             r_pathTracingEntityFeedMaxDepth.GetInteger(),
             r_pathTracingEntityFeedMaxDistance.GetFloat());
     }
-    if (reachableAreas.empty())
+    if (reachableAreaSet.reachableAreas.empty())
     {
         return;
     }
@@ -1549,7 +1634,8 @@ void ProduceEntityFeedRigidEntities(const viewDef_t* viewDef, RtSmokeGeometryUni
     const std::vector<EntityFeedCapturedRigidSurface> capturedSurfaces = CaptureEntityFeedRigidSurfaces(
         viewDef,
         renderWorld,
-        reachableAreas,
+        reachableAreaSet.reachableAreas,
+        reachableAreaSet.areaDepth,
         visibleDrawSurfs,
         viewOrigin,
         rigidRouteMaxInstances,

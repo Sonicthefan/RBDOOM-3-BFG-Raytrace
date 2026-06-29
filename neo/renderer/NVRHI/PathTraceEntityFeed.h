@@ -24,6 +24,16 @@ struct RtPathTraceEntityFeedStats
     int residencyCacheMisses = 0;
     int residencyResidentRecords = 0;
     int residencyEvictedRecords = 0;
+    int residencyPlayerAreaAreas = 0;
+    int residencyBeyondViewAreas = 0;
+    int residencyPlayerAreaRefs = 0;
+    int residencyBeyondViewRefs = 0;
+    int residencyPlayerAreaVisited = 0;
+    int residencyBeyondViewVisited = 0;
+    int residencyPlayerAreaDerived = 0;
+    int residencyBeyondViewDerived = 0;
+    int residencyPlayerAreaVisitMs = 0;
+    int residencyBeyondViewVisitMs = 0;
 };
 
 void DumpEntityFeedStats(const RtPathTraceEntityFeedStats& s);
