@@ -1260,34 +1260,58 @@ Denoise/upscale/Ray Reconstruction reservation:
   depth, motion vectors, hit distance, diffuse/specular separation, exposure,
   and history reset reasons. Primary-surface history already reserves several
   material/motion fields, but camera-only reprojection is not enough for DLSS/RR.
-- The first DLSS RR bridge scaffold is now explicit: the standalone
-  primary-surface producer exports full-resolution guide UAVs for albedo
-  (`u48`), normal+roughness (`u49`), depth (`u50`), hit distance (`u51`), and
-  specular albedo/F0 (`u53`). It also exports a conservative reset/debug mask
-  (`u52`). The standalone combined resolve writes raw scene-referred linear HDR
-  RR input color to `PathTraceRRInputColor` (`u54`); `SmokeOutput` remains the
-  tonemapped mode-56 preview/debug image. Motion vectors and the validity mask
-  remain `u39/u40`. See `docs/ReSTIR/dlss_rr_bridge_plan.txt`.
-- `r_pathTracingMotionVectorExport` defaults to 1, so the standalone primary-surface
-  producer also writes the bridge motion-vector/mask outputs from static
-  previous snapshots, retained skinned previous positions, and continuous rigid
-  previous transforms, so the primary-prepass mode-56 path does not depend on
-  the monolithic shader for `u39/u40`. The reset mask is written regardless of
-  that CVar so history validity can be debugged independently.
-- With `r_pathTracingDLSSRR 1`, mode 56 forces motion-vector export for the RR
-  evaluation frame. A u53 disocclusion-guide experiment was backed out after
-  the raw mode-56 path regressed; u53 is now reserved for the material-only
-  specular-albedo/F0 guide. u54 is reserved for the RR input color and should
-  stay raw linear HDR, not preview-tonemapped or clamped SDR.
-- `r_pathTracingDLSSRRProbe` defaults to 1 and initializes the experimental
-  Streamline DLSS/RR bridge at renderer startup, then reports SDK feature
-  support. Set it to 0 before startup only when isolating startup or platform
-  problems in the RR bridge.
-- `r_pathTracingDLSSRRColorBuffersHDR` defaults to 1 because the current
-  Streamline/NGX RR path rejects the SDR-tagged option with `eErrorNGXFailed`.
-  `r_pathTracingDLSSRRPreExposure`, `r_pathTracingDLSSRRExposureScale`, and
-  `r_pathTracingDLSSRRSharpness` expose the corresponding Streamline RR options
-  for diagnostic tuning.
+- The DLSS Ray Reconstruction path now has a real render/output extent split.
+  `PathTraceDLSSRRBridge_QueryOptimalRenderSize()` treats the game/display
+  size as the final output size and calls `slDLSSDGetOptimalSettings()` for the
+  internal render size when the selected mode upscales. For a 3840x2160 display
+  with `r_pathTracingDLSSRRMode 3` (Performance), the render extent is typically
+  1920x1080 while Streamline `DLSSDOptions.outputWidth/outputHeight` remain
+  3840x2160. Do not set Streamline output dimensions to the internal render
+  size; in Streamline they mean final target size.
+- `r_pathTracingDLSSRRMode 0` is DLAA/native and does not request an upscaled
+  internal size, so render and output extents stay equal. Modes 1-5 query the
+  SDK optimal render size, resize PT frame resources, and reset PT/RR histories
+  on the size change.
+- Render-sized PT resources: primary ray dispatch, ReSTIR reservoirs,
+  primary-surface history, `PathTraceRRInputColor`, clean DI boiling scratch,
+  reflection preview, motion vectors, motion-vector mask, RR motion vectors,
+  RR guides, RR depth, RR hit distance, RR reset/disocclusion mask, RR position,
+  and the RR input EXR readback. Output-sized resources: `PathTraceSmokeOutput`,
+  `PathTraceSmokeAccumulation`, final readback/presentation, and post-RR
+  tonemap/display consumers.
+- The RR guide scaffold is explicit. The primary-surface producer exports
+  albedo (`u48`), normal+roughness (`u49`), depth (`u50`), hit distance (`u51`),
+  reset/disocclusion mask (`u52`), specular albedo/F0 (`u53`), raw RR input HDR
+  color (`u54`), RR motion vectors (`u78`), and RR position (`u79`). Legacy
+  motion vector and validity-mask outputs remain `u39/u40`. `u54` must remain
+  raw scene-referred linear HDR, not preview-tonemapped or clamped SDR.
+- Streamline tagging uses the render extent for scaling input color, albedo,
+  specular albedo, normal/roughness, optional position, depth, motion vectors,
+  specular hit distance, and optional disocclusion mask. Only
+  `kBufferTypeScalingOutputColor` uses the final output extent.
+- The clean RTXDI DI path evaluates DLSS RR when the clean spatial route is
+  active, `r_pathTracingCleanRtxdiDiView` is 12 or 16, `r_pathTracingDLSSRR 1`,
+  and `r_pathTracingDLSSRRGuideDebugView 0`. It passes RR input color,
+  accumulation/output, albedo, specular albedo, normal/roughness, position,
+  finite-far depth, RR motion vectors, and hit distance to Streamline. The
+  mode-56 combined primary-prepass route can also evaluate RR and copies the
+  RR accumulation result back into `PathTraceSmokeOutput` on success.
+- RR depth uses the finite-far idTech4 override documented in
+  `docs/idtech4_dlssrr_depth.md`: `r_pathTracingDLSSRRDepthMode 2`,
+  `r_pathTracingDLSSRRCameraNear 0.2`, `r_pathTracingDLSSRRCameraFar 2048`,
+  `depthInverted = 0`. Mode 2 tags hyperbolic hardware depth as
+  `kBufferTypeDepth`, which is the form that matched reference DLSS-RR depth
+  overlays. Linear depth modes remain diagnostic.
+- RR history reset must be sparse. The clean path resets for forced reset,
+  missing/invalid primary-surface history, primary-surface history clear, output
+  resize, backbuffer resize, or full scene-resource reset. It intentionally does
+  not reset on ordinary reservoir-scene or dispatch-signature churn, because
+  that caused motion boiling by wiping RR history continuously.
+- `r_pathTracingMotionVectorExport` defaults to 1, so the primary-surface
+  producer writes bridge motion-vector/mask outputs from static previous
+  snapshots, retained skinned previous positions, and continuous rigid previous
+  transforms. The reset mask is written regardless of that CVar so history
+  validity can be debugged independently.
 - Mode 56 primary-prepass/RR-guide export builds the skinned previous-position
   scaffold when needed even if `r_pathTracingGpuSkinning` is `0`; that CVar
   still controls the diagnostic GPU skinning compute path.
@@ -1311,12 +1335,67 @@ Denoise/upscale/Ray Reconstruction reservation:
 - `r_pathTracingDLSSRRGuideDebugView` inspects the current guide buffers in
   mode 56 through the standalone resolve: 0 off, 1 albedo, 2 normal, 3
   roughness, 4 depth, 5 hit distance, 6 motion-vector mask/source category, 7
-  reset/disocclusion mask, 8 specular albedo/F0, 9 RR input HDR preview.
+  reset/disocclusion mask, 8 specular albedo/F0, 9 RR input HDR preview, and 10
+  RR motion vector.
 - The clean RTXDI DI path has its own in-game guide checks that do not depend on
   the DLSSRR debug overlay: `r_pathTracingCleanRtxdiDiView 19` displays the
   clean RR guide albedo full-screen, and `r_pathTracingCleanRtxdiDiView 20`
   displays the clean RR guide specular albedo/F0 full-screen. Both views run
   the same clean view-16 producer first, then display the guide texture.
+- Current DLSS/RR CVar reference:
+  - `r_pathTracingDLSSRRProbe` default `1`: initialize the experimental
+    Streamline DLSS/RR bridge at renderer startup and print feature support.
+    Set to `0` before startup only when isolating startup/platform problems.
+  - `r_pathTracingDLSSRR` default `0`: evaluate DLSS Ray Reconstruction on
+    supported PT/RR routes.
+  - `r_pathTracingDLSSRRMode` default `0`: `0` DLAA/native, `1` Quality,
+    `2` Balanced, `3` Performance, `4` Ultra Performance, `5` Ultra Quality.
+  - `r_pathTracingDLSSRRInputDump` default `0`: one-shot HDR EXR dump of the
+    next RR input color under `screenshots/dlssrr_input_*.exr`.
+  - `r_pathTracingDLSSRRColorBuffersHDR` default `1`: sets Streamline
+    `colorBuffersHDR`; keep on because the current NGX RR path rejects SDR
+    tagged color buffers.
+  - `r_pathTracingDLSSRRPreExposure` default `1.0`: Streamline `preExposure`.
+    Keep `1.0` unless the RR input color has already been pre-exposed.
+  - `r_pathTracingDLSSRRExposureScale` default `1.0`: Streamline
+    `exposureScale`; diagnostic only, not the final PT exposure path.
+  - `r_pathTracingDLSSRRForceReset` default `0`: force RR history reset every
+    evaluated frame for isolation testing.
+  - `r_pathTracingDLSSRRCameraNear` default `0.2`: finite RR depth frustum near
+    plane in world units; `<= 0` uses `r_znear`.
+  - `r_pathTracingDLSSRRCameraFar` default `2048`: finite RR depth frustum far
+    plane in world units; `<= near` falls back to `100000`.
+  - `r_pathTracingDLSSRRDepthMode` default `2`: `2` hyperbolic hardware depth
+    tagged `kBufferTypeDepth`; `0` normalized linear view-Z `[0,1]`; `1` raw
+    linear view-Z. Modes `0/1` are tagged `kBufferTypeLinearDepth`.
+  - `r_pathTracingDLSSRRReverseZ` default `1`: legacy diagnostic CVar. The
+    current evaluated RR bridge uses forward finite-far depth with
+    `depthInverted = 0`, so this CVar is not consulted by the validated path.
+  - `r_pathTracingDLSSRRMotionVectorScaleX` and
+    `r_pathTracingDLSSRRMotionVectorScaleY` default `1.0`: diagnostic
+    Streamline motion-vector scale multipliers. Use `-1` to test sign
+    convention or `0` to remove that axis.
+  - `r_pathTracingDLSSRRClipHistory` default `1`: sends
+    `clipToPrevClip`/`prevClipToClip`; `0` sends identity matrices while keeping
+    RR history active.
+  - `r_pathTracingDLSSRRJitterScaleX` and
+    `r_pathTracingDLSSRRJitterScaleY` default `1.0`: scales the jitter offset
+    reported to Streamline only; primary rays are unchanged.
+  - `r_pathTracingDLSSRRSharpness` default `0.0`: Streamline RR sharpness,
+    clamped `0..1`.
+  - `r_pathTracingDLSSRRDenoiserPreset` default `4`: `0` SDK default,
+    `4` preset D/default transformer, `5` preset E/latest transformer.
+  - `r_pathTracingDLSSRRGuideDebugView` default `0`: mode-56 RR guide debug
+    view; values are listed above.
+  - `r_pathTracingDLSSRRVerbose` default `0`: `1` prints one-time contract,
+    resource-tag, history-reset, warning, and error messages; `2` also prints
+    per-frame evaluate lines and Streamline info messages.
+- Useful validation setup for 4K Performance testing:
+  `r_pathTracingDLSSRR 1`, `r_pathTracingDLSSRRMode 3`,
+  `r_pathTracingDLSSRRVerbose 1`, then confirm the log prints
+  `render=1920x1080 output=3840x2160` or another SDK-selected internal size,
+  the tag extent matches the render size, and the output extent matches the
+  display size.
 - Do not integrate DLSS/RR or a final denoiser against camera-only motion. The
   geometry universe must provide current/previous transforms or vertex data for
   surfaces whose history is reused.
